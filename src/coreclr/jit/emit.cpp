@@ -3111,14 +3111,14 @@ void Encoder::OutputRoData(uint8_t* dst)
 
             switch (data.type)
             {
-                case TYP_FLOAT:
-                    printf(" ; %.9gf", *static_cast<float*>(data.GetData()));
-                    break;
-                case TYP_DOUBLE:
-                    printf(" ; %.17g", *static_cast<double*>(data.GetData()));
-                    break;
-                default:
-                    break;
+            case TYP_FLOAT:
+                printf(" ; %.9gf", *static_cast<float*>(data.GetData()));
+                break;
+            case TYP_DOUBLE:
+                printf(" ; %.17g", *static_cast<double*>(data.GetData()));
+                break;
+            default:
+                break;
             }
 
             printf("\n");
@@ -3251,43 +3251,43 @@ void Encoder::PrintRoData() const
 
             switch (elemSize)
             {
-                case 1:
-                    printf("\tdb\t");
-                    for (unsigned j = 0; j < 16 && offset < data.size; j++, offset++)
-                    {
-                        printf("%s%02Xh", j ? ", " : "", reinterpret_cast<uint8_t&>(bytes[offset]));
-                    }
-                    break;
-                case 2:
-                    assert(data.size % 2 == 0);
-                    printf("\tdw\t");
-                    for (unsigned j = 0; j < 12 && offset < data.size; j++, offset += 2)
-                    {
-                        printf("%s%04Xh", j ? ", " : "", reinterpret_cast<uint16_t&>(bytes[offset]));
-                    }
-                    break;
-                case 12:
-                case 4:
-                    assert(data.size % 4 == 0);
-                    printf("\tdd\t");
-                    for (unsigned j = 0; j < 6 && offset < data.size; j++, offset += 4)
-                    {
-                        printf("%s%08Xh", j ? ", " : "", reinterpret_cast<uint32_t&>(bytes[offset]));
-                    }
-                    break;
-                case 32:
-                case 16:
-                case 8:
-                    assert(data.size % 8 == 0);
-                    printf("\tdq\t");
-                    for (unsigned j = 0; j < 4 && offset < data.size; j++, offset += 8)
-                    {
-                        printf("%s%016llXh", j ? ", " : "", reinterpret_cast<uint64_t&>(bytes[offset]));
-                    }
-                    break;
-                default:
-                    printf("???");
-                    break;
+            case 1:
+                printf("\tdb\t");
+                for (unsigned j = 0; j < 16 && offset < data.size; j++, offset++)
+                {
+                    printf("%s%02Xh", j ? ", " : "", reinterpret_cast<uint8_t&>(bytes[offset]));
+                }
+                break;
+            case 2:
+                assert(data.size % 2 == 0);
+                printf("\tdw\t");
+                for (unsigned j = 0; j < 12 && offset < data.size; j++, offset += 2)
+                {
+                    printf("%s%04Xh", j ? ", " : "", reinterpret_cast<uint16_t&>(bytes[offset]));
+                }
+                break;
+            case 12:
+            case 4:
+                assert(data.size % 4 == 0);
+                printf("\tdd\t");
+                for (unsigned j = 0; j < 6 && offset < data.size; j++, offset += 4)
+                {
+                    printf("%s%08Xh", j ? ", " : "", reinterpret_cast<uint32_t&>(bytes[offset]));
+                }
+                break;
+            case 32:
+            case 16:
+            case 8:
+                assert(data.size % 8 == 0);
+                printf("\tdq\t");
+                for (unsigned j = 0; j < 4 && offset < data.size; j++, offset += 8)
+                {
+                    printf("%s%016llXh", j ? ", " : "", reinterpret_cast<uint64_t&>(bytes[offset]));
+                }
+                break;
+            default:
+                printf("???");
+                break;
             }
 
             printf("\n");

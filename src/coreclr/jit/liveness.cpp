@@ -340,119 +340,119 @@ void Liveness::PerNodeLiveness(GenTree* tree)
 {
     switch (tree->GetOper())
     {
-        case GT_LCL_LOAD:
-        case GT_LCL_LOAD_FLD:
-            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
-            {
-                state.memoryUse = true;
-                break;
-            }
-
-            MarkUse(tree->AsLclRef());
-            break;
-
-        case GT_LCL_STORE:
-            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
-            {
-                state.memoryDef = true;
-                break;
-            }
-
-            MarkDef(tree->AsLclStore());
-            break;
-
-        case GT_LCL_STORE_FLD:
-            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
-            {
-                state.memoryDef = true;
-                break;
-            }
-
-            MarkDef(tree->AsLclStoreFld());
-            break;
-
-        case GT_LCL_ADDR:
-            assert(tree->AsLclAddr()->GetLcl()->IsAddressExposed());
-            break;
-
-        case GT_IND_LOAD:
-        case GT_IND_LOAD_OBJ:
-        case GT_IND_LOAD_BLK:
-            if (tree->AsIndir()->IsVolatile())
-            {
-                // Treat volatile loads as memory defs, so that subsequent loads can't
-                // see any previous stores, effectively preventing reordering.
-                state.memoryDef = true;
-            }
-
+    case GT_LCL_LOAD:
+    case GT_LCL_LOAD_FLD:
+        if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
+        {
             state.memoryUse = true;
             break;
+        }
 
-        case GT_IND_STORE:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
+        MarkUse(tree->AsLclRef());
+        break;
+
+    case GT_LCL_STORE:
+        if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
+        {
             state.memoryDef = true;
             break;
+        }
 
-        case GT_LOCKADD:
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-        case GT_XCHG:
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
+        MarkDef(tree->AsLclStore());
+        break;
+
+    case GT_LCL_STORE_FLD:
+        if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
+        {
+            state.memoryDef = true;
+            break;
+        }
+
+        MarkDef(tree->AsLclStoreFld());
+        break;
+
+    case GT_LCL_ADDR:
+        assert(tree->AsLclAddr()->GetLcl()->IsAddressExposed());
+        break;
+
+    case GT_IND_LOAD:
+    case GT_IND_LOAD_OBJ:
+    case GT_IND_LOAD_BLK:
+        if (tree->AsIndir()->IsVolatile())
+        {
+            // Treat volatile loads as memory defs, so that subsequent loads can't
+            // see any previous stores, effectively preventing reordering.
+            state.memoryDef = true;
+        }
+
+        state.memoryUse = true;
+        break;
+
+    case GT_IND_STORE:
+    case GT_IND_STORE_OBJ:
+    case GT_IND_STORE_BLK:
+        state.memoryDef = true;
+        break;
+
+    case GT_LOCKADD:
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+    case GT_XCHG:
+    case GT_CMPXCHG:
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        state.memoryUse   = true;
+        state.memoryDef   = true;
+        state.memoryHavoc = true;
+        break;
+
+    case GT_MEMORYBARRIER:
+        state.memoryDef = true;
+        break;
+
+#ifdef FEATURE_HW_INTRINSICS
+    case GT_HWINTRINSIC:
+    {
+        GenTreeHWIntrinsic* hwi = tree->AsHWIntrinsic();
+
+        if (hwi->IsMemoryStore())
+        {
+            state.memoryDef = true;
+        }
+        else if (hwi->IsMemoryLoad())
+        {
+            state.memoryUse = true;
+        }
+        break;
+    }
+#endif
+
+    case GT_CALL:
+    {
+        GenTreeCall* call    = tree->AsCall();
+        bool         modHeap = true;
+
+        if (CorInfoHelpFunc helper = call->IsHelperCall())
+        {
+            if (!HelperCallProperties::MutatesHeap(helper) && !HelperCallProperties::MayRunCctor(helper))
+            {
+                modHeap = false;
+            }
+        }
+
+        if (modHeap)
+        {
             state.memoryUse   = true;
             state.memoryDef   = true;
             state.memoryHavoc = true;
-            break;
-
-        case GT_MEMORYBARRIER:
-            state.memoryDef = true;
-            break;
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwi = tree->AsHWIntrinsic();
-
-            if (hwi->IsMemoryStore())
-            {
-                state.memoryDef = true;
-            }
-            else if (hwi->IsMemoryLoad())
-            {
-                state.memoryUse = true;
-            }
-            break;
         }
-#endif
+        break;
+    }
 
-        case GT_CALL:
-        {
-            GenTreeCall* call    = tree->AsCall();
-            bool         modHeap = true;
-
-            if (CorInfoHelpFunc helper = call->IsHelperCall())
-            {
-                if (!HelperCallProperties::MutatesHeap(helper) && !HelperCallProperties::MayRunCctor(helper))
-                {
-                    modHeap = false;
-                }
-            }
-
-            if (modHeap)
-            {
-                state.memoryUse   = true;
-                state.memoryDef   = true;
-                state.memoryHavoc = true;
-            }
-            break;
-        }
-
-        default:
-            assert(!tree->OperIs(GT_QMARK, GT_PHI));
-            break;
+    default:
+        assert(!tree->OperIs(GT_QMARK, GT_PHI));
+        break;
     }
 }
 
@@ -1007,252 +1007,252 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
 
         switch (node->GetOper())
         {
-            case GT_LCL_LOAD:
-            case GT_LCL_LOAD_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
+        {
+            GenTreeLclRef* load = node->AsLclRef();
+            LclVarDsc*     lcl  = load->GetLcl();
+
+            if (node->IsUnusedValue())
             {
-                GenTreeLclRef* load = node->AsLclRef();
-                LclVarDsc*     lcl  = load->GetLcl();
+                JITDUMPLIRNODE(load, "Removing dead local use:\n");
 
-                if (node->IsUnusedValue())
-                {
-                    JITDUMPLIRNODE(load, "Removing dead local use:\n");
-
-                    blockRange.Delete(compiler, block, node);
-
-                    if (lcl->HasLiveness())
-                    {
-                        useDefRemoved = true;
-                    }
-                }
-                else if (lcl->HasLiveness())
-                {
-                    ComputeLifeTrackedLocalUse(liveOut, lcl, load);
-                }
-                else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
-                {
-                    ComputeLifePromotedLocal(liveOut, keepAlive, lcl, load);
-                }
-                break;
-            }
-
-            case GT_LCL_STORE:
-            case GT_LCL_STORE_FLD:
-            {
-                GenTreeLclRef* store       = node->AsLclRef();
-                LclVarDsc*     lcl         = store->GetLcl();
-                bool           isDeadStore = false;
+                blockRange.Delete(compiler, block, node);
 
                 if (lcl->HasLiveness())
                 {
-                    isDeadStore = ComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, store);
+                    useDefRemoved = true;
                 }
-                else
+            }
+            else if (lcl->HasLiveness())
+            {
+                ComputeLifeTrackedLocalUse(liveOut, lcl, load);
+            }
+            else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
+            {
+                ComputeLifePromotedLocal(liveOut, keepAlive, lcl, load);
+            }
+            break;
+        }
+
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        {
+            GenTreeLclRef* store       = node->AsLclRef();
+            LclVarDsc*     lcl         = store->GetLcl();
+            bool           isDeadStore = false;
+
+            if (lcl->HasLiveness())
+            {
+                isDeadStore = ComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, store);
+            }
+            else
+            {
+                // We have accurate ref counts when running late liveness so we can eliminate
+                // some stores if the local has a ref count of 1. Note that local addresses
+                // also count so a ref count of 1 here implies that the local is not address
+                // taken. It may still be marked as address exposed though - local address
+                // nodes may have been dead and removed earlier.
+
+                // Optimizations have to be enabled, otherwise all locals are implicitly
+                // referenced and have ref count 1.
+                assert(compiler->opts.OptimizationEnabled());
+
+                // TODO-MIKE-Review: Should implicitly referenced locals be excluded here?
+
+                if ((lcl->GetRefCount() == 1) && !lcl->IsPinning())
                 {
-                    // We have accurate ref counts when running late liveness so we can eliminate
-                    // some stores if the local has a ref count of 1. Note that local addresses
-                    // also count so a ref count of 1 here implies that the local is not address
-                    // taken. It may still be marked as address exposed though - local address
-                    // nodes may have been dead and removed earlier.
-
-                    // Optimizations have to be enabled, otherwise all locals are implicitly
-                    // referenced and have ref count 1.
-                    assert(compiler->opts.OptimizationEnabled());
-
-                    // TODO-MIKE-Review: Should implicitly referenced locals be excluded here?
-
-                    if ((lcl->GetRefCount() == 1) && !lcl->IsPinning())
+                    if (lcl->IsPromotedField())
                     {
-                        if (lcl->IsPromotedField())
-                        {
-                            LclVarDsc* parentLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+                        LclVarDsc* parentLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-                            if ((parentLcl->GetRefCount() == 1) && parentLcl->IsDependentPromoted())
-                            {
-                                isDeadStore = true;
-                            }
-                        }
-                        else if (lcl->IsIndependentPromoted())
-                        {
-                            // We may have a dead multi-reg store without any uses of the fields.
-                            unsigned totalRefCount = 0;
-
-                            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
-                            {
-                                totalRefCount += fieldLcl->GetRefCount();
-                            }
-
-                            if (totalRefCount == 0)
-                            {
-                                isDeadStore = true;
-                            }
-                        }
-                        else
+                        if ((parentLcl->GetRefCount() == 1) && parentLcl->IsDependentPromoted())
                         {
                             isDeadStore = true;
                         }
                     }
-
-                    if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
+                    else if (lcl->IsIndependentPromoted())
                     {
-                        isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, store);
-                    }
-                }
+                        // We may have a dead multi-reg store without any uses of the fields.
+                        unsigned totalRefCount = 0;
 
-                if (isDeadStore)
-                {
-                    assert(!compiler->opts.MinOpts());
-
-                    JITDUMPLIRNODE(store, "Removing dead local store:\n");
-
-                    store->GetOp(0)->SetUnusedValue();
-                    blockRange.Unlink(node);
-                    useDefRemoved = true;
-                }
-
-                break;
-            }
-
-            case GT_LCL_ADDR:
-                assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-                FALLTHROUGH;
-            case GT_LABEL:
-            case GT_CNS_INT:
-#ifndef TARGET_64BIT
-            case GT_CNS_LNG:
-#endif
-            case GT_CNS_DBL:
-            case GT_CNS_STR:
-            case GT_CONST_ADDR:
-            case GT_REG_USE:
-                // These are all side-effect-free leaf nodes.
-                if (node->IsUnusedValue())
-                {
-                    JITDUMPLIRNODE(node, "Removing dead node:\n");
-
-                    blockRange.Unlink(node);
-                }
-                break;
-
-            case GT_CALL:
-            {
-                GenTreeCall* const call = node->AsCall();
-
-                if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(false, false))
-                {
-                    JITDUMPLIRNODE(call, "Removing dead call:\n");
-
-                    node->VisitOperands([](GenTree* operand) {
-                        assert(!operand->IsArgStore());
-
-                        if (operand->IsValue())
+                        for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
                         {
-                            operand->SetUnusedValue();
+                            totalRefCount += fieldLcl->GetRefCount();
                         }
 
-                        return GenTree::VisitResult::Continue;
-                    });
-
-                    RemoveDeadCallArgStores(call, block);
-
-                    blockRange.Unlink(call);
-                }
-                break;
-            }
-
-            case GT_IND_LOAD_BLK:
-            case GT_IND_LOAD_OBJ:
-                if (node->IsUnusedValue())
-                {
-                    if (node->HasAnySideEffect(GTF_EXCEPT))
-                    {
-                        // IR doesn't expect dummy uses of IND_LOAD_OBJ/BLK.
-                        JITDUMP("Transform an unused IND_LOAD_OBJ/BLK node [%06u]\n", node->GetID());
-                        Lowering::TransformUnusedIndirection(node->AsIndir());
+                        if (totalRefCount == 0)
+                        {
+                            isDeadStore = true;
+                        }
                     }
                     else
                     {
-                        node->AsIndir()->GetAddr()->SetUnusedValue();
-                        blockRange.Unlink(node);
+                        isDeadStore = true;
                     }
                 }
-                break;
 
-            case GT_LOCKADD:
-            case GT_XORR:
-            case GT_XAND:
-            case GT_XADD:
-            case GT_XCHG:
-            case GT_CMPXCHG:
-            case GT_MEMORYBARRIER:
-            case GT_IND_STORE:
-            case GT_IND_STORE_OBJ:
-            case GT_IND_STORE_BLK:
-            case GT_COPY_BLK:
-            case GT_INIT_BLK:
-            case GT_JMP:
-#ifdef TARGET_ARM64
-            case GT_JCMP:
-#endif
-            case GT_CMP:
-            case GT_JCC:
-            case GT_JTRUE:
-            case GT_RETURN:
-            case GT_SWITCH:
-            case GT_RETFILT:
-            case GT_START_NONGC:
-            case GT_START_PREEMPTGC:
-            case GT_PROF_HOOK:
-#ifndef FEATURE_EH_FUNCLETS
-            case GT_END_LFIN:
-#endif
-            case GT_SWITCH_TABLE:
-            case GT_PINVOKE_PROLOG:
-            case GT_PINVOKE_EPILOG:
-            case GT_RETURNTRAP:
-            case GT_ARG_STORE:
-            case GT_IL_OFFSET:
-            case GT_KEEPALIVE:
-            case GT_BOUNDS_CHECK:
-            case GT_NO_OP:
-                // These nodes cannot be removed, some always have side effects, some are flow
-                // control related and can only be removed by flowgraph updates, some just have
-                // special meaning, like IL_OFFSET.
-                //
-                // TODO-MIKE-Review: Can we get rid of all this and just use the default case
-                // that checks for all sorts of things anyway? Though as is now it will happily
-                // remove a JTRUE. One way or another this looks rather bug prone. It would be
-                // better to have a list of nodes that can be removed so if we miss something
-                // we don't accidentally remove needed stuff.
-                break;
-
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                // TODO-MIKE-Cleanup: Most intrinsics are side effect free, we just need to make
-                // sure they are correctly marked so we don't accidentally remove side effects.
-                // For now just remove the obviously safe one - 0 - it tends to die due to const
-                // propagation.
-                if (!node->IsVecZero())
+                if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    break;
+                    isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, store);
                 }
-                FALLTHROUGH;
+            }
+
+            if (isDeadStore)
+            {
+                assert(!compiler->opts.MinOpts());
+
+                JITDUMPLIRNODE(store, "Removing dead local store:\n");
+
+                store->GetOp(0)->SetUnusedValue();
+                blockRange.Unlink(node);
+                useDefRemoved = true;
+            }
+
+            break;
+        }
+
+        case GT_LCL_ADDR:
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+            FALLTHROUGH;
+        case GT_LABEL:
+        case GT_CNS_INT:
+#ifndef TARGET_64BIT
+        case GT_CNS_LNG:
 #endif
-            default:
-                assert(!node->OperIs(GT_PHI));
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+        case GT_CONST_ADDR:
+        case GT_REG_USE:
+            // These are all side-effect-free leaf nodes.
+            if (node->IsUnusedValue())
+            {
+                JITDUMPLIRNODE(node, "Removing dead node:\n");
 
-                if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
-                    !node->HasAnySideEffect(GTF_EXCEPT))
-                {
-                    JITDUMPLIRNODE(node, "Removing dead node:\n");
+                blockRange.Unlink(node);
+            }
+            break;
 
-                    node->VisitOperands([](GenTree* operand) {
+        case GT_CALL:
+        {
+            GenTreeCall* const call = node->AsCall();
+
+            if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(false, false))
+            {
+                JITDUMPLIRNODE(call, "Removing dead call:\n");
+
+                node->VisitOperands([](GenTree* operand) {
+                    assert(!operand->IsArgStore());
+
+                    if (operand->IsValue())
+                    {
                         operand->SetUnusedValue();
-                        return GenTree::VisitResult::Continue;
-                    });
+                    }
 
+                    return GenTree::VisitResult::Continue;
+                });
+
+                RemoveDeadCallArgStores(call, block);
+
+                blockRange.Unlink(call);
+            }
+            break;
+        }
+
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD_OBJ:
+            if (node->IsUnusedValue())
+            {
+                if (node->HasAnySideEffect(GTF_EXCEPT))
+                {
+                    // IR doesn't expect dummy uses of IND_LOAD_OBJ/BLK.
+                    JITDUMP("Transform an unused IND_LOAD_OBJ/BLK node [%06u]\n", node->GetID());
+                    Lowering::TransformUnusedIndirection(node->AsIndir());
+                }
+                else
+                {
+                    node->AsIndir()->GetAddr()->SetUnusedValue();
                     blockRange.Unlink(node);
                 }
+            }
+            break;
+
+        case GT_LOCKADD:
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XADD:
+        case GT_XCHG:
+        case GT_CMPXCHG:
+        case GT_MEMORYBARRIER:
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+        case GT_JMP:
+#ifdef TARGET_ARM64
+        case GT_JCMP:
+#endif
+        case GT_CMP:
+        case GT_JCC:
+        case GT_JTRUE:
+        case GT_RETURN:
+        case GT_SWITCH:
+        case GT_RETFILT:
+        case GT_START_NONGC:
+        case GT_START_PREEMPTGC:
+        case GT_PROF_HOOK:
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+#endif
+        case GT_SWITCH_TABLE:
+        case GT_PINVOKE_PROLOG:
+        case GT_PINVOKE_EPILOG:
+        case GT_RETURNTRAP:
+        case GT_ARG_STORE:
+        case GT_IL_OFFSET:
+        case GT_KEEPALIVE:
+        case GT_BOUNDS_CHECK:
+        case GT_NO_OP:
+            // These nodes cannot be removed, some always have side effects, some are flow
+            // control related and can only be removed by flowgraph updates, some just have
+            // special meaning, like IL_OFFSET.
+            //
+            // TODO-MIKE-Review: Can we get rid of all this and just use the default case
+            // that checks for all sorts of things anyway? Though as is now it will happily
+            // remove a JTRUE. One way or another this looks rather bug prone. It would be
+            // better to have a list of nodes that can be removed so if we miss something
+            // we don't accidentally remove needed stuff.
+            break;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            // TODO-MIKE-Cleanup: Most intrinsics are side effect free, we just need to make
+            // sure they are correctly marked so we don't accidentally remove side effects.
+            // For now just remove the obviously safe one - 0 - it tends to die due to const
+            // propagation.
+            if (!node->IsVecZero())
+            {
                 break;
+            }
+            FALLTHROUGH;
+#endif
+        default:
+            assert(!node->OperIs(GT_PHI));
+
+            if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
+                !node->HasAnySideEffect(GTF_EXCEPT))
+            {
+                JITDUMPLIRNODE(node, "Removing dead node:\n");
+
+                node->VisitOperands([](GenTree* operand) {
+                    operand->SetUnusedValue();
+                    return GenTree::VisitResult::Continue;
+                });
+
+                blockRange.Unlink(node);
+            }
+            break;
         }
     }
 

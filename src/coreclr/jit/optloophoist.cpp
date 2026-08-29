@@ -1162,58 +1162,58 @@ void Compiler::fgCreateLoopPreHeader(unsigned loopNum)
 
         switch (predBlock->bbJumpKind)
         {
-            case BBJ_NONE:
-                noway_assert(predBlock == head);
+        case BBJ_NONE:
+            noway_assert(predBlock == head);
+            break;
+
+        case BBJ_COND:
+            if (predBlock == head)
+            {
+                noway_assert(predBlock->bbJumpDest != top);
                 break;
+            }
+            FALLTHROUGH;
 
-            case BBJ_COND:
-                if (predBlock == head)
-                {
-                    noway_assert(predBlock->bbJumpDest != top);
-                    break;
-                }
-                FALLTHROUGH;
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+            noway_assert(predBlock->bbJumpDest == top);
+            predBlock->bbJumpDest = preHead;
 
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                noway_assert(predBlock->bbJumpDest == top);
-                predBlock->bbJumpDest = preHead;
+            if (predBlock == head)
+            {
+                // This is essentially the same case of predBlock being a BBJ_NONE. We may not be
+                // able to make this a BBJ_NONE if it's an internal block (for example, a leave).
+                // Just break, pred will be removed after switch.
+            }
+            else
+            {
+                fgRemoveRefPred(top, predBlock);
+                fgAddRefPred(preHead, predBlock);
+            }
+            break;
 
-                if (predBlock == head)
+        case BBJ_SWITCH:
+            unsigned jumpCnt;
+            jumpCnt = predBlock->bbJumpSwt->bbsCount;
+            BasicBlock** jumpTab;
+            jumpTab = predBlock->bbJumpSwt->bbsDstTab;
+
+            do
+            {
+                assert(*jumpTab);
+                if ((*jumpTab) == top)
                 {
-                    // This is essentially the same case of predBlock being a BBJ_NONE. We may not be
-                    // able to make this a BBJ_NONE if it's an internal block (for example, a leave).
-                    // Just break, pred will be removed after switch.
-                }
-                else
-                {
+                    (*jumpTab) = preHead;
+
                     fgRemoveRefPred(top, predBlock);
                     fgAddRefPred(preHead, predBlock);
                 }
-                break;
+            } while (++jumpTab, --jumpCnt);
+            break;
 
-            case BBJ_SWITCH:
-                unsigned jumpCnt;
-                jumpCnt = predBlock->bbJumpSwt->bbsCount;
-                BasicBlock** jumpTab;
-                jumpTab = predBlock->bbJumpSwt->bbsDstTab;
-
-                do
-                {
-                    assert(*jumpTab);
-                    if ((*jumpTab) == top)
-                    {
-                        (*jumpTab) = preHead;
-
-                        fgRemoveRefPred(top, predBlock);
-                        fgAddRefPred(preHead, predBlock);
-                    }
-                } while (++jumpTab, --jumpCnt);
-                break;
-
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+        default:
+            noway_assert(!"Unexpected bbJumpKind");
+            break;
         }
     }
 

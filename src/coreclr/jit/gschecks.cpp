@@ -91,149 +91,149 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
 
     switch (tree->GetOper())
     {
-        case GT_IND_LOAD:
-        case GT_IND_LOAD_BLK:
-        case GT_IND_LOAD_OBJ:
-        {
-            bool wasUnderIndir  = state->isUnderIndir;
-            state->isUnderIndir = true;
-            comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = wasUnderIndir;
+    case GT_IND_LOAD:
+    case GT_IND_LOAD_BLK:
+    case GT_IND_LOAD_OBJ:
+    {
+        bool wasUnderIndir  = state->isUnderIndir;
+        state->isUnderIndir = true;
+        comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, MarkPtrsAndAssignGroups, state);
+        state->isUnderIndir = wasUnderIndir;
 
-            return GenTreeWalkResult::Skip;
+        return GenTreeWalkResult::Skip;
+    }
+    case GT_IND_STORE:
+    case GT_IND_STORE_BLK:
+    case GT_IND_STORE_OBJ:
+    {
+        GenTreeIndir* store = tree->AsIndir();
+        GenTree*      addr  = store->GetAddr();
+        GenTree*      value = store->GetValue();
+
+        bool wasUnderIndir  = state->isUnderIndir;
+        state->isUnderIndir = true;
+        comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
+        state->isUnderIndir = false;
+        comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
+        state->isUnderIndir = wasUnderIndir;
+
+        return GenTreeWalkResult::Skip;
+    }
+    case GT_LCL_LOAD:
+    case GT_LCL_LOAD_FLD:
+    {
+        LclVarDsc* loadLcl = tree->AsLclRef()->GetLcl();
+
+        if (state->isUnderIndir)
+        {
+            loadLcl->lvIsPtr = true;
         }
-        case GT_IND_STORE:
-        case GT_IND_STORE_BLK:
-        case GT_IND_STORE_OBJ:
+
+        if (LclVarDsc* storeLcl = state->storeLcl)
         {
-            GenTreeIndir* store = tree->AsIndir();
-            GenTree*      addr  = store->GetAddr();
-            GenTree*      value = store->GetValue();
-
-            bool wasUnderIndir  = state->isUnderIndir;
-            state->isUnderIndir = true;
-            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = false;
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = wasUnderIndir;
-
-            return GenTreeWalkResult::Skip;
-        }
-        case GT_LCL_LOAD:
-        case GT_LCL_LOAD_FLD:
-        {
-            LclVarDsc* loadLcl = tree->AsLclRef()->GetLcl();
-
-            if (state->isUnderIndir)
+            // Add storeLclNum and loadLclNum to a common assign group
+            if (AssignSet storeSet = storeLcl->gs.assignSet)
             {
-                loadLcl->lvIsPtr = true;
-            }
-
-            if (LclVarDsc* storeLcl = state->storeLcl)
-            {
-                // Add storeLclNum and loadLclNum to a common assign group
-                if (AssignSet storeSet = storeLcl->gs.assignSet)
+                if (AssignSet loadSet = loadLcl->gs.assignSet)
                 {
-                    if (AssignSet loadSet = loadLcl->gs.assignSet)
-                    {
-                        AssignSetOps::UnionD(state->assignSetTraits, storeSet, loadSet);
-                    }
-                    else
-                    {
-                        AssignSetOps::AddElemD(state->assignSetTraits, storeSet, loadLcl->GetLclNum());
-                    }
-
-                    // Point both to the same bit vector
-                    loadLcl->gs.assignSet = storeSet;
-                }
-                else if (AssignSet loadSet = loadLcl->gs.assignSet)
-                {
-                    AssignSetOps::AddElemD(state->assignSetTraits, loadSet, storeLcl->GetLclNum());
-
-                    // Point both to the same bit vector
-                    storeLcl->gs.assignSet = loadSet;
+                    AssignSetOps::UnionD(state->assignSetTraits, storeSet, loadSet);
                 }
                 else
                 {
-                    AssignSet set = AssignSetOps::MakeEmpty(state->assignSetTraits);
-                    AssignSetOps::AddElemD(state->assignSetTraits, set, storeLcl->GetLclNum());
-                    AssignSetOps::AddElemD(state->assignSetTraits, set, loadLcl->GetLclNum());
-
-                    storeLcl->gs.assignSet = set;
-                    loadLcl->gs.assignSet  = set;
+                    AssignSetOps::AddElemD(state->assignSetTraits, storeSet, loadLcl->GetLclNum());
                 }
+
+                // Point both to the same bit vector
+                loadLcl->gs.assignSet = storeSet;
+            }
+            else if (AssignSet loadSet = loadLcl->gs.assignSet)
+            {
+                AssignSetOps::AddElemD(state->assignSetTraits, loadSet, storeLcl->GetLclNum());
+
+                // Point both to the same bit vector
+                storeLcl->gs.assignSet = loadSet;
+            }
+            else
+            {
+                AssignSet set = AssignSetOps::MakeEmpty(state->assignSetTraits);
+                AssignSetOps::AddElemD(state->assignSetTraits, set, storeLcl->GetLclNum());
+                AssignSetOps::AddElemD(state->assignSetTraits, set, loadLcl->GetLclNum());
+
+                storeLcl->gs.assignSet = set;
+                loadLcl->gs.assignSet  = set;
+            }
+        }
+
+        return GenTreeWalkResult::Skip;
+    }
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+    {
+        GenTreeLclRef* store = tree->AsLclRef();
+        GenTree*       value = store->GetOp(0);
+
+        LclVarDsc* prevStoreLcl = state->storeLcl;
+        state->storeLcl         = store->GetLcl();
+        comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
+        state->storeLcl = prevStoreLcl;
+
+        return GenTreeWalkResult::Skip;
+    }
+    case GT_ARR_ELEM:
+    {
+        bool wasUnderIndir  = state->isUnderIndir;
+        state->isUnderIndir = true;
+        for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
+        {
+            comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
+        }
+        state->isUnderIndir = wasUnderIndir;
+
+        return GenTreeWalkResult::Skip;
+    }
+    case GT_CALL:
+    {
+        LclVarDsc* prevStoreLcl  = state->storeLcl;
+        bool       wasUnderIndir = state->isUnderIndir;
+        state->storeLcl          = nullptr;
+
+        GenTreeCall* call = tree->AsCall();
+        // TODO-MIKE-Review: Old code set isUnderIndir for all arguments of instance calls,
+        // isn't it supposed to be set only for the this argument itself?
+        state->isUnderIndir = call->HasThisArg();
+
+        for (GenTreeUse& use : call->Uses())
+        {
+            // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
+            // which this code ignored. Which is probably a bug since a struct can contain
+            // pointers. Needless to say that fixing this will result in regressions due to
+            // extra copying of current method's parameters.
+            if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
+            {
+                continue;
             }
 
-            return GenTreeWalkResult::Skip;
+            comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
         }
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-        {
-            GenTreeLclRef* store = tree->AsLclRef();
-            GenTree*       value = store->GetOp(0);
 
-            LclVarDsc* prevStoreLcl = state->storeLcl;
-            state->storeLcl         = store->GetLcl();
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->storeLcl = prevStoreLcl;
-
-            return GenTreeWalkResult::Skip;
-        }
-        case GT_ARR_ELEM:
+        if (call->GetCallAddr() != nullptr)
         {
-            bool wasUnderIndir  = state->isUnderIndir;
+            // A function pointer is treated like a write-through pointer since
+            // it controls what code gets executed, and so indirectly can cause
+            // a write to memory.
+
             state->isUnderIndir = true;
-            for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
-            {
-                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
-            }
-            state->isUnderIndir = wasUnderIndir;
-
-            return GenTreeWalkResult::Skip;
-        }
-        case GT_CALL:
-        {
-            LclVarDsc* prevStoreLcl  = state->storeLcl;
-            bool       wasUnderIndir = state->isUnderIndir;
-            state->storeLcl          = nullptr;
-
-            GenTreeCall* call = tree->AsCall();
-            // TODO-MIKE-Review: Old code set isUnderIndir for all arguments of instance calls,
-            // isn't it supposed to be set only for the this argument itself?
-            state->isUnderIndir = call->HasThisArg();
-
-            for (GenTreeUse& use : call->Uses())
-            {
-                // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
-                // which this code ignored. Which is probably a bug since a struct can contain
-                // pointers. Needless to say that fixing this will result in regressions due to
-                // extra copying of current method's parameters.
-                if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
-                {
-                    continue;
-                }
-
-                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
-            }
-
-            if (call->GetCallAddr() != nullptr)
-            {
-                // A function pointer is treated like a write-through pointer since
-                // it controls what code gets executed, and so indirectly can cause
-                // a write to memory.
-
-                state->isUnderIndir = true;
-                comp->fgWalkTreePre(&call->m_callAddr, MarkPtrsAndAssignGroups, state);
-            }
-
-            state->storeLcl     = prevStoreLcl;
-            state->isUnderIndir = wasUnderIndir;
-
-            return GenTreeWalkResult::Skip;
+            comp->fgWalkTreePre(&call->m_callAddr, MarkPtrsAndAssignGroups, state);
         }
 
-        default:
-            return GenTreeWalkResult::Continue;
+        state->storeLcl     = prevStoreLcl;
+        state->isUnderIndir = wasUnderIndir;
+
+        return GenTreeWalkResult::Skip;
+    }
+
+    default:
+        return GenTreeWalkResult::Continue;
     }
 }
 

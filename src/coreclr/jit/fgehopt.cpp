@@ -2006,40 +2006,40 @@ PhaseStatus Compiler::phTailMergeThrows()
 
             switch (predBlock->GetKind())
             {
-                case BBJ_NONE:
+            case BBJ_NONE:
+                fgTailMergeThrowsFallThroughHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
+                updated = true;
+                break;
+
+            case BBJ_ALWAYS:
+                fgTailMergeThrowsJumpToHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
+                updated = true;
+                break;
+
+            case BBJ_COND:
+                // Flow to non canonical block could be via fall through or jump or both.
+                if (predBlock->bbNext == nonCanonicalBlock)
+                {
                     fgTailMergeThrowsFallThroughHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
-                    updated = true;
-                    break;
+                }
 
-                case BBJ_ALWAYS:
+                if (predBlock->bbJumpDest == nonCanonicalBlock)
+                {
                     fgTailMergeThrowsJumpToHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
-                    updated = true;
-                    break;
+                }
+                updated = true;
+                break;
 
-                case BBJ_COND:
-                    // Flow to non canonical block could be via fall through or jump or both.
-                    if (predBlock->bbNext == nonCanonicalBlock)
-                    {
-                        fgTailMergeThrowsFallThroughHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
-                    }
+            case BBJ_SWITCH:
+                JITDUMP("*** " FMT_BB " now branching to " FMT_BB "\n", predBlock->bbNum, canonicalBlock->bbNum);
+                fgReplaceSwitchJumpTarget(predBlock, canonicalBlock, nonCanonicalBlock);
+                updated = true;
+                break;
 
-                    if (predBlock->bbJumpDest == nonCanonicalBlock)
-                    {
-                        fgTailMergeThrowsJumpToHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
-                    }
-                    updated = true;
-                    break;
-
-                case BBJ_SWITCH:
-                    JITDUMP("*** " FMT_BB " now branching to " FMT_BB "\n", predBlock->bbNum, canonicalBlock->bbNum);
-                    fgReplaceSwitchJumpTarget(predBlock, canonicalBlock, nonCanonicalBlock);
-                    updated = true;
-                    break;
-
-                default:
-                    // We don't expect other kinds of preds, and it is safe to ignore them
-                    // as flow is still correct, just not as optimized as it could be.
-                    break;
+            default:
+                // We don't expect other kinds of preds, and it is safe to ignore them
+                // as flow is still correct, just not as optimized as it could be.
+                break;
             }
         }
 

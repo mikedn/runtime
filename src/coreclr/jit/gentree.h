@@ -345,16 +345,16 @@ inline HandleKind TokenToHandleKind(unsigned token)
 {
     switch (TypeFromToken(token))
     {
-        case mdtTypeRef:
-        case mdtTypeDef:
-        case mdtTypeSpec:
-            return HandleKind::Class;
-        case mdtMethodDef:
-            return HandleKind::Method;
-        case mdtFieldDef:
-            return HandleKind::Field;
-        default:
-            return HandleKind::Token;
+    case mdtTypeRef:
+    case mdtTypeDef:
+    case mdtTypeSpec:
+        return HandleKind::Class;
+    case mdtMethodDef:
+        return HandleKind::Method;
+    case mdtFieldDef:
+        return HandleKind::Field;
+    default:
+        return HandleKind::Token;
     }
 }
 
@@ -1333,21 +1333,21 @@ public:
     {
         switch (oper)
         {
-            case GT_ADD:
-            case GT_SUB:
-            case GT_AND:
-            case GT_OR:
-            case GT_XOR:
-            case GT_NOT:
-            case GT_NEG:
-            case GT_LSH:
-            case GT_RSH:
-            case GT_RSZ:
-            case GT_ROL:
-            case GT_ROR:;
-                return true;
-            default:
-                return false;
+        case GT_ADD:
+        case GT_SUB:
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_NOT:
+        case GT_NEG:
+        case GT_LSH:
+        case GT_RSH:
+        case GT_RSZ:
+        case GT_ROL:
+        case GT_ROR:;
+            return true;
+        default:
+            return false;
         }
     }
 
@@ -1401,21 +1401,21 @@ public:
     {
         switch (oper)
         {
-            case GT_OVF_SADD:
-            case GT_OVF_UADD:
-            case GT_OVF_SSUB:
-            case GT_OVF_USUB:
-            case GT_OVF_SMUL:
-            case GT_OVF_UMUL:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
 #ifndef TARGET_64BIT
-            case GT_OVF_SADDC:
-            case GT_OVF_UADDC:
-            case GT_OVF_SSUBB:
-            case GT_OVF_USUBB:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
-                return true;
-            default:
-                return false;
+            return true;
+        default:
+            return false;
         }
     }
 
@@ -1440,15 +1440,15 @@ public:
     {
         switch (gtOper)
         {
-            case GT_XADD:
-            case GT_XORR:
-            case GT_XAND:
-            case GT_XCHG:
-            case GT_LOCKADD:
-            case GT_CMPXCHG:
-                return true;
-            default:
-                return false;
+        case GT_XADD:
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XCHG:
+        case GT_LOCKADD:
+        case GT_CMPXCHG:
+            return true;
+        default:
+            return false;
         }
     }
 
@@ -1456,16 +1456,16 @@ public:
     {
         switch (gtOper)
         {
-            case GT_LCL_STORE:
-            case GT_LCL_STORE_FLD:
-            case GT_IND_STORE:
-            case GT_IND_STORE_BLK:
-            case GT_IND_STORE_OBJ:
-            case GT_INIT_BLK:
-            case GT_COPY_BLK:
-                return true;
-            default:
-                return OperIsAtomicOp();
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        case GT_IND_STORE:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
+        case GT_INIT_BLK:
+        case GT_COPY_BLK:
+            return true;
+        default:
+            return OperIsAtomicOp();
         }
     }
 
@@ -1485,23 +1485,23 @@ public:
     {
         switch (gtOper)
         {
-            case GT_JTRUE:
+        case GT_JTRUE:
 #ifdef TARGET_ARM64
-            case GT_JCMP:
+        case GT_JCMP:
 #endif
-            case GT_JCC:
-            case GT_SWITCH:
-            case GT_LABEL:
-            case GT_CALL:
-            case GT_JMP:
-            case GT_RETURN:
-            case GT_RETFILT:
+        case GT_JCC:
+        case GT_SWITCH:
+        case GT_LABEL:
+        case GT_CALL:
+        case GT_JMP:
+        case GT_RETURN:
+        case GT_RETFILT:
 #ifndef FEATURE_EH_FUNCLETS
-            case GT_END_LFIN:
+        case GT_END_LFIN:
 #endif
-                return true;
-            default:
-                return false;
+            return true;
+        default:
+            return false;
         }
     }
 
@@ -2085,11 +2085,11 @@ public:
     {
         switch (index)
         {
-            case 0:
-                assert(gtOp1 != nullptr);
-                return gtOp1;
-            default:
-                unreached();
+        case 0:
+            assert(gtOp1 != nullptr);
+            return gtOp1;
+        default:
+            unreached();
         }
     }
 
@@ -2099,11 +2099,11 @@ public:
 
         switch (index)
         {
-            case 0:
-                gtOp1 = op;
-                return;
-            default:
-                unreached();
+        case 0:
+            gtOp1 = op;
+            return;
+        default:
+            unreached();
         }
     }
 
@@ -2115,18 +2115,18 @@ private:
     {
         switch (gtOper)
         {
-            case GT_LEA:
-            case GT_LCL_LOAD:
-            case GT_LCL_LOAD_FLD:
-            case GT_LCL_ADDR:
-                return true;
-            case GT_NOP:
-            case GT_RETFILT:
-            case GT_RETURN:
-                return gtType == TYP_VOID;
-            default:
-                assert(OperIsSimple(gtOper));
-                return false;
+        case GT_LEA:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_ADDR:
+            return true;
+        case GT_NOP:
+        case GT_RETFILT:
+        case GT_RETURN:
+            return gtType == TYP_VOID;
+        default:
+            assert(OperIsSimple(gtOper));
+            return false;
         }
     }
 #endif
@@ -2173,14 +2173,14 @@ public:
     {
         switch (index)
         {
-            case 0:
-                assert(gtOp1 != nullptr);
-                return gtOp1;
-            case 1:
-                assert(gtOp2 != nullptr);
-                return gtOp2;
-            default:
-                unreached();
+        case 0:
+            assert(gtOp1 != nullptr);
+            return gtOp1;
+        case 1:
+            assert(gtOp2 != nullptr);
+            return gtOp2;
+        default:
+            unreached();
         }
     }
 
@@ -2190,14 +2190,14 @@ public:
 
         switch (index)
         {
-            case 0:
-                gtOp1 = op;
-                return;
-            case 1:
-                gtOp2 = op;
-                return;
-            default:
-                unreached();
+        case 0:
+            gtOp1 = op;
+            return;
+        case 1:
+            gtOp2 = op;
+            return;
+        default:
+            unreached();
         }
     }
 
@@ -2242,17 +2242,17 @@ public:
     {
         switch (index)
         {
-            case 0:
-                assert(gtOp1 != nullptr);
-                return gtOp1;
-            case 1:
-                assert(gtOp2 != nullptr);
-                return gtOp2;
-            case 2:
-                assert(gtOp3 != nullptr);
-                return gtOp3;
-            default:
-                unreached();
+        case 0:
+            assert(gtOp1 != nullptr);
+            return gtOp1;
+        case 1:
+            assert(gtOp2 != nullptr);
+            return gtOp2;
+        case 2:
+            assert(gtOp3 != nullptr);
+            return gtOp3;
+        default:
+            unreached();
         }
     }
 
@@ -2262,17 +2262,17 @@ public:
 
         switch (index)
         {
-            case 0:
-                gtOp1 = op;
-                return;
-            case 1:
-                gtOp2 = op;
-                return;
-            case 2:
-                gtOp3 = op;
-                return;
-            default:
-                unreached();
+        case 0:
+            gtOp1 = op;
+            return;
+        case 1:
+            gtOp2 = op;
+            return;
+        case 2:
+            gtOp3 = op;
+            return;
+        default:
+            unreached();
         }
     }
 
@@ -2497,30 +2497,30 @@ public:
     {
         switch (type)
         {
-            case TYP_BYTE:
-                return static_cast<int8_t>(value);
-            case TYP_UBYTE:
-            case TYP_BOOL:
-                return static_cast<uint8_t>(value);
-            case TYP_SHORT:
-                return static_cast<int16_t>(value);
-            case TYP_USHORT:
-                return static_cast<uint16_t>(value);
+        case TYP_BYTE:
+            return static_cast<int8_t>(value);
+        case TYP_UBYTE:
+        case TYP_BOOL:
+            return static_cast<uint8_t>(value);
+        case TYP_SHORT:
+            return static_cast<int16_t>(value);
+        case TYP_USHORT:
+            return static_cast<uint16_t>(value);
 #ifdef TARGET_64BIT
-            case TYP_INT:
-                return static_cast<int32_t>(value);
-            case TYP_UINT:
-                // Disallow UINT for now as it's not needed and it's not clear if we should
-                // sign extend or zero extend. Sign extend seems to make more sense - if we
-                // actually cast this value to UINT using a CAST then the result would be a
-                // 32 bit value that's considered to have type INT and if we store that in
-                // in an IntCon we'd have to sign extend.
-                assert(false);
-                return static_cast<int32_t>(value);
+        case TYP_INT:
+            return static_cast<int32_t>(value);
+        case TYP_UINT:
+            // Disallow UINT for now as it's not needed and it's not clear if we should
+            // sign extend or zero extend. Sign extend seems to make more sense - if we
+            // actually cast this value to UINT using a CAST then the result would be a
+            // 32 bit value that's considered to have type INT and if we store that in
+            // in an IntCon we'd have to sign extend.
+            assert(false);
+            return static_cast<int32_t>(value);
 #endif
-            default:
-                assert(varTypeIsI(type) || (varTypeIsStruct(type) && (value == 0)));
-                return value;
+        default:
+            assert(varTypeIsI(type) || (varTypeIsStruct(type) && (value == 0)));
+            return value;
         }
     }
 
@@ -7918,227 +7918,227 @@ void GenTree::VisitOperands(TVisitor visitor)
 {
     switch (gtOper)
     {
-        // Leaf nodes
-        case GT_LCL_USE:
-        case GT_LCL_LOAD:
-        case GT_LCL_LOAD_FLD:
-        case GT_LCL_ADDR:
-        case GT_CATCH_ARG:
-        case GT_LABEL:
-        case GT_METHOD_ADDR:
-        case GT_RET_EXPR:
-        case GT_CNS_INT:
+    // Leaf nodes
+    case GT_LCL_USE:
+    case GT_LCL_LOAD:
+    case GT_LCL_LOAD_FLD:
+    case GT_LCL_ADDR:
+    case GT_CATCH_ARG:
+    case GT_LABEL:
+    case GT_METHOD_ADDR:
+    case GT_RET_EXPR:
+    case GT_CNS_INT:
 #ifndef TARGET_64BIT
-        case GT_CNS_LNG:
+    case GT_CNS_LNG:
 #endif
-        case GT_CNS_DBL:
-        case GT_CNS_STR:
-        case GT_MEMORYBARRIER:
-        case GT_JMP:
-        case GT_JCC:
-        case GT_SETCC:
-        case GT_NO_OP:
-        case GT_START_NONGC:
-        case GT_START_PREEMPTGC:
-        case GT_PROF_HOOK:
+    case GT_CNS_DBL:
+    case GT_CNS_STR:
+    case GT_MEMORYBARRIER:
+    case GT_JMP:
+    case GT_JCC:
+    case GT_SETCC:
+    case GT_NO_OP:
+    case GT_START_NONGC:
+    case GT_START_PREEMPTGC:
+    case GT_PROF_HOOK:
 #ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
+    case GT_END_LFIN:
 #endif
-        case GT_JMPTABLE:
-        case GT_CLS_VAR_ADDR:
-        case GT_CONST_ADDR:
-        case GT_REG_USE:
-        case GT_PINVOKE_PROLOG:
-        case GT_PINVOKE_EPILOG:
-        case GT_IL_OFFSET:
+    case GT_JMPTABLE:
+    case GT_CLS_VAR_ADDR:
+    case GT_CONST_ADDR:
+    case GT_REG_USE:
+    case GT_PINVOKE_PROLOG:
+    case GT_PINVOKE_EPILOG:
+    case GT_IL_OFFSET:
+        return;
+
+    // Unary operators with an optional operand
+    case GT_NOP:
+    case GT_RETURN:
+    case GT_RETFILT:
+        if (AsUnOp()->gtOp1 == nullptr)
+        {
             return;
+        }
+        FALLTHROUGH;
 
-        // Unary operators with an optional operand
-        case GT_NOP:
-        case GT_RETURN:
-        case GT_RETFILT:
-            if (AsUnOp()->gtOp1 == nullptr)
-            {
-                return;
-            }
-            FALLTHROUGH;
-
-        // Standard unary operators
-        case GT_LCL_DEF:
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-        case GT_NOT:
-        case GT_NEG:
-        case GT_FNEG:
-        case GT_FTRUNC:
-        case GT_FXT:
-        case GT_SXT:
-        case GT_UXT:
-        case GT_STOF:
-        case GT_UTOF:
-        case GT_FTOS:
-        case GT_FTOU:
-        case GT_OVF_FTOS:
-        case GT_OVF_FTOU:
-        case GT_TRUNC:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_COPY:
-        case GT_RELOAD:
-        case GT_ARR_LENGTH:
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-        case GT_OVF_U:
-        case GT_CONV:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-        case GT_BITCAST:
-        case GT_EXTRACT:
-        case GT_CKFINITE:
-        case GT_LCLHEAP:
-        case GT_FIELD_ADDR:
-        case GT_IND_LOAD:
-        case GT_IND_LOAD_OBJ:
-        case GT_IND_LOAD_BLK:
-        case GT_BOX:
-        case GT_ALLOCOBJ:
-        case GT_RUNTIMELOOKUP:
-        case GT_INIT_VAL:
-        case GT_JTRUE:
-        case GT_SWITCH:
-        case GT_NULLCHECK:
-        case GT_PUTARG_REG:
-        case GT_ARG_STORE:
-        case GT_RETURNTRAP:
-        case GT_KEEPALIVE:
-        case GT_INC_SATURATE:
+    // Standard unary operators
+    case GT_LCL_DEF:
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+    case GT_NOT:
+    case GT_NEG:
+    case GT_FNEG:
+    case GT_FTRUNC:
+    case GT_FXT:
+    case GT_SXT:
+    case GT_UXT:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_FTOS:
+    case GT_FTOU:
+    case GT_OVF_FTOS:
+    case GT_OVF_FTOU:
+    case GT_TRUNC:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_COPY:
+    case GT_RELOAD:
+    case GT_ARR_LENGTH:
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+    case GT_OVF_U:
+    case GT_CONV:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+    case GT_BITCAST:
+    case GT_EXTRACT:
+    case GT_CKFINITE:
+    case GT_LCLHEAP:
+    case GT_FIELD_ADDR:
+    case GT_IND_LOAD:
+    case GT_IND_LOAD_OBJ:
+    case GT_IND_LOAD_BLK:
+    case GT_BOX:
+    case GT_ALLOCOBJ:
+    case GT_RUNTIMELOOKUP:
+    case GT_INIT_VAL:
+    case GT_JTRUE:
+    case GT_SWITCH:
+    case GT_NULLCHECK:
+    case GT_PUTARG_REG:
+    case GT_ARG_STORE:
+    case GT_RETURNTRAP:
+    case GT_KEEPALIVE:
+    case GT_INC_SATURATE:
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        case GT_SIMD_UPPER_SPILL:
-        case GT_SIMD_UPPER_UNSPILL:
+    case GT_SIMD_UPPER_SPILL:
+    case GT_SIMD_UPPER_UNSPILL:
 #endif
-            visitor(AsUnOp()->gtOp1);
-            return;
+        visitor(AsUnOp()->gtOp1);
+        return;
 
-        // Special nodes
-        case GT_PHI:
-            for (GenTreePhi::Use& use : AsPhi()->Uses())
+    // Special nodes
+    case GT_PHI:
+        for (GenTreePhi::Use& use : AsPhi()->Uses())
+        {
+            if (visitor(use.NodeRef()) == VisitResult::Abort)
             {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
+                break;
             }
-            return;
+        }
+        return;
 
-        case GT_FIELD_LIST:
-            for (GenTreeFieldList::Use& field : AsFieldList()->Uses())
+    case GT_FIELD_LIST:
+        for (GenTreeFieldList::Use& field : AsFieldList()->Uses())
+        {
+            if (visitor(field.NodeRef()) == VisitResult::Abort)
             {
-                if (visitor(field.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
+                break;
             }
-            return;
+        }
+        return;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            for (GenTreeHWIntrinsic::Use& use : AsHWIntrinsic()->Uses())
+    case GT_HWINTRINSIC:
+        for (GenTreeHWIntrinsic::Use& use : AsHWIntrinsic()->Uses())
+        {
+            if (visitor(use.NodeRef()) == VisitResult::Abort)
             {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
+                break;
             }
-            return;
+        }
+        return;
 #endif // FEATURE_HW_INTRINSICS
 
-        case GT_INSTR:
-            for (GenTreeInstr::Use& use : AsInstr()->Uses())
+    case GT_INSTR:
+        for (GenTreeInstr::Use& use : AsInstr()->Uses())
+        {
+            if (visitor(use.NodeRef()) == VisitResult::Abort)
             {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
+                break;
             }
-            return;
+        }
+        return;
 
-        case GT_ARR_ELEM:
-            for (GenTreeArrElem::Use& use : AsArrElem()->Uses())
+    case GT_ARR_ELEM:
+        for (GenTreeArrElem::Use& use : AsArrElem()->Uses())
+        {
+            if (visitor(use.NodeRef()) == VisitResult::Abort)
             {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
+                break;
             }
-            return;
+        }
+        return;
 
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-        case GT_QMARK:
-            if (visitor(AsTernaryOp()->gtOp1) == VisitResult::Abort)
+    case GT_CMPXCHG:
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+    case GT_QMARK:
+        if (visitor(AsTernaryOp()->gtOp1) == VisitResult::Abort)
+        {
+            return;
+        }
+        if (visitor(AsTernaryOp()->gtOp2) == VisitResult::Abort)
+        {
+            return;
+        }
+        visitor(AsTernaryOp()->gtOp3);
+        return;
+
+    case GT_CALL:
+    {
+        GenTreeCall* const call = this->AsCall();
+
+        for (GenTreeUse& use : call->Uses())
+        {
+            if (visitor(use.NodeRef()) == VisitResult::Abort)
             {
                 return;
             }
-            if (visitor(AsTernaryOp()->gtOp2) == VisitResult::Abort)
-            {
-                return;
-            }
-            visitor(AsTernaryOp()->gtOp3);
-            return;
+        }
 
-        case GT_CALL:
+        if (call->GetCallAddr() != nullptr)
         {
-            GenTreeCall* const call = this->AsCall();
+            visitor(call->m_callAddr);
+        }
 
-            for (GenTreeUse& use : call->Uses())
-            {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    return;
-                }
-            }
+        return;
+    }
 
-            if (call->GetCallAddr() != nullptr)
-            {
-                visitor(call->m_callAddr);
-            }
+    case GT_LEA:
+    case GT_INTRINSIC:
+    {
+        GenTreeOp* const op = AsOp();
 
+        if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
+        {
             return;
         }
 
-        case GT_LEA:
-        case GT_INTRINSIC:
+        if (op->gtOp2 != nullptr)
         {
-            GenTreeOp* const op = AsOp();
-
-            if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
-            {
-                return;
-            }
-
-            if (op->gtOp2 != nullptr)
-            {
-                visitor(op->gtOp2);
-            }
-            return;
+            visitor(op->gtOp2);
         }
+        return;
+    }
 
-        default:
+    default:
+    {
+        assert(OperIsBinary());
+
+        GenTreeOp* const op = AsOp();
+        assert(op->gtOp1 != nullptr);
+        assert(op->gtOp2 != nullptr);
+
+        if (visitor(op->gtOp1) != VisitResult::Abort)
         {
-            assert(OperIsBinary());
-
-            GenTreeOp* const op = AsOp();
-            assert(op->gtOp1 != nullptr);
-            assert(op->gtOp2 != nullptr);
-
-            if (visitor(op->gtOp1) != VisitResult::Abort)
-            {
-                visitor(op->gtOp2);
-            }
-            return;
+            visitor(op->gtOp2);
         }
+        return;
+    }
     }
 }
 
@@ -8242,303 +8242,303 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_USE:
-            case GT_CATCH_ARG:
-            case GT_LABEL:
-            case GT_METHOD_ADDR:
-            case GT_RET_EXPR:
-            case GT_CNS_INT:
+        case GT_LCL_USE:
+        case GT_CATCH_ARG:
+        case GT_LABEL:
+        case GT_METHOD_ADDR:
+        case GT_RET_EXPR:
+        case GT_CNS_INT:
 #ifndef TARGET_64BIT
-            case GT_CNS_LNG:
+        case GT_CNS_LNG:
 #endif
-            case GT_CNS_DBL:
-            case GT_CNS_STR:
-            case GT_MEMORYBARRIER:
-            case GT_JMP:
-            case GT_JCC:
-            case GT_SETCC:
-            case GT_NO_OP:
-            case GT_START_NONGC:
-            case GT_START_PREEMPTGC:
-            case GT_PROF_HOOK:
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+        case GT_MEMORYBARRIER:
+        case GT_JMP:
+        case GT_JCC:
+        case GT_SETCC:
+        case GT_NO_OP:
+        case GT_START_NONGC:
+        case GT_START_PREEMPTGC:
+        case GT_PROF_HOOK:
 #ifndef FEATURE_EH_FUNCLETS
-            case GT_END_LFIN:
+        case GT_END_LFIN:
 #endif
-            case GT_JMPTABLE:
-            case GT_CLS_VAR_ADDR:
-            case GT_CONST_ADDR:
-            case GT_REG_USE:
-            case GT_PINVOKE_PROLOG:
-            case GT_PINVOKE_EPILOG:
-            case GT_IL_OFFSET:
-                break;
+        case GT_JMPTABLE:
+        case GT_CLS_VAR_ADDR:
+        case GT_CONST_ADDR:
+        case GT_REG_USE:
+        case GT_PINVOKE_PROLOG:
+        case GT_PINVOKE_EPILOG:
+        case GT_IL_OFFSET:
+            break;
 
-            case GT_LCL_LOAD:
-            case GT_LCL_LOAD_FLD:
-            case GT_LCL_ADDR:
-                reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
-                break;
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_ADDR:
+            reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
+            break;
 
-            case GT_LCL_STORE:
-            case GT_LCL_STORE_FLD:
-                reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
-                result = WalkTree(&node->AsUnOp()->gtOp1, node);
-                if (result == GenTreeWalkResult::Abort)
-                {
-                    return result;
-                }
-                break;
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+            reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
+            result = WalkTree(&node->AsUnOp()->gtOp1, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            break;
 
-            case GT_NOP:
-            case GT_RETURN:
-            case GT_RETFILT:
-                // These are not always unary.
-                if (node->AsUnOp()->gtOp1 == nullptr)
-                {
-                    break;
-                }
-                FALLTHROUGH;
-            case GT_LCL_DEF:
-            case GT_NOT:
-            case GT_NEG:
-            case GT_FNEG:
-            case GT_FTRUNC:
-            case GT_FXT:
-            case GT_SXT:
-            case GT_UXT:
-            case GT_STOF:
-            case GT_UTOF:
-            case GT_FTOS:
-            case GT_FTOU:
-            case GT_OVF_FTOS:
-            case GT_OVF_FTOU:
-            case GT_TRUNC:
-            case GT_BSWAP:
-            case GT_BSWAP16:
-            case GT_COPY:
-            case GT_RELOAD:
-            case GT_ARR_LENGTH:
-            case GT_OVF_TRUNC:
-            case GT_OVF_STRUNC:
-            case GT_OVF_UTRUNC:
-            case GT_OVF_U:
-            case GT_CONV:
-            case GT_OVF_SCONV:
-            case GT_OVF_UCONV:
-            case GT_BITCAST:
-            case GT_EXTRACT:
-            case GT_CKFINITE:
-            case GT_LCLHEAP:
-            case GT_FIELD_ADDR:
-            case GT_IND_LOAD:
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_BOX:
-            case GT_ALLOCOBJ:
-            case GT_INIT_VAL:
-            case GT_JTRUE:
-            case GT_SWITCH:
-            case GT_NULLCHECK:
-            case GT_PUTARG_REG:
-            case GT_ARG_STORE:
-            case GT_RETURNTRAP:
-            case GT_RUNTIMELOOKUP:
-            case GT_KEEPALIVE:
-            case GT_INC_SATURATE:
+        case GT_NOP:
+        case GT_RETURN:
+        case GT_RETFILT:
+            // These are not always unary.
+            if (node->AsUnOp()->gtOp1 == nullptr)
+            {
+                break;
+            }
+            FALLTHROUGH;
+        case GT_LCL_DEF:
+        case GT_NOT:
+        case GT_NEG:
+        case GT_FNEG:
+        case GT_FTRUNC:
+        case GT_FXT:
+        case GT_SXT:
+        case GT_UXT:
+        case GT_STOF:
+        case GT_UTOF:
+        case GT_FTOS:
+        case GT_FTOU:
+        case GT_OVF_FTOS:
+        case GT_OVF_FTOU:
+        case GT_TRUNC:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_COPY:
+        case GT_RELOAD:
+        case GT_ARR_LENGTH:
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
+        case GT_OVF_U:
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+        case GT_BITCAST:
+        case GT_EXTRACT:
+        case GT_CKFINITE:
+        case GT_LCLHEAP:
+        case GT_FIELD_ADDR:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_BOX:
+        case GT_ALLOCOBJ:
+        case GT_INIT_VAL:
+        case GT_JTRUE:
+        case GT_SWITCH:
+        case GT_NULLCHECK:
+        case GT_PUTARG_REG:
+        case GT_ARG_STORE:
+        case GT_RETURNTRAP:
+        case GT_RUNTIMELOOKUP:
+        case GT_KEEPALIVE:
+        case GT_INC_SATURATE:
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            case GT_SIMD_UPPER_SPILL:
-            case GT_SIMD_UPPER_UNSPILL:
+        case GT_SIMD_UPPER_SPILL:
+        case GT_SIMD_UPPER_UNSPILL:
 #endif
-                assert(node->AsUnOp()->gtOp1 != nullptr);
-                result = WalkTree(&node->AsUnOp()->gtOp1, node);
+            assert(node->AsUnOp()->gtOp1 != nullptr);
+            result = WalkTree(&node->AsUnOp()->gtOp1, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            break;
+
+        // Special nodes
+        case GT_PHI:
+            for (GenTreePhi::Use& use : node->AsPhi()->Uses())
+            {
+                result = WalkTree(&use.NodeRef(), node);
                 if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
-                break;
+            }
+            break;
 
-            // Special nodes
-            case GT_PHI:
-                for (GenTreePhi::Use& use : node->AsPhi()->Uses())
+        case GT_FIELD_LIST:
+            for (GenTreeFieldList::Use& use : node->AsFieldList()->Uses())
+            {
+                result = WalkTree(&use.NodeRef(), node);
+                if (result == GenTreeWalkResult::Abort)
                 {
-                    result = WalkTree(&use.NodeRef(), node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
-                break;
-
-            case GT_FIELD_LIST:
-                for (GenTreeFieldList::Use& use : node->AsFieldList()->Uses())
-                {
-                    result = WalkTree(&use.NodeRef(), node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-                break;
+            }
+            break;
 
 #ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOps())
+        case GT_HWINTRINSIC:
+            if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOps())
+            {
+                result = WalkTree(&node->AsHWIntrinsic()->GetUse(1).NodeRef(), node);
+                if (result == GenTreeWalkResult::Abort)
                 {
-                    result = WalkTree(&node->AsHWIntrinsic()->GetUse(1).NodeRef(), node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                    result = WalkTree(&node->AsHWIntrinsic()->GetUse(0).NodeRef(), node);
+                    return result;
+                }
+                result = WalkTree(&node->AsHWIntrinsic()->GetUse(0).NodeRef(), node);
+                if (result == GenTreeWalkResult::Abort)
+                {
+                    return result;
+                }
+            }
+            else
+            {
+                for (GenTreeHWIntrinsic::Use& use : node->AsHWIntrinsic()->Uses())
+                {
+                    result = WalkTree(&use.NodeRef(), node);
                     if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
                 }
-                else
-                {
-                    for (GenTreeHWIntrinsic::Use& use : node->AsHWIntrinsic()->Uses())
-                    {
-                        result = WalkTree(&use.NodeRef(), node);
-                        if (result == GenTreeWalkResult::Abort)
-                        {
-                            return result;
-                        }
-                    }
-                }
-                break;
+            }
+            break;
 #endif
 
-            case GT_INSTR:
-                for (GenTreeInstr::Use& use : node->AsInstr()->Uses())
-                {
-                    result = WalkTree(&use.NodeRef(), node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-                break;
-
-            case GT_ARR_ELEM:
-                for (GenTreeArrElem::Use& use : node->AsArrElem()->Uses())
-                {
-                    result = WalkTree(&use.NodeRef(), node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-                break;
-
-            case GT_CMPXCHG:
-            case GT_COPY_BLK:
-            case GT_INIT_BLK:
-            case GT_QMARK:
-                result = WalkTree(&node->AsTernaryOp()->gtOp1, node);
-                if (result == GenTreeWalkResult::Abort)
-                {
-                    return result;
-                }
-                result = WalkTree(&node->AsTernaryOp()->gtOp2, node);
-                if (result == GenTreeWalkResult::Abort)
-                {
-                    return result;
-                }
-                result = WalkTree(&node->AsTernaryOp()->gtOp3, node);
-                if (result == GenTreeWalkResult::Abort)
-                {
-                    return result;
-                }
-                break;
-
-            case GT_CALL:
+        case GT_INSTR:
+            for (GenTreeInstr::Use& use : node->AsInstr()->Uses())
             {
-                GenTreeCall* const call = node->AsCall();
-
-                for (GenTreeUse& use : call->Uses())
+                result = WalkTree(&use.NodeRef(), node);
+                if (result == GenTreeWalkResult::Abort)
                 {
-                    result = WalkTree(&use.NodeRef(), call);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
+            }
+            break;
 
-                if (call->GetCallAddr() != nullptr)
+        case GT_ARR_ELEM:
+            for (GenTreeArrElem::Use& use : node->AsArrElem()->Uses())
+            {
+                result = WalkTree(&use.NodeRef(), node);
+                if (result == GenTreeWalkResult::Abort)
                 {
-                    result = WalkTree(&call->m_callAddr, call);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
+            }
+            break;
 
-                break;
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+        case GT_QMARK:
+            result = WalkTree(&node->AsTernaryOp()->gtOp1, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            result = WalkTree(&node->AsTernaryOp()->gtOp2, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            result = WalkTree(&node->AsTernaryOp()->gtOp3, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            break;
+
+        case GT_CALL:
+        {
+            GenTreeCall* const call = node->AsCall();
+
+            for (GenTreeUse& use : call->Uses())
+            {
+                result = WalkTree(&use.NodeRef(), call);
+                if (result == GenTreeWalkResult::Abort)
+                {
+                    return result;
+                }
             }
 
-            case GT_LEA:
-            case GT_INTRINSIC:
+            if (call->GetCallAddr() != nullptr)
             {
-                // LEA and INTRINSIC are fake BINOPs. For LEA either operand may be null,
-                // and for INTRINSIC the second operand may be null, making it unary.
-                // Handle them separately so that real BINOPs do not need extra null checks.
-                GenTree** op1Use = &node->AsOp()->gtOp1;
-                GenTree** op2Use = &node->AsOp()->gtOp2;
-
-                if (TVisitor::UseExecutionOrder && node->IsReverseOps())
+                result = WalkTree(&call->m_callAddr, call);
+                if (result == GenTreeWalkResult::Abort)
                 {
-                    std::swap(op1Use, op2Use);
+                    return result;
                 }
-
-                if (*op1Use != nullptr)
-                {
-                    result = WalkTree(op1Use, node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-
-                if (*op2Use != nullptr)
-                {
-                    result = WalkTree(op2Use, node);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-                break;
             }
 
-            // Binary nodes
-            default:
+            break;
+        }
+
+        case GT_LEA:
+        case GT_INTRINSIC:
+        {
+            // LEA and INTRINSIC are fake BINOPs. For LEA either operand may be null,
+            // and for INTRINSIC the second operand may be null, making it unary.
+            // Handle them separately so that real BINOPs do not need extra null checks.
+            GenTree** op1Use = &node->AsOp()->gtOp1;
+            GenTree** op2Use = &node->AsOp()->gtOp2;
+
+            if (TVisitor::UseExecutionOrder && node->IsReverseOps())
             {
-                assert(node->OperIsBinary());
+                std::swap(op1Use, op2Use);
+            }
 
-                GenTree** op1Use = &node->AsOp()->gtOp1;
-                GenTree** op2Use = &node->AsOp()->gtOp2;
-                assert(*op1Use != nullptr);
-                assert(*op2Use != nullptr);
-
-                if (TVisitor::UseExecutionOrder && node->IsReverseOps())
-                {
-                    std::swap(op1Use, op2Use);
-                }
-
+            if (*op1Use != nullptr)
+            {
                 result = WalkTree(op1Use, node);
                 if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
+            }
 
+            if (*op2Use != nullptr)
+            {
                 result = WalkTree(op2Use, node);
                 if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
-                break;
             }
+            break;
+        }
+
+        // Binary nodes
+        default:
+        {
+            assert(node->OperIsBinary());
+
+            GenTree** op1Use = &node->AsOp()->gtOp1;
+            GenTree** op2Use = &node->AsOp()->gtOp2;
+            assert(*op1Use != nullptr);
+            assert(*op2Use != nullptr);
+
+            if (TVisitor::UseExecutionOrder && node->IsReverseOps())
+            {
+                std::swap(op1Use, op2Use);
+            }
+
+            result = WalkTree(op1Use, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+
+            result = WalkTree(op2Use, node);
+            if (result == GenTreeWalkResult::Abort)
+            {
+                return result;
+            }
+            break;
+        }
         }
 
     DONE:

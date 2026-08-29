@@ -31,12 +31,12 @@ static ReturnKind GetReturnKind(const CompiledMethodInfo& info)
     auto TypeToReturnKind = [](var_types type) {
         switch (type)
         {
-            case TYP_REF:
-                return RT_Object;
-            case TYP_BYREF:
-                return RT_ByRef;
-            default:
-                return RT_Scalar;
+        case TYP_REF:
+            return RT_Object;
+        case TYP_BYREF:
+            return RT_ByRef;
+        default:
+            return RT_Scalar;
         }
     };
 
@@ -3041,36 +3041,36 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
         switch (syncThisReg)
         {
-            case REG_EDI:
-                regEncoding = 0;
-                break;
-            case REG_ESI:
-                regEncoding = 1;
-                break;
-            case REG_EBX:
-                regEncoding = 2;
-                break;
-            case REG_EBP:
-                regEncoding = 3;
-                break;
-            default:
-                // TODO-MIKE-Review: Should there be an assert/unreached here?
-                //
-                // It looks like if `this` has to be reported then it has to be
-                // in a callee-saved register. But we don't require this in LSRA
-                // so we can end up with `this` in the original reg param, ECX.
-                //
-                // Thing is, most scenarios that require `this` reporting involve
-                // calls and then `this` can only be in a callee-saved register,
-                // otherwise it would be spilled.
-                //
-                // But there are cases where lvaKeepAliveAndReportThis returns
-                // true and there are no calls in the method and `this` happily
-                // ends up in ECX due to the lack of LSRA restrictions. Which one
-                // is wrong - lvaKeepAliveAndReportThis or LSRA?
-                // AddPartiallyInterruptibleSlotsFramed has the same issue.
-                regEncoding = 4;
-                break;
+        case REG_EDI:
+            regEncoding = 0;
+            break;
+        case REG_ESI:
+            regEncoding = 1;
+            break;
+        case REG_EBX:
+            regEncoding = 2;
+            break;
+        case REG_EBP:
+            regEncoding = 3;
+            break;
+        default:
+            // TODO-MIKE-Review: Should there be an assert/unreached here?
+            //
+            // It looks like if `this` has to be reported then it has to be
+            // in a callee-saved register. But we don't require this in LSRA
+            // so we can end up with `this` in the original reg param, ECX.
+            //
+            // Thing is, most scenarios that require `this` reporting involve
+            // calls and then `this` can only be in a callee-saved register,
+            // otherwise it would be spilled.
+            //
+            // But there are cases where lvaKeepAliveAndReportThis returns
+            // true and there are no calls in the method and `this` happily
+            // ends up in ECX due to the lack of LSRA restrictions. Which one
+            // is wrong - lvaKeepAliveAndReportThis or LSRA?
+            // AddPartiallyInterruptibleSlotsFramed has the same issue.
+            regEncoding = 4;
+            break;
         }
 
         if (regEncoding < 4)
@@ -4012,15 +4012,15 @@ private:
 
                 switch (slot.base)
                 {
-                    case GC_FRAMEREG_REL:
-                        baseName = getRegName(REG_FPBASE);
-                        break;
-                    case GC_SP_REL:
-                        baseName = getRegName(REG_SPBASE);
-                        break;
-                    default:
-                        baseName = "???";
-                        break;
+                case GC_FRAMEREG_REL:
+                    baseName = getRegName(REG_FPBASE);
+                    break;
+                case GC_SP_REL:
+                    baseName = getRegName(REG_SPBASE);
+                    break;
+                default:
+                    baseName = "???";
+                    break;
                 }
 
 #ifdef TARGET_ARMARCH

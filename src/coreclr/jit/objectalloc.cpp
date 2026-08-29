@@ -367,60 +367,60 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
                 switch (user->GetOper())
                 {
-                    case GT_LCL_STORE:
-                        // The local is the source of a store.
-                        assert(user->AsLclStore()->GetValue() == value);
+                case GT_LCL_STORE:
+                    // The local is the source of a store.
+                    assert(user->AsLclStore()->GetValue() == value);
 
-                        // Update the connection graph if we are assigning to a local.
-                        // For all other assignments we mark the rhs local as escaping.
-                        // TODO-ObjectStackAllocation: track assignments to fields.
+                    // Update the connection graph if we are assigning to a local.
+                    // For all other assignments we mark the rhs local as escaping.
+                    // TODO-ObjectStackAllocation: track assignments to fields.
 
-                        m_allocator.AddConnGraphEdge(user->AsLclStore()->GetLcl()->GetLclNum(), lclNum);
+                    m_allocator.AddConnGraphEdge(user->AsLclStore()->GetLcl()->GetLclNum(), lclNum);
+                    canLclVarEscapeViaParentStack = false;
+                    break;
+
+                case GT_IND_LOAD:
+                    canLclVarEscapeViaParentStack = false;
+                    break;
+                case GT_IND_STORE:
+                    canLclVarEscapeViaParentStack = user->AsIndir()->GetValue() == value;
+                    break;
+
+                case GT_EQ:
+                case GT_NE:
+                    canLclVarEscapeViaParentStack = false;
+                    break;
+
+                case GT_COMMA:
+                    if (user->AsOp()->GetOp(0) == m_userStack.Top(userIndex - 1))
+                    {
+                        // Left child of GT_COMMA, it will be discarded
                         canLclVarEscapeViaParentStack = false;
                         break;
+                    }
+                    FALLTHROUGH;
+                case GT_QMARK:
+                case GT_ADD:
+                case GT_FIELD_ADDR:
+                    // Check whether the local escapes via its grandparent.
+                    ++userIndex;
+                    keepChecking = true;
+                    break;
 
-                    case GT_IND_LOAD:
-                        canLclVarEscapeViaParentStack = false;
-                        break;
-                    case GT_IND_STORE:
-                        canLclVarEscapeViaParentStack = user->AsIndir()->GetValue() == value;
-                        break;
+                case GT_CALL:
+                    if (user->AsCall()->IsHelperCall())
+                    {
+                        // TODO-ObjectStackAllocation: Special-case helpers here that
+                        // 1. Don't make objects escape.
+                        // 2. Protect objects as interior (GCPROTECT_BEGININTERIOR() instead of GCPROTECT_BEGIN()).
+                        // 3. Don't check that the object is in the heap in ValidateInner.
 
-                    case GT_EQ:
-                    case GT_NE:
-                        canLclVarEscapeViaParentStack = false;
-                        break;
+                        canLclVarEscapeViaParentStack = true;
+                    }
+                    break;
 
-                    case GT_COMMA:
-                        if (user->AsOp()->GetOp(0) == m_userStack.Top(userIndex - 1))
-                        {
-                            // Left child of GT_COMMA, it will be discarded
-                            canLclVarEscapeViaParentStack = false;
-                            break;
-                        }
-                        FALLTHROUGH;
-                    case GT_QMARK:
-                    case GT_ADD:
-                    case GT_FIELD_ADDR:
-                        // Check whether the local escapes via its grandparent.
-                        ++userIndex;
-                        keepChecking = true;
-                        break;
-
-                    case GT_CALL:
-                        if (user->AsCall()->IsHelperCall())
-                        {
-                            // TODO-ObjectStackAllocation: Special-case helpers here that
-                            // 1. Don't make objects escape.
-                            // 2. Protect objects as interior (GCPROTECT_BEGININTERIOR() instead of GCPROTECT_BEGIN()).
-                            // 3. Don't check that the object is in the heap in ValidateInner.
-
-                            canLclVarEscapeViaParentStack = true;
-                        }
-                        break;
-
-                    default:
-                        break;
+                default:
+                    break;
                 }
             }
 
@@ -805,54 +805,54 @@ void ObjectAllocator::RewriteUses()
 
                 switch (user->GetOper())
                 {
-                    case GT_LCL_STORE:
-                        if ((node == user->AsLclStore()->GetValue()) && user->TypeIs(TYP_REF))
-                        {
-                            user->SetType(newType);
-                        }
-                        break;
+                case GT_LCL_STORE:
+                    if ((node == user->AsLclStore()->GetValue()) && user->TypeIs(TYP_REF))
+                    {
+                        user->SetType(newType);
+                    }
+                    break;
 
-                    case GT_IND_LOAD:
-                        if (newType != TYP_BYREF)
-                        {
-                            // This indicates that a write barrier is not needed when writing
-                            // to this field/indirection since the address is not pointing to the heap.
-                            // It's either null or points to inside a stack-allocated object.
-                            user->gtFlags |= GTF_IND_TGT_NOT_HEAP;
-                        }
-                        break;
+                case GT_IND_LOAD:
+                    if (newType != TYP_BYREF)
+                    {
+                        // This indicates that a write barrier is not needed when writing
+                        // to this field/indirection since the address is not pointing to the heap.
+                        // It's either null or points to inside a stack-allocated object.
+                        user->gtFlags |= GTF_IND_TGT_NOT_HEAP;
+                    }
+                    break;
 
-                    case GT_IND_STORE:
-                        if ((node == user->AsIndStore()->GetValue()) && user->TypeIs(TYP_REF))
-                        {
-                            user->SetType(newType);
-                        }
-                        break;
+                case GT_IND_STORE:
+                    if ((node == user->AsIndStore()->GetValue()) && user->TypeIs(TYP_REF))
+                    {
+                        user->SetType(newType);
+                    }
+                    break;
 
-                    case GT_EQ:
-                    case GT_NE:
-                        break;
+                case GT_EQ:
+                case GT_NE:
+                    break;
 
-                    case GT_COMMA:
-                        if (user->AsOp()->GetOp(0) == m_userStack.Top(userIndex - 1))
-                        {
-                            // Left child of GT_COMMA, it will be discarded
-                            break;
-                        }
-                        FALLTHROUGH;
-                    case GT_QMARK:
-                    case GT_ADD:
-                    case GT_FIELD_ADDR:
-                        if (user->TypeIs(TYP_REF))
-                        {
-                            user->ChangeType(newType);
-                        }
-                        ++userIndex;
-                        keepChecking = true;
+                case GT_COMMA:
+                    if (user->AsOp()->GetOp(0) == m_userStack.Top(userIndex - 1))
+                    {
+                        // Left child of GT_COMMA, it will be discarded
                         break;
+                    }
+                    FALLTHROUGH;
+                case GT_QMARK:
+                case GT_ADD:
+                case GT_FIELD_ADDR:
+                    if (user->TypeIs(TYP_REF))
+                    {
+                        user->ChangeType(newType);
+                    }
+                    ++userIndex;
+                    keepChecking = true;
+                    break;
 
-                    default:
-                        unreached();
+                default:
+                    unreached();
                 }
 
                 if (keepChecking)

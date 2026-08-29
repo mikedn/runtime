@@ -562,19 +562,19 @@ ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
 {
     switch (varActualType(type))
     {
-        case TYP_INT:
-            return VNForIntCon(static_cast<int32_t>(value));
+    case TYP_INT:
+        return VNForIntCon(static_cast<int32_t>(value));
 #ifdef TARGET_64BIT
-        case TYP_LONG:
-            return VNForLongCon(value);
+    case TYP_LONG:
+        return VNForLongCon(value);
 #endif
-        case TYP_REF:
-            assert(value == 0);
-            return NullVN;
-        case TYP_BYREF:
-            return VNForByrefCon(value);
-        default:
-            unreached();
+    case TYP_REF:
+        assert(value == 0);
+        return NullVN;
+    case TYP_BYREF:
+        return VNForByrefCon(value);
+    default:
+        unreached();
     }
 }
 
@@ -628,34 +628,34 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
 {
     switch (type)
     {
-        case TYP_BOOL:
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-            return VNForIntCon(0);
-        case TYP_LONG:
-            return VNForLongCon(0);
-        case TYP_FLOAT:
-            return VNForFloatCon(0.0f);
-        case TYP_DOUBLE:
-            return VNForDoubleCon(0.0);
-        case TYP_REF:
-            return NullVN;
-        case TYP_BYREF:
-            return VNForByrefCon(0);
-        case TYP_STRUCT:
+    case TYP_BOOL:
+    case TYP_BYTE:
+    case TYP_UBYTE:
+    case TYP_SHORT:
+    case TYP_USHORT:
+    case TYP_INT:
+        return VNForIntCon(0);
+    case TYP_LONG:
+        return VNForLongCon(0);
+    case TYP_FLOAT:
+        return VNForFloatCon(0.0f);
+    case TYP_DOUBLE:
+        return VNForDoubleCon(0.0);
+    case TYP_REF:
+        return NullVN;
+    case TYP_BYREF:
+        return VNForByrefCon(0);
+    case TYP_STRUCT:
 #ifdef FEATURE_SIMD
-        // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
+    // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
+    case TYP_SIMD8:
+    case TYP_SIMD12:
+    case TYP_SIMD16:
+    case TYP_SIMD32:
 #endif
-            return ZeroMapVN();
-        default:
-            unreached();
+        return ZeroMapVN();
+    default:
+        unreached();
     }
 }
 
@@ -673,17 +673,17 @@ ValueNum ValueNumStore::VNOneForType(var_types type)
 {
     switch (type)
     {
-        case TYP_BOOL:
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-            return VNForIntCon(1);
-        case TYP_LONG:
-            return VNForLongCon(1);
-        default:
-            unreached();
+    case TYP_BOOL:
+    case TYP_BYTE:
+    case TYP_UBYTE:
+    case TYP_SHORT:
+    case TYP_USHORT:
+    case TYP_INT:
+        return VNForIntCon(1);
+    case TYP_LONG:
+        return VNForLongCon(1);
+    default:
+        unreached();
     }
 }
 
@@ -723,25 +723,25 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
         {
             switch (argFunc->func)
             {
-                case VNOP_SXT:
-                case VNOP_UXT:
-                    if (func == VNOP_TRUNC)
-                    {
-                        return argFunc->arg0;
-                    }
-                    break;
+            case VNOP_SXT:
+            case VNOP_UXT:
+                if (func == VNOP_TRUNC)
+                {
+                    return argFunc->arg0;
+                }
+                break;
 
-                case VNOP_NEG:
-                case VNOP_NOT:
-                case VNOP_FNEG:
-                case VNOP_BSWAP:
-                    if (func == argFunc->func)
-                    {
-                        return argFunc->arg0;
-                    }
-                    break;
-                default:
-                    break;
+            case VNOP_NEG:
+            case VNOP_NOT:
+            case VNOP_FNEG:
+            case VNOP_BSWAP:
+                if (func == argFunc->func)
+                {
+                    return argFunc->arg0;
+                }
+                break;
+            default:
+                break;
             }
         }
     }
@@ -1420,29 +1420,29 @@ bool ValueNumStore::CanSimplifyUnaryFunc(VNFunc vnf)
 {
     switch (vnf)
     {
-        case VNOP_NEG:
-        case VNOP_NOT:
-        case VNOP_BSWAP16:
-        case VNOP_BSWAP:
-        case VNOP_FNEG:
-        case VNOP_FTOS:
-        case VNOP_FTOU:
-        case VNOP_STOF:
-        case VNOP_UTOF:
-        case VNOP_TRUNC:
-        case VNOP_SXT:
-        case VNOP_UXT:
-        case VNF_CONVS8:
-        case VNF_CONVU8:
-        case VNF_CONVS16:
-        case VNF_CONVU16:
-        case VNF_FTOSL:
-        case VNF_FTOUL:
-        case VNF_STOFD:
-        case VNF_UTOFD:
-            return true;
-        default:
-            return false;
+    case VNOP_NEG:
+    case VNOP_NOT:
+    case VNOP_BSWAP16:
+    case VNOP_BSWAP:
+    case VNOP_FNEG:
+    case VNOP_FTOS:
+    case VNOP_FTOU:
+    case VNOP_STOF:
+    case VNOP_UTOF:
+    case VNOP_TRUNC:
+    case VNOP_SXT:
+    case VNOP_UXT:
+    case VNF_CONVS8:
+    case VNF_CONVU8:
+    case VNF_CONVS16:
+    case VNF_CONVU16:
+    case VNF_FTOSL:
+    case VNF_FTOUL:
+    case VNF_STOFD:
+    case VNF_UTOFD:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -1450,146 +1450,146 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 {
     switch (argType)
     {
-        case TYP_INT:
-        {
-            int32_t argVal = GetConstInt32(arg0VN);
+    case TYP_INT:
+    {
+        int32_t argVal = GetConstInt32(arg0VN);
 
-            switch (func)
-            {
-                case VNOP_SXT:
-                    assert(type == TYP_LONG);
-                    return VNForLongCon(static_cast<int64_t>(argVal));
-                case VNOP_UXT:
-                    assert(type == TYP_LONG);
-                    return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(argVal)));
-                case VNF_CONVS8:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int8_t>(argVal));
-                case VNF_CONVU8:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<uint8_t>(argVal));
-                case VNF_CONVS16:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int16_t>(argVal));
-                case VNF_CONVU16:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<uint16_t>(argVal));
-                case VNOP_STOF:
-                    assert(type == TYP_FLOAT);
-                    return VNForFloatCon(static_cast<float>(argVal));
-                case VNOP_UTOF:
-                    assert(type == TYP_FLOAT);
-                    return VNForFloatCon(static_cast<float>(static_cast<uint32_t>(argVal)));
-                case VNF_STOFD:
-                    assert(type == TYP_DOUBLE);
-                    return VNForDoubleCon(static_cast<double>(argVal));
-                case VNF_UTOFD:
-                    assert(type == TYP_DOUBLE);
-                    return VNForDoubleCon(static_cast<double>(static_cast<uint32_t>(argVal)));
-                case VNOP_NEG:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(-argVal);
-                case VNOP_NOT:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(~argVal);
-                case VNOP_BSWAP16:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int32_t>(jitstd::byteswap(static_cast<uint16_t>(argVal))));
-                case VNOP_BSWAP:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(jitstd::byteswap(argVal));
-                default:
-                    unreached();
-            }
-        }
-        case TYP_LONG:
+        switch (func)
         {
-            int64_t argVal = GetConstInt64(arg0VN);
-
-            switch (func)
-            {
-                case VNOP_TRUNC:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int32_t>(argVal));
-                case VNF_CONVS8:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int8_t>(argVal));
-                case VNF_CONVU8:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<uint8_t>(argVal));
-                case VNF_CONVS16:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<int16_t>(argVal));
-                case VNF_CONVU16:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(static_cast<uint16_t>(argVal));
-                case VNOP_STOF:
-                    assert(type == TYP_FLOAT);
-                    return VNForFloatCon(static_cast<float>(argVal));
-                case VNOP_UTOF:
-                    assert(type == TYP_FLOAT);
-                    return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(argVal));
-                case VNF_STOFD:
-                    assert(type == TYP_DOUBLE);
-                    return VNForDoubleCon(static_cast<double>(argVal));
-                case VNF_UTOFD:
-                    assert(type == TYP_DOUBLE);
-                    return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(argVal));
-                case VNOP_NEG:
-                    assert(type == TYP_LONG);
-                    return VNForLongCon(-argVal);
-                case VNOP_NOT:
-                    assert(type == TYP_LONG);
-                    return VNForLongCon(~argVal);
-                case VNOP_BSWAP:
-                    assert(type == TYP_LONG);
-                    return VNForLongCon(jitstd::byteswap(argVal));
-                default:
-                    unreached();
-            }
-        }
-        case TYP_FLOAT:
-        {
-            float argVal = GetConstFloat(arg0VN);
-
-            switch (func)
-            {
-                case VNOP_FTOS:
-                    return VNForIntCon(static_cast<int32_t>(argVal));
-                case VNOP_FTOU:
-                    return VNForIntCon(static_cast<uint32_t>(argVal));
-                case VNF_FTOSL:
-                    return VNForLongCon(static_cast<int64_t>(argVal));
-                case VNF_FTOUL:
-                    return VNForLongCon(static_cast<uint64_t>(argVal));
-                case VNOP_FNEG:
-                    return VNForFloatCon(-argVal);
-                default:
-                    unreached();
-            }
-        }
-        case TYP_DOUBLE:
-        {
-            double argVal = GetConstDouble(arg0VN);
-
-            switch (func)
-            {
-                case VNOP_FTOS:
-                    return VNForIntCon(static_cast<int32_t>(argVal));
-                case VNOP_FTOU:
-                    return VNForIntCon(static_cast<uint32_t>(argVal));
-                case VNF_FTOSL:
-                    return VNForLongCon(static_cast<int64_t>(argVal));
-                case VNF_FTOUL:
-                    return VNForLongCon(static_cast<uint64_t>(argVal));
-                case VNOP_FNEG:
-                    return VNForDoubleCon(-argVal);
-                default:
-                    unreached();
-            }
-        }
+        case VNOP_SXT:
+            assert(type == TYP_LONG);
+            return VNForLongCon(static_cast<int64_t>(argVal));
+        case VNOP_UXT:
+            assert(type == TYP_LONG);
+            return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(argVal)));
+        case VNF_CONVS8:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int8_t>(argVal));
+        case VNF_CONVU8:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<uint8_t>(argVal));
+        case VNF_CONVS16:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int16_t>(argVal));
+        case VNF_CONVU16:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<uint16_t>(argVal));
+        case VNOP_STOF:
+            assert(type == TYP_FLOAT);
+            return VNForFloatCon(static_cast<float>(argVal));
+        case VNOP_UTOF:
+            assert(type == TYP_FLOAT);
+            return VNForFloatCon(static_cast<float>(static_cast<uint32_t>(argVal)));
+        case VNF_STOFD:
+            assert(type == TYP_DOUBLE);
+            return VNForDoubleCon(static_cast<double>(argVal));
+        case VNF_UTOFD:
+            assert(type == TYP_DOUBLE);
+            return VNForDoubleCon(static_cast<double>(static_cast<uint32_t>(argVal)));
+        case VNOP_NEG:
+            assert(type == TYP_INT);
+            return VNForIntCon(-argVal);
+        case VNOP_NOT:
+            assert(type == TYP_INT);
+            return VNForIntCon(~argVal);
+        case VNOP_BSWAP16:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int32_t>(jitstd::byteswap(static_cast<uint16_t>(argVal))));
+        case VNOP_BSWAP:
+            assert(type == TYP_INT);
+            return VNForIntCon(jitstd::byteswap(argVal));
         default:
             unreached();
+        }
+    }
+    case TYP_LONG:
+    {
+        int64_t argVal = GetConstInt64(arg0VN);
+
+        switch (func)
+        {
+        case VNOP_TRUNC:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int32_t>(argVal));
+        case VNF_CONVS8:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int8_t>(argVal));
+        case VNF_CONVU8:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<uint8_t>(argVal));
+        case VNF_CONVS16:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<int16_t>(argVal));
+        case VNF_CONVU16:
+            assert(type == TYP_INT);
+            return VNForIntCon(static_cast<uint16_t>(argVal));
+        case VNOP_STOF:
+            assert(type == TYP_FLOAT);
+            return VNForFloatCon(static_cast<float>(argVal));
+        case VNOP_UTOF:
+            assert(type == TYP_FLOAT);
+            return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(argVal));
+        case VNF_STOFD:
+            assert(type == TYP_DOUBLE);
+            return VNForDoubleCon(static_cast<double>(argVal));
+        case VNF_UTOFD:
+            assert(type == TYP_DOUBLE);
+            return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(argVal));
+        case VNOP_NEG:
+            assert(type == TYP_LONG);
+            return VNForLongCon(-argVal);
+        case VNOP_NOT:
+            assert(type == TYP_LONG);
+            return VNForLongCon(~argVal);
+        case VNOP_BSWAP:
+            assert(type == TYP_LONG);
+            return VNForLongCon(jitstd::byteswap(argVal));
+        default:
+            unreached();
+        }
+    }
+    case TYP_FLOAT:
+    {
+        float argVal = GetConstFloat(arg0VN);
+
+        switch (func)
+        {
+        case VNOP_FTOS:
+            return VNForIntCon(static_cast<int32_t>(argVal));
+        case VNOP_FTOU:
+            return VNForIntCon(static_cast<uint32_t>(argVal));
+        case VNF_FTOSL:
+            return VNForLongCon(static_cast<int64_t>(argVal));
+        case VNF_FTOUL:
+            return VNForLongCon(static_cast<uint64_t>(argVal));
+        case VNOP_FNEG:
+            return VNForFloatCon(-argVal);
+        default:
+            unreached();
+        }
+    }
+    case TYP_DOUBLE:
+    {
+        double argVal = GetConstDouble(arg0VN);
+
+        switch (func)
+        {
+        case VNOP_FTOS:
+            return VNForIntCon(static_cast<int32_t>(argVal));
+        case VNOP_FTOU:
+            return VNForIntCon(static_cast<uint32_t>(argVal));
+        case VNF_FTOSL:
+            return VNForLongCon(static_cast<int64_t>(argVal));
+        case VNF_FTOUL:
+            return VNForLongCon(static_cast<uint64_t>(argVal));
+        case VNOP_FNEG:
+            return VNForDoubleCon(-argVal);
+        default:
+            unreached();
+        }
+    }
+    default:
+        unreached();
     }
 }
 
@@ -1597,51 +1597,51 @@ bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
 {
     switch (vnf)
     {
-        case VNOP_ADD:
-        case VNOP_SUB:
-        case VNOP_MUL:
-        case VNOP_SDIV:
-        case VNOP_SREM:
-        case VNOP_UDIV:
-        case VNOP_UREM:
-        case VNOP_AND:
-        case VNOP_OR:
-        case VNOP_XOR:
-        case VNOP_LSH:
-        case VNOP_RSH:
-        case VNOP_RSZ:
-        case VNOP_ROL:
-        case VNOP_ROR:
-        case VNOP_FADD:
-        case VNOP_FSUB:
-        case VNOP_FMUL:
-        case VNOP_FDIV:
-        case VNOP_FREM:
-        case VNF_COND_EQ:
-        case VNF_COND_NE:
-        case VNF_COND_SGT:
-        case VNF_COND_SGE:
-        case VNF_COND_SLT:
-        case VNF_COND_SLE:
-        case VNF_COND_UGT:
-        case VNF_COND_UGE:
-        case VNF_COND_ULT:
-        case VNF_COND_ULE:
-        case VNF_COND_FEQ:
-        case VNF_COND_FNE:
-        case VNF_COND_FGT:
-        case VNF_COND_FGE:
-        case VNF_COND_FLT:
-        case VNF_COND_FLE:
-        case VNF_COND_FEQU:
-        case VNF_COND_FNEU:
-        case VNF_COND_FGTU:
-        case VNF_COND_FGEU:
-        case VNF_COND_FLTU:
-        case VNF_COND_FLEU:
-            return true;
-        default:
-            return false;
+    case VNOP_ADD:
+    case VNOP_SUB:
+    case VNOP_MUL:
+    case VNOP_SDIV:
+    case VNOP_SREM:
+    case VNOP_UDIV:
+    case VNOP_UREM:
+    case VNOP_AND:
+    case VNOP_OR:
+    case VNOP_XOR:
+    case VNOP_LSH:
+    case VNOP_RSH:
+    case VNOP_RSZ:
+    case VNOP_ROL:
+    case VNOP_ROR:
+    case VNOP_FADD:
+    case VNOP_FSUB:
+    case VNOP_FMUL:
+    case VNOP_FDIV:
+    case VNOP_FREM:
+    case VNF_COND_EQ:
+    case VNF_COND_NE:
+    case VNF_COND_SGT:
+    case VNF_COND_SGE:
+    case VNF_COND_SLT:
+    case VNF_COND_SLE:
+    case VNF_COND_UGT:
+    case VNF_COND_UGE:
+    case VNF_COND_ULT:
+    case VNF_COND_ULE:
+    case VNF_COND_FEQ:
+    case VNF_COND_FNE:
+    case VNF_COND_FGT:
+    case VNF_COND_FGE:
+    case VNF_COND_FLT:
+    case VNF_COND_FLE:
+    case VNF_COND_FEQU:
+    case VNF_COND_FNEU:
+    case VNF_COND_FGTU:
+    case VNF_COND_FGEU:
+    case VNF_COND_FLTU:
+    case VNF_COND_FLEU:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -1674,78 +1674,78 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
 
     switch (vnf)
     {
-        case VNOP_ADD:
-            return v0 + v1;
-        case VNOP_SUB:
-            return v0 - v1;
-        case VNOP_MUL:
-            return v0 * v1;
+    case VNOP_ADD:
+        return v0 + v1;
+    case VNOP_SUB:
+        return v0 - v1;
+    case VNOP_MUL:
+        return v0 * v1;
 
-        case VNOP_SDIV:
-            assert(v1 != 0);
-            assert(!IsOverflowIntDiv(v0, v1));
-            return v0 / v1;
+    case VNOP_SDIV:
+        assert(v1 != 0);
+        assert(!IsOverflowIntDiv(v0, v1));
+        return v0 / v1;
 
-        case VNOP_SREM:
-            assert(v1 != 0);
-            assert(!IsOverflowIntDiv(v0, v1));
-            return v0 % v1;
+    case VNOP_SREM:
+        assert(v1 != 0);
+        assert(!IsOverflowIntDiv(v0, v1));
+        return v0 % v1;
 
-        case VNOP_UDIV:
-            assert(v1 != 0);
-            return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
+    case VNOP_UDIV:
+        assert(v1 != 0);
+        return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
 
-        case VNOP_UREM:
-            assert(v1 != 0);
-            return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
+    case VNOP_UREM:
+        assert(v1 != 0);
+        return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
 
-        case VNOP_AND:
-            return v0 & v1;
-        case VNOP_OR:
-            return v0 | v1;
-        case VNOP_XOR:
-            return v0 ^ v1;
+    case VNOP_AND:
+        return v0 & v1;
+    case VNOP_OR:
+        return v0 | v1;
+    case VNOP_XOR:
+        return v0 ^ v1;
 
-        case VNOP_LSH:
-            // TODO-MIKE-Review: Why does this mask the shift amount for 64 bit but not for 32 bit shifts?
-            // And why does it do it on ARM?
-            return (sizeof(T) == 8) ? (v0 << (v1 & 63)) : (v0 << v1);
-        case VNOP_RSH:
-            return (sizeof(T) == 8) ? (v0 >> (v1 & 63)) : (v0 >> v1);
-        case VNOP_RSZ:
-            return (sizeof(T) == 8) ? static_cast<T>(static_cast<UT>(v0) >> (v1 & 63))
-                                    : static_cast<T>(static_cast<UT>(v0) >> v1);
+    case VNOP_LSH:
+        // TODO-MIKE-Review: Why does this mask the shift amount for 64 bit but not for 32 bit shifts?
+        // And why does it do it on ARM?
+        return (sizeof(T) == 8) ? (v0 << (v1 & 63)) : (v0 << v1);
+    case VNOP_RSH:
+        return (sizeof(T) == 8) ? (v0 >> (v1 & 63)) : (v0 >> v1);
+    case VNOP_RSZ:
+        return (sizeof(T) == 8) ? static_cast<T>(static_cast<UT>(v0) >> (v1 & 63))
+                                : static_cast<T>(static_cast<UT>(v0) >> v1);
 
-        case VNOP_ROL:
-            return static_cast<T>(jitstd::rotl(static_cast<UT>(v0), static_cast<int>(v1)));
-        case VNOP_ROR:
-            return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
+    case VNOP_ROL:
+        return static_cast<T>(jitstd::rotl(static_cast<UT>(v0), static_cast<int>(v1)));
+    case VNOP_ROR:
+        return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
 
-        case VNF_COND_EQ:
-            return v0 == v1;
-        case VNF_COND_NE:
-            return v0 != v1;
+    case VNF_COND_EQ:
+        return v0 == v1;
+    case VNF_COND_NE:
+        return v0 != v1;
 
-        case VNF_COND_SGT:
-            return v0 > v1;
-        case VNF_COND_SGE:
-            return v0 >= v1;
-        case VNF_COND_SLT:
-            return v0 < v1;
-        case VNF_COND_SLE:
-            return v0 <= v1;
+    case VNF_COND_SGT:
+        return v0 > v1;
+    case VNF_COND_SGE:
+        return v0 >= v1;
+    case VNF_COND_SLT:
+        return v0 < v1;
+    case VNF_COND_SLE:
+        return v0 <= v1;
 
-        case VNF_COND_UGT:
-            return static_cast<UT>(v0) > static_cast<UT>(v1);
-        case VNF_COND_UGE:
-            return static_cast<UT>(v0) >= static_cast<UT>(v1);
-        case VNF_COND_ULT:
-            return static_cast<UT>(v0) < static_cast<UT>(v1);
-        case VNF_COND_ULE:
-            return static_cast<UT>(v0) <= static_cast<UT>(v1);
+    case VNF_COND_UGT:
+        return static_cast<UT>(v0) > static_cast<UT>(v1);
+    case VNF_COND_UGE:
+        return static_cast<UT>(v0) >= static_cast<UT>(v1);
+    case VNF_COND_ULT:
+        return static_cast<UT>(v0) < static_cast<UT>(v1);
+    case VNF_COND_ULE:
+        return static_cast<UT>(v0) <= static_cast<UT>(v1);
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -1768,38 +1768,38 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 
     switch (type0)
     {
-        case TYP_INT:
-            arg0Val = GetConstInt32(arg0VN);
-            break;
-        case TYP_LONG:
-            arg0Val = GetConstInt64(arg0VN);
-            break;
-        case TYP_REF:
-        case TYP_BYREF:
-            type0   = TYP_I_IMPL;
-            arg0Val = GetConstByRef(arg0VN);
-            break;
-        default:
-            unreached();
+    case TYP_INT:
+        arg0Val = GetConstInt32(arg0VN);
+        break;
+    case TYP_LONG:
+        arg0Val = GetConstInt64(arg0VN);
+        break;
+    case TYP_REF:
+    case TYP_BYREF:
+        type0   = TYP_I_IMPL;
+        arg0Val = GetConstByRef(arg0VN);
+        break;
+    default:
+        unreached();
     }
 
     var_types type1 = TypeOfVN(arg1VN);
 
     switch (type1)
     {
-        case TYP_INT:
-            arg1Val = GetConstInt32(arg1VN);
-            break;
-        case TYP_LONG:
-            arg1Val = GetConstInt64(arg1VN);
-            break;
-        case TYP_REF:
-        case TYP_BYREF:
-            type1   = TYP_I_IMPL;
-            arg1Val = GetConstByRef(arg1VN);
-            break;
-        default:
-            unreached();
+    case TYP_INT:
+        arg1Val = GetConstInt32(arg1VN);
+        break;
+    case TYP_LONG:
+        arg1Val = GetConstInt64(arg1VN);
+        break;
+    case TYP_REF:
+    case TYP_BYREF:
+        type1   = TYP_I_IMPL;
+        arg1Val = GetConstByRef(arg1VN);
+        break;
+    default:
+        unreached();
     }
 
     if (type0 != type1)
@@ -1841,17 +1841,17 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 
     switch (type)
     {
-        case TYP_INT:
-            return VNForIntCon(static_cast<int32_t>(result));
-        case TYP_LONG:
-            return VNForLongCon(result);
-        case TYP_REF:
-            assert(result == 0); // The only valid REF constant
-            return NullVN;
-        case TYP_BYREF:
-            return VNForByrefCon(static_cast<target_size_t>(result));
-        default:
-            unreached();
+    case TYP_INT:
+        return VNForIntCon(static_cast<int32_t>(result));
+    case TYP_LONG:
+        return VNForLongCon(result);
+    case TYP_REF:
+        assert(result == 0); // The only valid REF constant
+        return NullVN;
+    case TYP_BYREF:
+        return VNForByrefCon(static_cast<target_size_t>(result));
+    default:
+        unreached();
     }
 }
 
@@ -2042,18 +2042,18 @@ static T EvalFloatOp(VNFunc vnf, T v0, T v1)
 
     switch (vnf)
     {
-        case VNOP_FADD:
-            return FpAdd<T, Traits>(v0, v1);
-        case VNOP_FSUB:
-            return FpSub<T, Traits>(v0, v1);
-        case VNOP_FMUL:
-            return FpMul<T, Traits>(v0, v1);
-        case VNOP_FDIV:
-            return FpDiv<T, Traits>(v0, v1);
-        case VNOP_FREM:
-            return FpRem<T, Traits>(v0, v1);
-        default:
-            unreached();
+    case VNOP_FADD:
+        return FpAdd<T, Traits>(v0, v1);
+    case VNOP_FSUB:
+        return FpSub<T, Traits>(v0, v1);
+    case VNOP_FMUL:
+        return FpMul<T, Traits>(v0, v1);
+    case VNOP_FDIV:
+        return FpDiv<T, Traits>(v0, v1);
+    case VNOP_FREM:
+        return FpRem<T, Traits>(v0, v1);
+    default:
+        unreached();
     }
 }
 
@@ -2070,26 +2070,26 @@ static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 
     switch (vnf)
     {
-        case VNF_COND_FEQ:
-        case VNF_COND_FEQU:
-            return v0 == v1;
-        case VNF_COND_FNE:
-        case VNF_COND_FNEU:
-            return v0 != v1;
-        case VNF_COND_FGT:
-        case VNF_COND_FGTU:
-            return v0 > v1;
-        case VNF_COND_FGE:
-        case VNF_COND_FGEU:
-            return v0 >= v1;
-        case VNF_COND_FLT:
-        case VNF_COND_FLTU:
-            return v0 < v1;
-        case VNF_COND_FLE:
-        case VNF_COND_FLEU:
-            return v0 <= v1;
-        default:
-            unreached();
+    case VNF_COND_FEQ:
+    case VNF_COND_FEQU:
+        return v0 == v1;
+    case VNF_COND_FNE:
+    case VNF_COND_FNEU:
+        return v0 != v1;
+    case VNF_COND_FGT:
+    case VNF_COND_FGTU:
+        return v0 > v1;
+    case VNF_COND_FGE:
+    case VNF_COND_FGEU:
+        return v0 >= v1;
+    case VNF_COND_FLT:
+    case VNF_COND_FLTU:
+        return v0 < v1;
+    case VNF_COND_FLE:
+    case VNF_COND_FLEU:
+        return v0 <= v1;
+    default:
+        unreached();
     }
 }
 
@@ -2144,174 +2144,174 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
         ValueNum oneVN;
         int64_t  value;
 
-        case VNOP_ADD:
-            zeroVN = VNZeroForType(type);
+    case VNOP_ADD:
+        zeroVN = VNZeroForType(type);
 
-            if (arg0VN == zeroVN)
-            {
-                return arg1VN;
-            }
+        if (arg0VN == zeroVN)
+        {
+            return arg1VN;
+        }
 
-            if (arg1VN == zeroVN)
-            {
-                return arg0VN;
-            }
-            break;
+        if (arg1VN == zeroVN)
+        {
+            return arg0VN;
+        }
+        break;
 
-        case VNOP_SUB:
-            zeroVN = VNZeroForType(type);
+    case VNOP_SUB:
+        zeroVN = VNZeroForType(type);
 
-            if (arg1VN == zeroVN)
-            {
-                return arg0VN;
-            }
+        if (arg1VN == zeroVN)
+        {
+            return arg0VN;
+        }
 
-            if (arg0VN == arg1VN)
-            {
-                return zeroVN;
-            }
-            break;
+        if (arg0VN == arg1VN)
+        {
+            return zeroVN;
+        }
+        break;
 
-        case VNOP_MUL:
-            zeroVN = VNZeroForType(type);
+    case VNOP_MUL:
+        zeroVN = VNZeroForType(type);
 
-            if (arg0VN == zeroVN)
-            {
-                return zeroVN;
-            }
+        if (arg0VN == zeroVN)
+        {
+            return zeroVN;
+        }
 
-            if (arg1VN == zeroVN)
-            {
-                return zeroVN;
-            }
+        if (arg1VN == zeroVN)
+        {
+            return zeroVN;
+        }
 
-            oneVN = VNOneForType(type);
+        oneVN = VNOneForType(type);
 
-            if (arg0VN == oneVN)
-            {
-                return arg1VN;
-            }
+        if (arg0VN == oneVN)
+        {
+            return arg1VN;
+        }
 
-            if (arg1VN == oneVN)
-            {
-                return arg0VN;
-            }
-            break;
+        if (arg1VN == oneVN)
+        {
+            return arg0VN;
+        }
+        break;
 
-        case VNOP_SDIV:
-        case VNOP_UDIV:
-            if (arg1VN == VNOneForType(type))
-            {
-                return arg0VN;
-            }
-            break;
+    case VNOP_SDIV:
+    case VNOP_UDIV:
+        if (arg1VN == VNOneForType(type))
+        {
+            return arg0VN;
+        }
+        break;
 
-        case VNOP_OR:
-        case VNOP_XOR:
-            zeroVN = VNZeroForType(type);
+    case VNOP_OR:
+    case VNOP_XOR:
+        zeroVN = VNZeroForType(type);
 
-            if (arg0VN == zeroVN)
-            {
-                // TODO-MIKE-Cleanup: We get OR(I_IMPL, REF) from phOptimizeBools, so we need to bitcast
-                // the arg to I_IMPL for the result to match the OR type. We should probably just insert
-                // a BITCAST node into the IR. Also, this might happen with ADD/SUB as well.
-                return varActualType(TypeOfVN(arg1VN)) == type ? arg1VN : VNForBitCast(arg1VN, type);
-            }
+        if (arg0VN == zeroVN)
+        {
+            // TODO-MIKE-Cleanup: We get OR(I_IMPL, REF) from phOptimizeBools, so we need to bitcast
+            // the arg to I_IMPL for the result to match the OR type. We should probably just insert
+            // a BITCAST node into the IR. Also, this might happen with ADD/SUB as well.
+            return varActualType(TypeOfVN(arg1VN)) == type ? arg1VN : VNForBitCast(arg1VN, type);
+        }
 
-            if (arg1VN == zeroVN)
-            {
-                return varActualType(TypeOfVN(arg0VN)) == type ? arg0VN : VNForBitCast(arg0VN, type);
-            }
-            break;
+        if (arg1VN == zeroVN)
+        {
+            return varActualType(TypeOfVN(arg0VN)) == type ? arg0VN : VNForBitCast(arg0VN, type);
+        }
+        break;
 
-        case VNOP_AND:
-            zeroVN = VNZeroForType(type);
+    case VNOP_AND:
+        zeroVN = VNZeroForType(type);
 
-            if (arg0VN == zeroVN)
-            {
-                return zeroVN;
-            }
+        if (arg0VN == zeroVN)
+        {
+            return zeroVN;
+        }
 
-            if (arg1VN == zeroVN)
-            {
-                return zeroVN;
-            }
-            break;
+        if (arg1VN == zeroVN)
+        {
+            return zeroVN;
+        }
+        break;
 
-        case VNOP_LSH:
-        case VNOP_RSH:
-        case VNOP_RSZ:
-        case VNOP_ROL:
-        case VNOP_ROR:
-            zeroVN = VNZeroForType(type);
+    case VNOP_LSH:
+    case VNOP_RSH:
+    case VNOP_RSZ:
+    case VNOP_ROL:
+    case VNOP_ROR:
+        zeroVN = VNZeroForType(type);
 
-            if (arg1VN == zeroVN)
-            {
-                return arg0VN;
-            }
+        if (arg1VN == zeroVN)
+        {
+            return arg0VN;
+        }
 
-            if (arg0VN == zeroVN)
-            {
-                return zeroVN;
-            }
-            break;
+        if (arg0VN == zeroVN)
+        {
+            return zeroVN;
+        }
+        break;
 
-        case VNF_COND_EQ:
-            if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
-            {
-                return VNZeroForType(type);
-            }
-            FALLTHROUGH;
-        case VNF_COND_SGE:
-        case VNF_COND_SLE:
-            if (arg0VN == arg1VN)
-            {
-                return VNOneForType(type);
-            }
-            break;
+    case VNF_COND_EQ:
+        if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
+        {
+            return VNZeroForType(type);
+        }
+        FALLTHROUGH;
+    case VNF_COND_SGE:
+    case VNF_COND_SLE:
+        if (arg0VN == arg1VN)
+        {
+            return VNOneForType(type);
+        }
+        break;
 
-        case VNF_COND_NE:
-            if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
-            {
-                return VNOneForType(type);
-            }
+    case VNF_COND_NE:
+        if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
+        {
+            return VNOneForType(type);
+        }
 
-            if (arg0VN == arg1VN)
-            {
-                return VNZeroForType(type);
-            }
-            break;
+        if (arg0VN == arg1VN)
+        {
+            return VNZeroForType(type);
+        }
+        break;
 
-        case VNF_COND_SGT:
-        case VNF_COND_SLT:
-            if (arg0VN == arg1VN)
-            {
-                return VNZeroForType(type);
-            }
-            break;
+    case VNF_COND_SGT:
+    case VNF_COND_SLT:
+        if (arg0VN == arg1VN)
+        {
+            return VNZeroForType(type);
+        }
+        break;
 
-        case VNF_COND_ULT:
-            std::swap(arg0VN, arg1VN);
-            FALLTHROUGH;
-        case VNF_COND_UGT:
-            if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
-            {
-                return VNZeroForType(type);
-            }
-            break;
+    case VNF_COND_ULT:
+        std::swap(arg0VN, arg1VN);
+        FALLTHROUGH;
+    case VNF_COND_UGT:
+        if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
+        {
+            return VNZeroForType(type);
+        }
+        break;
 
-        case VNF_COND_UGE:
-            std::swap(arg0VN, arg1VN);
-            FALLTHROUGH;
-        case VNF_COND_ULE:
-            if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
-            {
-                return VNOneForType(type);
-            }
-            break;
+    case VNF_COND_UGE:
+        std::swap(arg0VN, arg1VN);
+        FALLTHROUGH;
+    case VNF_COND_ULE:
+        if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
+        {
+            return VNOneForType(type);
+        }
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 
     return NoVN;
@@ -4317,14 +4317,14 @@ LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
     // use the loop number as if it's a VN, they should use a const VN instead.
     switch (GetVNFunc(vn, &funcApp))
     {
-        case VNF_Unique:
-            return static_cast<LoopNum>(funcApp[0] - 1);
-        case VNF_MapStore:
-            return static_cast<LoopNum>(funcApp[3] - 1);
-        case VNF_MemoryPhi:
-            return ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum();
-        default:
-            return MaxLoopNum;
+    case VNF_Unique:
+        return static_cast<LoopNum>(funcApp[0] - 1);
+    case VNF_MapStore:
+        return static_cast<LoopNum>(funcApp[3] - 1);
+    case VNF_MemoryPhi:
+        return ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum();
+    default:
+        return MaxLoopNum;
     }
 }
 
@@ -4454,74 +4454,74 @@ ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Valu
 
             switch (intrin)
             {
-                case NI_System_Math_Abs:
-                    res = fabs(argVal);
-                    break;
-                case NI_System_Math_Acos:
-                    res = acos(argVal);
-                    break;
-                case NI_System_Math_Acosh:
-                    res = acosh(argVal);
-                    break;
-                case NI_System_Math_Asin:
-                    res = asin(argVal);
-                    break;
-                case NI_System_Math_Asinh:
-                    res = asinh(argVal);
-                    break;
-                case NI_System_Math_Atan:
-                    res = atan(argVal);
-                    break;
-                case NI_System_Math_Atanh:
-                    res = atanh(argVal);
-                    break;
-                case NI_System_Math_Cbrt:
-                    res = cbrt(argVal);
-                    break;
-                case NI_System_Math_Ceiling:
-                    res = ceil(argVal);
-                    break;
-                case NI_System_Math_Cos:
-                    res = cos(argVal);
-                    break;
-                case NI_System_Math_Cosh:
-                    res = cosh(argVal);
-                    break;
-                case NI_System_Math_Exp:
-                    res = exp(argVal);
-                    break;
-                case NI_System_Math_Floor:
-                    res = floor(argVal);
-                    break;
-                case NI_System_Math_Log:
-                    res = log(argVal);
-                    break;
-                case NI_System_Math_Log2:
-                    res = log2(argVal);
-                    break;
-                case NI_System_Math_Log10:
-                    res = log10(argVal);
-                    break;
-                case NI_System_Math_Sin:
-                    res = sin(argVal);
-                    break;
-                case NI_System_Math_Sinh:
-                    res = sinh(argVal);
-                    break;
-                case NI_System_Math_Round:
-                    res = FloatingPointUtils::round(argVal);
-                    break;
-                case NI_System_Math_Sqrt:
-                    res = sqrt(argVal);
-                    break;
-                case NI_System_Math_Tan:
-                    res = tan(argVal);
-                    break;
-                case NI_System_Math_Tanh:
-                    res = tanh(argVal);
-                    break;
-                default:
-                    unreached();
+            case NI_System_Math_Abs:
+                res = fabs(argVal);
+                break;
+            case NI_System_Math_Acos:
+                res = acos(argVal);
+                break;
+            case NI_System_Math_Acosh:
+                res = acosh(argVal);
+                break;
+            case NI_System_Math_Asin:
+                res = asin(argVal);
+                break;
+            case NI_System_Math_Asinh:
+                res = asinh(argVal);
+                break;
+            case NI_System_Math_Atan:
+                res = atan(argVal);
+                break;
+            case NI_System_Math_Atanh:
+                res = atanh(argVal);
+                break;
+            case NI_System_Math_Cbrt:
+                res = cbrt(argVal);
+                break;
+            case NI_System_Math_Ceiling:
+                res = ceil(argVal);
+                break;
+            case NI_System_Math_Cos:
+                res = cos(argVal);
+                break;
+            case NI_System_Math_Cosh:
+                res = cosh(argVal);
+                break;
+            case NI_System_Math_Exp:
+                res = exp(argVal);
+                break;
+            case NI_System_Math_Floor:
+                res = floor(argVal);
+                break;
+            case NI_System_Math_Log:
+                res = log(argVal);
+                break;
+            case NI_System_Math_Log2:
+                res = log2(argVal);
+                break;
+            case NI_System_Math_Log10:
+                res = log10(argVal);
+                break;
+            case NI_System_Math_Sin:
+                res = sin(argVal);
+                break;
+            case NI_System_Math_Sinh:
+                res = sinh(argVal);
+                break;
+            case NI_System_Math_Round:
+                res = FloatingPointUtils::round(argVal);
+                break;
+            case NI_System_Math_Sqrt:
+                res = sqrt(argVal);
+                break;
+            case NI_System_Math_Tan:
+                res = tan(argVal);
+                break;
+            case NI_System_Math_Tanh:
+                res = tanh(argVal);
+                break;
+            default:
+                unreached();
             }
 
             return VNForDoubleCon(res);
@@ -4534,74 +4534,74 @@ ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Valu
 
             switch (intrin)
             {
-                case NI_System_Math_Abs:
-                    res = fabsf(argVal);
-                    break;
-                case NI_System_Math_Acos:
-                    res = acosf(argVal);
-                    break;
-                case NI_System_Math_Acosh:
-                    res = acoshf(argVal);
-                    break;
-                case NI_System_Math_Asin:
-                    res = asinf(argVal);
-                    break;
-                case NI_System_Math_Asinh:
-                    res = asinhf(argVal);
-                    break;
-                case NI_System_Math_Atan:
-                    res = atanf(argVal);
-                    break;
-                case NI_System_Math_Atanh:
-                    res = atanhf(argVal);
-                    break;
-                case NI_System_Math_Cbrt:
-                    res = cbrtf(argVal);
-                    break;
-                case NI_System_Math_Ceiling:
-                    res = ceilf(argVal);
-                    break;
-                case NI_System_Math_Cos:
-                    res = cosf(argVal);
-                    break;
-                case NI_System_Math_Cosh:
-                    res = coshf(argVal);
-                    break;
-                case NI_System_Math_Exp:
-                    res = expf(argVal);
-                    break;
-                case NI_System_Math_Floor:
-                    res = floorf(argVal);
-                    break;
-                case NI_System_Math_Log:
-                    res = logf(argVal);
-                    break;
-                case NI_System_Math_Log2:
-                    res = log2f(argVal);
-                    break;
-                case NI_System_Math_Log10:
-                    res = log10f(argVal);
-                    break;
-                case NI_System_Math_Sin:
-                    res = sinf(argVal);
-                    break;
-                case NI_System_Math_Sinh:
-                    res = sinhf(argVal);
-                    break;
-                case NI_System_Math_Round:
-                    res = FloatingPointUtils::round(argVal);
-                    break;
-                case NI_System_Math_Sqrt:
-                    res = sqrtf(argVal);
-                    break;
-                case NI_System_Math_Tan:
-                    res = tanf(argVal);
-                    break;
-                case NI_System_Math_Tanh:
-                    res = tanhf(argVal);
-                    break;
-                default:
-                    unreached();
+            case NI_System_Math_Abs:
+                res = fabsf(argVal);
+                break;
+            case NI_System_Math_Acos:
+                res = acosf(argVal);
+                break;
+            case NI_System_Math_Acosh:
+                res = acoshf(argVal);
+                break;
+            case NI_System_Math_Asin:
+                res = asinf(argVal);
+                break;
+            case NI_System_Math_Asinh:
+                res = asinhf(argVal);
+                break;
+            case NI_System_Math_Atan:
+                res = atanf(argVal);
+                break;
+            case NI_System_Math_Atanh:
+                res = atanhf(argVal);
+                break;
+            case NI_System_Math_Cbrt:
+                res = cbrtf(argVal);
+                break;
+            case NI_System_Math_Ceiling:
+                res = ceilf(argVal);
+                break;
+            case NI_System_Math_Cos:
+                res = cosf(argVal);
+                break;
+            case NI_System_Math_Cosh:
+                res = coshf(argVal);
+                break;
+            case NI_System_Math_Exp:
+                res = expf(argVal);
+                break;
+            case NI_System_Math_Floor:
+                res = floorf(argVal);
+                break;
+            case NI_System_Math_Log:
+                res = logf(argVal);
+                break;
+            case NI_System_Math_Log2:
+                res = log2f(argVal);
+                break;
+            case NI_System_Math_Log10:
+                res = log10f(argVal);
+                break;
+            case NI_System_Math_Sin:
+                res = sinf(argVal);
+                break;
+            case NI_System_Math_Sinh:
+                res = sinhf(argVal);
+                break;
+            case NI_System_Math_Round:
+                res = FloatingPointUtils::round(argVal);
+                break;
+            case NI_System_Math_Sqrt:
+                res = sqrtf(argVal);
+                break;
+            case NI_System_Math_Tan:
+                res = tanf(argVal);
+                break;
+            case NI_System_Math_Tanh:
+                res = tanhf(argVal);
+                break;
+            default:
+                unreached();
             }
 
             return VNForFloatCon(res);
@@ -4614,14 +4614,14 @@ ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Valu
 
         switch (TypeOfVN(argVN))
         {
-            case TYP_DOUBLE:
-                res = ilogb(GetConstDouble(argVN));
-                break;
-            case TYP_FLOAT:
-                res = ilogbf(GetConstFloat(argVN));
-                break;
-            default:
-                unreached();
+        case TYP_DOUBLE:
+            res = ilogb(GetConstDouble(argVN));
+            break;
+        case TYP_FLOAT:
+            res = ilogbf(GetConstFloat(argVN));
+            break;
+        default:
+            unreached();
         }
 
         return VNForIntCon(res);
@@ -4631,77 +4631,77 @@ ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Valu
 
     switch (intrin)
     {
-        case NI_System_Math_Abs:
-            vnf = VNF_Abs;
-            break;
-        case NI_System_Math_Acos:
-            vnf = VNF_Acos;
-            break;
-        case NI_System_Math_Acosh:
-            vnf = VNF_Acosh;
-            break;
-        case NI_System_Math_Asin:
-            vnf = VNF_Asin;
-            break;
-        case NI_System_Math_Asinh:
-            vnf = VNF_Asinh;
-            break;
-        case NI_System_Math_Atan:
-            vnf = VNF_Atan;
-            break;
-        case NI_System_Math_Atanh:
-            vnf = VNF_Atanh;
-            break;
-        case NI_System_Math_Cbrt:
-            vnf = VNF_Cbrt;
-            break;
-        case NI_System_Math_Ceiling:
-            vnf = VNF_Ceiling;
-            break;
-        case NI_System_Math_Cos:
-            vnf = VNF_Cos;
-            break;
-        case NI_System_Math_Cosh:
-            vnf = VNF_Cosh;
-            break;
-        case NI_System_Math_Exp:
-            vnf = VNF_Exp;
-            break;
-        case NI_System_Math_Floor:
-            vnf = VNF_Floor;
-            break;
-        case NI_System_Math_ILogB:
-            vnf = VNF_ILogB;
-            break;
-        case NI_System_Math_Log:
-            vnf = VNF_Log;
-            break;
-        case NI_System_Math_Log2:
-            vnf = VNF_Log2;
-            break;
-        case NI_System_Math_Log10:
-            vnf = VNF_Log10;
-            break;
-        case NI_System_Math_Round:
-            vnf = VNF_Round;
-            break;
-        case NI_System_Math_Sin:
-            vnf = VNF_Sin;
-            break;
-        case NI_System_Math_Sinh:
-            vnf = VNF_Sinh;
-            break;
-        case NI_System_Math_Sqrt:
-            vnf = VNF_Sqrt;
-            break;
-        case NI_System_Math_Tan:
-            vnf = VNF_Tan;
-            break;
-        case NI_System_Math_Tanh:
-            vnf = VNF_Tanh;
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Abs:
+        vnf = VNF_Abs;
+        break;
+    case NI_System_Math_Acos:
+        vnf = VNF_Acos;
+        break;
+    case NI_System_Math_Acosh:
+        vnf = VNF_Acosh;
+        break;
+    case NI_System_Math_Asin:
+        vnf = VNF_Asin;
+        break;
+    case NI_System_Math_Asinh:
+        vnf = VNF_Asinh;
+        break;
+    case NI_System_Math_Atan:
+        vnf = VNF_Atan;
+        break;
+    case NI_System_Math_Atanh:
+        vnf = VNF_Atanh;
+        break;
+    case NI_System_Math_Cbrt:
+        vnf = VNF_Cbrt;
+        break;
+    case NI_System_Math_Ceiling:
+        vnf = VNF_Ceiling;
+        break;
+    case NI_System_Math_Cos:
+        vnf = VNF_Cos;
+        break;
+    case NI_System_Math_Cosh:
+        vnf = VNF_Cosh;
+        break;
+    case NI_System_Math_Exp:
+        vnf = VNF_Exp;
+        break;
+    case NI_System_Math_Floor:
+        vnf = VNF_Floor;
+        break;
+    case NI_System_Math_ILogB:
+        vnf = VNF_ILogB;
+        break;
+    case NI_System_Math_Log:
+        vnf = VNF_Log;
+        break;
+    case NI_System_Math_Log2:
+        vnf = VNF_Log2;
+        break;
+    case NI_System_Math_Log10:
+        vnf = VNF_Log10;
+        break;
+    case NI_System_Math_Round:
+        vnf = VNF_Round;
+        break;
+    case NI_System_Math_Sin:
+        vnf = VNF_Sin;
+        break;
+    case NI_System_Math_Sinh:
+        vnf = VNF_Sinh;
+        break;
+    case NI_System_Math_Sqrt:
+        vnf = VNF_Sqrt;
+        break;
+    case NI_System_Math_Tan:
+        vnf = VNF_Tan;
+        break;
+    case NI_System_Math_Tanh:
+        vnf = VNF_Tanh;
+        break;
+    default:
+        unreached();
     }
 
     return VNForFunc(type, vnf, argVN);
@@ -4728,17 +4728,17 @@ ValueNum ValueNumStore::EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Val
 
             switch (intrin)
             {
-                case NI_System_Math_Atan2:
-                    res = atan2(arg0Val, arg1Val);
-                    break;
-                case NI_System_Math_FMod:
-                    res = fmod(arg0Val, arg1Val);
-                    break;
-                case NI_System_Math_Pow:
-                    res = pow(arg0Val, arg1Val);
-                    break;
-                default:
-                    unreached();
+            case NI_System_Math_Atan2:
+                res = atan2(arg0Val, arg1Val);
+                break;
+            case NI_System_Math_FMod:
+                res = fmod(arg0Val, arg1Val);
+                break;
+            case NI_System_Math_Pow:
+                res = pow(arg0Val, arg1Val);
+                break;
+            default:
+                unreached();
             }
 
             return VNForDoubleCon(res);
@@ -4751,17 +4751,17 @@ ValueNum ValueNumStore::EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Val
 
         switch (intrin)
         {
-            case NI_System_Math_Atan2:
-                res = atan2f(arg0Val, arg1Val);
-                break;
-            case NI_System_Math_FMod:
-                res = fmodf(arg0Val, arg1Val);
-                break;
-            case NI_System_Math_Pow:
-                res = powf(arg0Val, arg1Val);
-                break;
-            default:
-                unreached();
+        case NI_System_Math_Atan2:
+            res = atan2f(arg0Val, arg1Val);
+            break;
+        case NI_System_Math_FMod:
+            res = fmodf(arg0Val, arg1Val);
+            break;
+        case NI_System_Math_Pow:
+            res = powf(arg0Val, arg1Val);
+            break;
+        default:
+            unreached();
         }
 
         return VNForFloatCon(res);
@@ -4771,17 +4771,17 @@ ValueNum ValueNumStore::EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Val
 
     switch (intrin)
     {
-        case NI_System_Math_Atan2:
-            vnf = VNF_Atan2;
-            break;
-        case NI_System_Math_FMod:
-            vnf = VNF_FMod;
-            break;
-        case NI_System_Math_Pow:
-            vnf = VNF_Pow;
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Atan2:
+        vnf = VNF_Atan2;
+        break;
+    case NI_System_Math_FMod:
+        vnf = VNF_FMod;
+        break;
+    case NI_System_Math_Pow:
+        vnf = VNF_Pow;
+        break;
+    default:
+        unreached();
     }
 
     return VNForFunc(type, vnf, arg0VN, arg1VN);
@@ -4794,18 +4794,18 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn) const
 
     switch (chunk->m_kind)
     {
-        case ChunkKind::Func4:
-            return static_cast<ChunkData<ChunkKind::Func4>*>(chunk)->Get(offset).func;
-        case ChunkKind::Func3:
-            return static_cast<ChunkData<ChunkKind::Func3>*>(chunk)->Get(offset).func;
-        case ChunkKind::Func2:
-            return static_cast<ChunkData<ChunkKind::Func2>*>(chunk)->Get(offset).func;
-        case ChunkKind::Func1:
-            return static_cast<ChunkData<ChunkKind::Func1>*>(chunk)->Get(offset).func;
-        case ChunkKind::Func0:
-            return static_cast<ChunkData<ChunkKind::Func0>*>(chunk)->Get(offset).func;
-        default:
-            return VNF_None;
+    case ChunkKind::Func4:
+        return static_cast<ChunkData<ChunkKind::Func4>*>(chunk)->Get(offset).func;
+    case ChunkKind::Func3:
+        return static_cast<ChunkData<ChunkKind::Func3>*>(chunk)->Get(offset).func;
+    case ChunkKind::Func2:
+        return static_cast<ChunkData<ChunkKind::Func2>*>(chunk)->Get(offset).func;
+    case ChunkKind::Func1:
+        return static_cast<ChunkData<ChunkKind::Func1>*>(chunk)->Get(offset).func;
+    case ChunkKind::Func0:
+        return static_cast<ChunkData<ChunkKind::Func0>*>(chunk)->Get(offset).func;
+    default:
+        return VNF_None;
     }
 }
 
@@ -4816,58 +4816,58 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 
     switch (chunk->m_kind)
     {
-        case ChunkKind::Func4:
-        {
-            const VNFuncDef4& farg4 = static_cast<ChunkData<ChunkKind::Func4>*>(chunk)->Get(offset);
-            funcApp->func           = farg4.func;
-            funcApp->arity          = 4;
-            funcApp->args[0]        = farg4.arg0;
-            funcApp->args[1]        = farg4.arg1;
-            funcApp->args[2]        = farg4.arg2;
-            funcApp->args[3]        = farg4.arg3;
-            return funcApp->func;
-        }
-        case ChunkKind::Func3:
-        {
-            const VNFuncDef3& farg3 = static_cast<ChunkData<ChunkKind::Func3>*>(chunk)->Get(offset);
-            funcApp->func           = farg3.func;
-            funcApp->arity          = 3;
-            funcApp->args[0]        = farg3.arg0;
-            funcApp->args[1]        = farg3.arg1;
-            funcApp->args[2]        = farg3.arg2;
-            return funcApp->func;
-        }
-        case ChunkKind::Func2:
-        {
-            const VNFuncDef2& farg2 = static_cast<ChunkData<ChunkKind::Func2>*>(chunk)->Get(offset);
-            funcApp->func           = farg2.func;
-            funcApp->arity          = 2;
-            funcApp->args[0]        = farg2.arg0;
-            funcApp->args[1]        = farg2.arg1;
-            return funcApp->func;
-        }
-        case ChunkKind::Func1:
-        {
-            const VNFuncDef1& farg1 = static_cast<ChunkData<ChunkKind::Func1>*>(chunk)->Get(offset);
-            funcApp->func           = farg1.func;
-            funcApp->arity          = 1;
-            funcApp->args[0]        = farg1.arg0;
-            return funcApp->func;
-        }
-        case ChunkKind::Func0:
-        {
-            const VNFuncDef0& farg0 = static_cast<ChunkData<ChunkKind::Func0>*>(chunk)->Get(offset);
-            funcApp->func           = farg0.func;
-            funcApp->arity          = 0;
-            return funcApp->func;
-        }
-        case ChunkKind::NotAField:
-            funcApp->func  = VNF_NotAField;
-            funcApp->arity = 0;
-            return VNF_NotAField;
-        default:
-            funcApp->func = VNF_None;
-            return VNF_None;
+    case ChunkKind::Func4:
+    {
+        const VNFuncDef4& farg4 = static_cast<ChunkData<ChunkKind::Func4>*>(chunk)->Get(offset);
+        funcApp->func           = farg4.func;
+        funcApp->arity          = 4;
+        funcApp->args[0]        = farg4.arg0;
+        funcApp->args[1]        = farg4.arg1;
+        funcApp->args[2]        = farg4.arg2;
+        funcApp->args[3]        = farg4.arg3;
+        return funcApp->func;
+    }
+    case ChunkKind::Func3:
+    {
+        const VNFuncDef3& farg3 = static_cast<ChunkData<ChunkKind::Func3>*>(chunk)->Get(offset);
+        funcApp->func           = farg3.func;
+        funcApp->arity          = 3;
+        funcApp->args[0]        = farg3.arg0;
+        funcApp->args[1]        = farg3.arg1;
+        funcApp->args[2]        = farg3.arg2;
+        return funcApp->func;
+    }
+    case ChunkKind::Func2:
+    {
+        const VNFuncDef2& farg2 = static_cast<ChunkData<ChunkKind::Func2>*>(chunk)->Get(offset);
+        funcApp->func           = farg2.func;
+        funcApp->arity          = 2;
+        funcApp->args[0]        = farg2.arg0;
+        funcApp->args[1]        = farg2.arg1;
+        return funcApp->func;
+    }
+    case ChunkKind::Func1:
+    {
+        const VNFuncDef1& farg1 = static_cast<ChunkData<ChunkKind::Func1>*>(chunk)->Get(offset);
+        funcApp->func           = farg1.func;
+        funcApp->arity          = 1;
+        funcApp->args[0]        = farg1.arg0;
+        return funcApp->func;
+    }
+    case ChunkKind::Func0:
+    {
+        const VNFuncDef0& farg0 = static_cast<ChunkData<ChunkKind::Func0>*>(chunk)->Get(offset);
+        funcApp->func           = farg0.func;
+        funcApp->arity          = 0;
+        return funcApp->func;
+    }
+    case ChunkKind::NotAField:
+        funcApp->func  = VNF_NotAField;
+        funcApp->arity = 0;
+        return VNF_NotAField;
+    default:
+        funcApp->func = VNF_None;
+        return VNF_None;
     }
 }
 
@@ -4891,173 +4891,173 @@ void ValueNumStore::Dump(ValueNum vn)
     {
         switch (constType)
         {
-            case TYP_INT:
+        case TYP_INT:
+        {
+            int32_t val = GetConstInt32(vn);
+            printf("IntCns");
+            if ((val > -1000) && (val < 1000))
             {
-                int32_t val = GetConstInt32(vn);
-                printf("IntCns");
-                if ((val > -1000) && (val < 1000))
-                {
-                    printf(" %ld", val);
-                }
-                else
-                {
-                    printf(" 0x%X", val);
-                }
+                printf(" %ld", val);
+            }
+            else
+            {
+                printf(" 0x%X", val);
+            }
+        }
+        break;
+        case TYP_LONG:
+        {
+            int64_t val = GetConstInt64(vn);
+            printf("LngCns: ");
+            if ((val > -1000) && (val < 1000))
+            {
+                printf(" %ld", val);
+            }
+            else if ((val & 0xFFFFFFFF00000000LL) == 0)
+            {
+                printf(" 0x%X", val);
+            }
+            else
+            {
+                printf(" 0x%llx", val);
+            }
+        }
+        break;
+        case TYP_FLOAT:
+            printf("FltCns[%f]", GetConstFloat(vn));
+            break;
+        case TYP_DOUBLE:
+            printf("DblCns[%f]", GetConstDouble(vn));
+            break;
+        case TYP_REF:
+            if (vn == NullVN)
+            {
+                printf("null");
+            }
+            else if (vn == VoidVN)
+            {
+                printf("void");
+            }
+            else
+            {
+                assert(vn == ZeroMapVN());
+                printf("zeroMap");
             }
             break;
-            case TYP_LONG:
-            {
-                int64_t val = GetConstInt64(vn);
-                printf("LngCns: ");
-                if ((val > -1000) && (val < 1000))
-                {
-                    printf(" %ld", val);
-                }
-                else if ((val & 0xFFFFFFFF00000000LL) == 0)
-                {
-                    printf(" 0x%X", val);
-                }
-                else
-                {
-                    printf(" 0x%llx", val);
-                }
-            }
+        case TYP_BYREF:
+            printf("byrefVal");
             break;
-            case TYP_FLOAT:
-                printf("FltCns[%f]", GetConstFloat(vn));
-                break;
-            case TYP_DOUBLE:
-                printf("DblCns[%f]", GetConstDouble(vn));
-                break;
-            case TYP_REF:
-                if (vn == NullVN)
-                {
-                    printf("null");
-                }
-                else if (vn == VoidVN)
-                {
-                    printf("void");
-                }
-                else
-                {
-                    assert(vn == ZeroMapVN());
-                    printf("zeroMap");
-                }
-                break;
-            case TYP_BYREF:
-                printf("byrefVal");
-                break;
-            case TYP_STRUCT:
-                printf("structVal(zero)");
-                break;
+        case TYP_STRUCT:
+            printf("structVal(zero)");
+            break;
 #ifdef FEATURE_SIMD
-            case TYP_SIMD8:
-            case TYP_SIMD12:
-            case TYP_SIMD16:
-            case TYP_SIMD32:
-                // Only the zero constant is currently allowed for SIMD types
-                assert(GetConstInt64(vn) == 0);
-                printf(" 0");
-                break;
+        case TYP_SIMD8:
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+        case TYP_SIMD32:
+            // Only the zero constant is currently allowed for SIMD types
+            assert(GetConstInt64(vn) == 0);
+            printf(" 0");
+            break;
 #endif
-            // These should be unreached.
-            default:
-                unreached();
+        // These should be unreached.
+        default:
+            unreached();
         }
     }
     else if (VNFunc func = GetVNFunc(vn, &funcApp))
     {
         switch (func)
         {
-            case VNF_FieldSeq:
-                DumpFieldSeq(funcApp, true);
-                break;
-            case VNF_MapSelect:
-                DumpMapSelect(funcApp);
-                break;
-            case VNF_MapStore:
-                DumpMapStore(funcApp);
-                break;
-            case VNF_Phi:
-                DumpPhi(funcApp);
-                break;
-            case VNF_MemoryPhi:
-                DumpMemoryPhi(funcApp);
-                break;
-            case VNF_ValWithExset:
-                DumpValWithExc(funcApp);
-                break;
-            case VNF_Unique:
-                DumpUnique(funcApp);
-                break;
-            case VNF_LclAddr:
-                DumpLclAddr(funcApp);
-                break;
-            case VNF_BitCast:
-                DumpBitCast(funcApp);
-                break;
-            case VNF_PtrToArrElem:
-                DumpPtrToArrElem(funcApp);
-                break;
-            default:
-                if (IsVNCompareCheckedBoundRelop(funcApp))
+        case VNF_FieldSeq:
+            DumpFieldSeq(funcApp, true);
+            break;
+        case VNF_MapSelect:
+            DumpMapSelect(funcApp);
+            break;
+        case VNF_MapStore:
+            DumpMapStore(funcApp);
+            break;
+        case VNF_Phi:
+            DumpPhi(funcApp);
+            break;
+        case VNF_MemoryPhi:
+            DumpMemoryPhi(funcApp);
+            break;
+        case VNF_ValWithExset:
+            DumpValWithExc(funcApp);
+            break;
+        case VNF_Unique:
+            DumpUnique(funcApp);
+            break;
+        case VNF_LclAddr:
+            DumpLclAddr(funcApp);
+            break;
+        case VNF_BitCast:
+            DumpBitCast(funcApp);
+            break;
+        case VNF_PtrToArrElem:
+            DumpPtrToArrElem(funcApp);
+            break;
+        default:
+            if (IsVNCompareCheckedBoundRelop(funcApp))
+            {
+                CompareCheckedBoundArithInfo info;
+
+                if (IsVNCompareCheckedBound(funcApp))
                 {
-                    CompareCheckedBoundArithInfo info;
-
-                    if (IsVNCompareCheckedBound(funcApp))
-                    {
-                        GetCompareCheckedBound(funcApp, &info);
-                        info.Dump();
-                        break;
-                    }
-
-                    if (IsVNCompareCheckedBoundArith(funcApp))
-                    {
-                        GetCompareCheckedBoundArithInfo(funcApp, &info);
-                        info.Dump();
-                        break;
-                    }
+                    GetCompareCheckedBound(funcApp, &info);
+                    info.Dump();
+                    break;
                 }
 
-                printf("%s", GetFuncName(func));
+                if (IsVNCompareCheckedBoundArith(funcApp))
+                {
+                    GetCompareCheckedBoundArithInfo(funcApp, &info);
+                    info.Dump();
+                    break;
+                }
+            }
+
+            printf("%s", GetFuncName(func));
 
 #ifdef FEATURE_HW_INTRINSICS
-                if (func >= VNF_HWI_FIRST)
-                {
-                    var_types type = VNFuncSimdBaseType(func);
-                    unsigned  size = VNFuncSimdSize(func);
+            if (func >= VNF_HWI_FIRST)
+            {
+                var_types type = VNFuncSimdBaseType(func);
+                unsigned  size = VNFuncSimdSize(func);
 
-                    if (type != TYP_UNDEF)
+                if (type != TYP_UNDEF)
+                {
+                    if (size == 0)
                     {
-                        if (size == 0)
-                        {
-                            printf("<%s>", varTypeName(type));
-                        }
-                        else
-                        {
-                            printf("<%s x %u>", varTypeName(type), size / varTypeSize(type));
-                        }
+                        printf("<%s>", varTypeName(type));
+                    }
+                    else
+                    {
+                        printf("<%s x %u>", varTypeName(type), size / varTypeSize(type));
                     }
                 }
+            }
 #endif
 
-                printf("(");
+            printf("(");
 
-                for (unsigned i = 0; i < funcApp.arity; i++)
+            for (unsigned i = 0; i < funcApp.arity; i++)
+            {
+                if (i > 0)
                 {
-                    if (i > 0)
-                    {
-                        printf(", ");
-                    }
+                    printf(", ");
+                }
 
-                    printf(FMT_VN, funcApp[i]);
+                printf(FMT_VN, funcApp[i]);
 #if 0
                     printf("=");
                     vnDump(comp, funcApp[i]);
 #endif
-                }
+            }
 
-                printf(")");
+            printf(")");
         }
     }
     else
@@ -6221,49 +6221,49 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
     switch (type)
     {
 #ifdef TARGET_64BIT
-        case TYP_LONG:
-            if (intCon->IsHandle())
-            {
-                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
-            }
-
-            return vnStore->VNForLongCon(intCon->GetInt64Value());
-#endif
-
-        case TYP_INT:
-#ifndef TARGET_64BIT
-            if (intCon->IsHandle())
-            {
-                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
-            }
-#endif
-
-            return vnStore->VNForIntCon(intCon->GetInt32Value());
-
-        case TYP_REF:
-            if (intCon->GetValue() == 0)
-            {
-                return ValueNumStore::NullVN;
-            }
-
-            assert(intCon->IsIntCon(HandleKind::String)); // Constant object can be only frozen string.
+    case TYP_LONG:
+        if (intCon->IsHandle())
+        {
             return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
+        }
 
-        case TYP_BYREF:
-            if (intCon->GetValue() == 0)
-            {
-                return ValueNumStore::NullVN;
-            }
+        return vnStore->VNForLongCon(intCon->GetInt64Value());
+#endif
 
-            if (intCon->IsHandle())
-            {
-                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
-            }
+    case TYP_INT:
+#ifndef TARGET_64BIT
+        if (intCon->IsHandle())
+        {
+            return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
+        }
+#endif
 
-            return vnStore->VNForByrefCon(intCon->GetValue());
+        return vnStore->VNForIntCon(intCon->GetInt32Value());
 
-        default:
-            unreached();
+    case TYP_REF:
+        if (intCon->GetValue() == 0)
+        {
+            return ValueNumStore::NullVN;
+        }
+
+        assert(intCon->IsIntCon(HandleKind::String)); // Constant object can be only frozen string.
+        return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
+
+    case TYP_BYREF:
+        if (intCon->GetValue() == 0)
+        {
+            return ValueNumStore::NullVN;
+        }
+
+        if (intCon->IsHandle())
+        {
+            return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
+        }
+
+        return vnStore->VNForByrefCon(intCon->GetValue());
+
+    default:
+        unreached();
     }
 }
 
@@ -6271,105 +6271,105 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 {
     switch (node->GetOper())
     {
-        case GT_IND_STORE:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
-            SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
-            break;
+    case GT_IND_STORE:
+    case GT_IND_STORE_OBJ:
+    case GT_IND_STORE_BLK:
+        SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
+        break;
 
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-            SummarizeLoopLocalMemoryStores(node->AsLclRef(), summary);
-            break;
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+        SummarizeLoopLocalMemoryStores(node->AsLclRef(), summary);
+        break;
 
-        case GT_LCL_DEF:
-            SummarizeLoopLocalDefs(node->AsLclDef(), summary);
-            break;
+    case GT_LCL_DEF:
+        SummarizeLoopLocalDefs(node->AsLclDef(), summary);
+        break;
 
-        case GT_CALL:
-            SummarizeLoopCallMemoryStores(node->AsCall(), summary);
-            break;
+    case GT_CALL:
+        SummarizeLoopCallMemoryStores(node->AsCall(), summary);
+        break;
 
-        case GT_LOCKADD:
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-        case GT_XCHG:
-        case GT_CMPXCHG:
-        case GT_MEMORYBARRIER:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            summary.AddMemoryHavoc();
-            break;
+    case GT_LOCKADD:
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+    case GT_XCHG:
+    case GT_CMPXCHG:
+    case GT_MEMORYBARRIER:
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        summary.AddMemoryHavoc();
+        break;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            if (node->AsHWIntrinsic()->IsMemoryStore())
-            {
-                // TODO-MIKE-CQ: Ideally we'd figure out the store address (in most cases it's the first operand)
-                // and restrict the store, at least in the trivial case of arrays where we just update the entire
-                // array, without caring about individual elements. Problem is, we're dealing with native pointers
-                // so we'll also have to deal with pinning locals and pointer arithmetic to be able to extract the
-                // array type we need to update.
-                summary.AddMemoryHavoc();
-            }
-            break;
+    case GT_HWINTRINSIC:
+        if (node->AsHWIntrinsic()->IsMemoryStore())
+        {
+            // TODO-MIKE-CQ: Ideally we'd figure out the store address (in most cases it's the first operand)
+            // and restrict the store, at least in the trivial case of arrays where we just update the entire
+            // array, without caring about individual elements. Problem is, we're dealing with native pointers
+            // so we'll also have to deal with pinning locals and pointer arithmetic to be able to extract the
+            // array type we need to update.
+            summary.AddMemoryHavoc();
+        }
+        break;
 #endif
 
-        case GT_COMMA:
-            node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
-            break;
+    case GT_COMMA:
+        node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
+        break;
 
-        case GT_LCL_USE:
-            if (node->TypeIs(TYP_BYREF))
-            {
-                node->SetLiberalVN(node->AsLclUse()->GetDef()->GetLiberalVN());
-            }
-            break;
-
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-            // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
-            // so that byref exposed loads don't unnecessarily produce different value numbers.
-            node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                  vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
-                                                  vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
-            break;
-
-        case GT_CLS_VAR_ADDR:
-            assert(node->TypeIs(TYP_I_IMPL));
-            node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic,
-                                                  vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
-            break;
-
-        case GT_ADD:
+    case GT_LCL_USE:
+        if (node->TypeIs(TYP_BYREF))
         {
-            ArrayInfo arrInfo;
-            if (IsArrayElemAddr(node, &arrInfo))
-            {
-                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                ValueNum ptrToArrElemVN =
-                    vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
-                                       // The rest are dummy arguments.
-                                       ValueNumStore::NullVN, ValueNumStore::NullVN, ValueNumStore::NullVN);
-                node->SetLiberalVN(ptrToArrElemVN);
-            }
-            else if (node->AsOp()->GetOp(1)->IsIntCon())
-            {
-                VNFuncApp funcApp;
-                VNFunc    func = vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
-
-                if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic) || (func == VNF_PtrToArrElem))
-                {
-                    // For loop memory store summarization we don't care about the offset.
-                    node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
-                }
-            }
+            node->SetLiberalVN(node->AsLclUse()->GetDef()->GetLiberalVN());
         }
         break;
 
-        default:
-            break;
+    case GT_LCL_ADDR:
+        assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+        // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
+        // so that byref exposed loads don't unnecessarily produce different value numbers.
+        node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                              vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
+                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
+        break;
+
+    case GT_CLS_VAR_ADDR:
+        assert(node->TypeIs(TYP_I_IMPL));
+        node->SetLiberalVN(
+            vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic, vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
+        break;
+
+    case GT_ADD:
+    {
+        ArrayInfo arrInfo;
+        if (IsArrayElemAddr(node, &arrInfo))
+        {
+            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+            ValueNum ptrToArrElemVN =
+                vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
+                                   // The rest are dummy arguments.
+                                   ValueNumStore::NullVN, ValueNumStore::NullVN, ValueNumStore::NullVN);
+            node->SetLiberalVN(ptrToArrElemVN);
+        }
+        else if (node->AsOp()->GetOp(1)->IsIntCon())
+        {
+            VNFuncApp funcApp;
+            VNFunc    func = vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
+
+            if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic) || (func == VNF_PtrToArrElem))
+            {
+                // For loop memory store summarization we don't care about the offset.
+                node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
+            }
+        }
+    }
+    break;
+
+    default:
+        break;
     }
 }
 
@@ -6377,286 +6377,286 @@ void ValueNumbering::NumberNode(GenTree* node)
 {
     switch (node->GetOper())
     {
-        case GT_CNS_INT:
-            node->SetVNP(ValueNumPair{GetIntConVN(node->AsIntCon())});
-            break;
+    case GT_CNS_INT:
+        node->SetVNP(ValueNumPair{GetIntConVN(node->AsIntCon())});
+        break;
 #ifndef TARGET_64BIT
-        case GT_CNS_LNG:
-            node->SetVNP(ValueNumPair{vnStore->VNForLongCon(node->AsLngCon()->GetValue())});
-            break;
+    case GT_CNS_LNG:
+        node->SetVNP(ValueNumPair{vnStore->VNForLongCon(node->AsLngCon()->GetValue())});
+        break;
 #endif
-        case GT_CNS_DBL:
-            node->SetVNP(ValueNumPair{vnStore->VNForDblCon(node->GetType(), node->AsDblCon()->GetValue())});
-            break;
-        case GT_CLS_VAR_ADDR:
-            assert(node->TypeIs(TYP_I_IMPL));
-            node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic,
-                                                         vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
-            break;
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-            // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
-            // so that byref exposed loads don't unnecessarily produce different value numbers.
-            node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                         vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
-                                                         vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
-                                                         vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq()))});
-            break;
-        case GT_LCL_LOAD:
-            NumberLclLoad(node->AsLclLoad());
-            break;
-        case GT_LCL_LOAD_FLD:
-            NumberLclLoadFld(node->AsLclLoadFld());
-            break;
-        case GT_LCL_STORE:
-            NumberLclStore(node->AsLclStore());
-            break;
-        case GT_LCL_STORE_FLD:
-            NumberLclStoreFld(node->AsLclStoreFld());
-            break;
-        case GT_LCL_DEF:
-            NumberLclDef(node->AsLclDef());
-            break;
-        case GT_LCL_USE:
-            NumberLclUse(node->AsLclUse());
-            break;
-        case GT_INSERT:
-            NumberInsert(node->AsInsert());
-            break;
-        case GT_EXTRACT:
-            NumberExtract(node->AsExtract());
-            break;
-        case GT_IND_LOAD:
-        case GT_IND_LOAD_OBJ:
-        case GT_IND_LOAD_BLK:
-            NumberIndLoad(node->AsIndir());
-            break;
-        case GT_IND_STORE:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
-            NumberIndStore(node->AsIndir());
-            break;
-        case GT_MEMORYBARRIER:
-            ClearMemory(node DEBUGARG("memory barrier"));
-            break;
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
-            ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
-            FALLTHROUGH;
-        case GT_KEEPALIVE:
-            node->SetVNP(ValueNumStore::VoidVNP());
-            break;
-        case GT_CATCH_ARG:
-            assert(node->TypeIs(TYP_REF));
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_REF)});
-            break;
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            NumberOvfConv(node->AsUnOp());
-            break;
-        case GT_OVF_U:
-            NumberOvfUnsigned(node->AsUnOp());
-            break;
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            NumberOvfTruncate(node->AsUnOp());
-            break;
-        case GT_CONV:
-            NumberConv(node->AsUnOp());
-            break;
-        case GT_STOF:
-        case GT_UTOF:
-            NumberIntToFloat(node->AsUnOp());
-            break;
-        case GT_FTOS:
-        case GT_FTOU:
-            NumberFloatToInt(node->AsUnOp());
-            break;
-        case GT_BITCAST:
-            NumberBitCast(node->AsUnOp());
-            break;
-        case GT_INTRINSIC:
-            NumberIntrinsic(node->AsIntrinsic());
-            break;
-        case GT_COMMA:
-            NumberComma(node->AsOp());
-            break;
-        case GT_NULLCHECK:
-            NumberNullCheck(node->AsNullCheck());
-            break;
-        case GT_ARR_LENGTH:
-            NumberArrLen(node->AsArrLen());
-            break;
-        case GT_QMARK:
-        case GT_LOCKADD:
-            unreached();
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-        case GT_XCHG:
-            NumberInterlocked(node->AsOp());
-            break;
-        case GT_JTRUE:
-        case GT_RETURN:
-        case GT_SWITCH:
-        case GT_JMP:
-        case GT_RETFILT:
+    case GT_CNS_DBL:
+        node->SetVNP(ValueNumPair{vnStore->VNForDblCon(node->GetType(), node->AsDblCon()->GetValue())});
+        break;
+    case GT_CLS_VAR_ADDR:
+        assert(node->TypeIs(TYP_I_IMPL));
+        node->SetVNP(ValueNumPair{
+            vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic, vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
+        break;
+    case GT_LCL_ADDR:
+        assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+        // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
+        // so that byref exposed loads don't unnecessarily produce different value numbers.
+        node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                                     vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
+                                                     vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
+                                                     vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq()))});
+        break;
+    case GT_LCL_LOAD:
+        NumberLclLoad(node->AsLclLoad());
+        break;
+    case GT_LCL_LOAD_FLD:
+        NumberLclLoadFld(node->AsLclLoadFld());
+        break;
+    case GT_LCL_STORE:
+        NumberLclStore(node->AsLclStore());
+        break;
+    case GT_LCL_STORE_FLD:
+        NumberLclStoreFld(node->AsLclStoreFld());
+        break;
+    case GT_LCL_DEF:
+        NumberLclDef(node->AsLclDef());
+        break;
+    case GT_LCL_USE:
+        NumberLclUse(node->AsLclUse());
+        break;
+    case GT_INSERT:
+        NumberInsert(node->AsInsert());
+        break;
+    case GT_EXTRACT:
+        NumberExtract(node->AsExtract());
+        break;
+    case GT_IND_LOAD:
+    case GT_IND_LOAD_OBJ:
+    case GT_IND_LOAD_BLK:
+        NumberIndLoad(node->AsIndir());
+        break;
+    case GT_IND_STORE:
+    case GT_IND_STORE_OBJ:
+    case GT_IND_STORE_BLK:
+        NumberIndStore(node->AsIndir());
+        break;
+    case GT_MEMORYBARRIER:
+        ClearMemory(node DEBUGARG("memory barrier"));
+        break;
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
+        ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
+        FALLTHROUGH;
+    case GT_KEEPALIVE:
+        node->SetVNP(ValueNumStore::VoidVNP());
+        break;
+    case GT_CATCH_ARG:
+        assert(node->TypeIs(TYP_REF));
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_REF)});
+        break;
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        NumberOvfConv(node->AsUnOp());
+        break;
+    case GT_OVF_U:
+        NumberOvfUnsigned(node->AsUnOp());
+        break;
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+        NumberOvfTruncate(node->AsUnOp());
+        break;
+    case GT_CONV:
+        NumberConv(node->AsUnOp());
+        break;
+    case GT_STOF:
+    case GT_UTOF:
+        NumberIntToFloat(node->AsUnOp());
+        break;
+    case GT_FTOS:
+    case GT_FTOU:
+        NumberFloatToInt(node->AsUnOp());
+        break;
+    case GT_BITCAST:
+        NumberBitCast(node->AsUnOp());
+        break;
+    case GT_INTRINSIC:
+        NumberIntrinsic(node->AsIntrinsic());
+        break;
+    case GT_COMMA:
+        NumberComma(node->AsOp());
+        break;
+    case GT_NULLCHECK:
+        NumberNullCheck(node->AsNullCheck());
+        break;
+    case GT_ARR_LENGTH:
+        NumberArrLen(node->AsArrLen());
+        break;
+    case GT_QMARK:
+    case GT_LOCKADD:
+        unreached();
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+    case GT_XCHG:
+        NumberInterlocked(node->AsOp());
+        break;
+    case GT_JTRUE:
+    case GT_RETURN:
+    case GT_SWITCH:
+    case GT_JMP:
+    case GT_RETFILT:
 #ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
+    case GT_END_LFIN:
 #endif
-            // These nodes never need to have a ValueNumber
-            node->SetVNP({});
-            break;
-        case GT_BOX:
-            // BOX doesn't do anything at this point, the actual object allocation
-            // and initialization happens separately (and not numbering BOX correctly
-            // prevents seeing allocation related assertions through it)
-            node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
-            break;
-        case GT_CALL:
-            NumberCall(node->AsCall());
-            break;
-        case GT_BOUNDS_CHECK:
-            NumberBoundsCheck(node->AsBoundsChk());
-            break;
-        case GT_CMPXCHG:
-            NumberCmpXchg(node->AsCmpXchg());
-            break;
+        // These nodes never need to have a ValueNumber
+        node->SetVNP({});
+        break;
+    case GT_BOX:
+        // BOX doesn't do anything at this point, the actual object allocation
+        // and initialization happens separately (and not numbering BOX correctly
+        // prevents seeing allocation related assertions through it)
+        node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
+        break;
+    case GT_CALL:
+        NumberCall(node->AsCall());
+        break;
+    case GT_BOUNDS_CHECK:
+        NumberBoundsCheck(node->AsBoundsChk());
+        break;
+    case GT_CMPXCHG:
+        NumberCmpXchg(node->AsCmpXchg());
+        break;
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            NumberHWIntrinsic(node->AsHWIntrinsic());
-            break;
+    case GT_HWINTRINSIC:
+        NumberHWIntrinsic(node->AsHWIntrinsic());
+        break;
 #endif
-        case GT_LABEL:
-        case GT_LCLHEAP:
-            assert(node->TypeIs(TYP_I_IMPL));
-            // It is not necessary to model the StackOverflow exception for LCLHEAP
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_I_IMPL)});
-            break;
-        case GT_ARR_ELEM:
-            assert(node->TypeIs(TYP_BYREF));
-            // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_BYREF)});
-            break;
-        case GT_FIELD_LIST:
-            assert(node->TypeIs(TYP_STRUCT));
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_STRUCT)});
-            break;
-        case GT_CKFINITE:
-            NumbeCkFinite(node->AsUnOp());
-            break;
-        case GT_NO_OP:
-            assert(node->TypeIs(TYP_VOID));
+    case GT_LABEL:
+    case GT_LCLHEAP:
+        assert(node->TypeIs(TYP_I_IMPL));
+        // It is not necessary to model the StackOverflow exception for LCLHEAP
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_I_IMPL)});
+        break;
+    case GT_ARR_ELEM:
+        assert(node->TypeIs(TYP_BYREF));
+        // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_BYREF)});
+        break;
+    case GT_FIELD_LIST:
+        assert(node->TypeIs(TYP_STRUCT));
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_STRUCT)});
+        break;
+    case GT_CKFINITE:
+        NumbeCkFinite(node->AsUnOp());
+        break;
+    case GT_NO_OP:
+        assert(node->TypeIs(TYP_VOID));
+        node->SetVNP(ValueNumStore::VoidVNP());
+        break;
+    case GT_NOP:
+        if (node->AsUnOp()->gtOp1 == nullptr)
+        {
             node->SetVNP(ValueNumStore::VoidVNP());
-            break;
-        case GT_NOP:
-            if (node->AsUnOp()->gtOp1 == nullptr)
-            {
-                node->SetVNP(ValueNumStore::VoidVNP());
-            }
-            else
-            {
-                node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
-            }
-            break;
-        case GT_NOT:
-        case GT_NEG:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_SXT:
-        case GT_UXT:
-        case GT_TRUNC:
-        case GT_FNEG:
-        case GT_FXT:
-        case GT_FTRUNC:
-        case GT_RUNTIMELOOKUP:
-        case GT_INIT_VAL:
+        }
+        else
         {
-            assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_STRUCT));
-            assert(!node->OperMayThrow(compiler));
+            node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
+        }
+        break;
+    case GT_NOT:
+    case GT_NEG:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_SXT:
+    case GT_UXT:
+    case GT_TRUNC:
+    case GT_FNEG:
+    case GT_FXT:
+    case GT_FTRUNC:
+    case GT_RUNTIMELOOKUP:
+    case GT_INIT_VAL:
+    {
+        assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_STRUCT));
+        assert(!node->OperMayThrow(compiler));
 
-            VNFunc vnf = static_cast<VNFunc>(node->GetOper());
-            assert(ValueNumStore::VNFuncIsLegal(vnf));
+        VNFunc vnf = static_cast<VNFunc>(node->GetOper());
+        assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-            ValueNumPair exset;
-            ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
-            vnp              = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
-            node->SetVNP(vnStore->PackExset(vnp, exset));
+        ValueNumPair exset;
+        ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
+        vnp              = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
+        node->SetVNP(vnStore->PackExset(vnp, exset));
+        break;
+    }
+    case GT_ADD:
+        if (node->TypeIs(TYP_I_IMPL, TYP_BYREF) && AddField(node->AsOp()))
+        {
             break;
         }
-        case GT_ADD:
-            if (node->TypeIs(TYP_I_IMPL, TYP_BYREF) && AddField(node->AsOp()))
-            {
-                break;
-            }
-            FALLTHROUGH;
-        case GT_SUB:
-        case GT_MUL:
-        case GT_SMULH:
-        case GT_UMULH:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        {
-            assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_BYREF));
-            assert(!node->OperMayThrow(compiler));
-            assert(!node->OperIsRelop());
+        FALLTHROUGH;
+    case GT_SUB:
+    case GT_MUL:
+    case GT_SMULH:
+    case GT_UMULH:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+    {
+        assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_BYREF));
+        assert(!node->OperMayThrow(compiler));
+        assert(!node->OperIsRelop());
 
-            VNFunc vnf = static_cast<VNFunc>(node->GetOper());
-            assert(ValueNumStore::VNFuncIsLegal(vnf));
+        VNFunc vnf = static_cast<VNFunc>(node->GetOper());
+        assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-            ValueNumPair exset1;
-            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
-            ValueNumPair exset2;
-            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-            ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
-            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-            break;
-        }
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        {
-            assert(node->TypeIs(TYP_INT));
+        ValueNumPair exset1;
+        ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+        ValueNumPair exset2;
+        ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+        ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
+        node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+        break;
+    }
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+    {
+        assert(node->TypeIs(TYP_INT));
 
-            ValueNumPair exset1;
-            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
-            ValueNumPair exset2;
-            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-            ValueNumPair vnp  = vnStore->VNPairForFunc(TYP_INT, GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
-            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-            break;
-        }
-        case GT_SDIV:
-        case GT_UDIV:
-        case GT_SREM:
-        case GT_UREM:
-            NumberDivMod(node->AsOp());
-            break;
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            NumberOvfBinOp(node->AsOp());
-            break;
-        default:
-            unreached();
+        ValueNumPair exset1;
+        ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+        ValueNumPair exset2;
+        ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+        ValueNumPair vnp  = vnStore->VNPairForFunc(TYP_INT, GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
+        node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+        break;
+    }
+    case GT_SDIV:
+    case GT_UDIV:
+    case GT_SREM:
+    case GT_UREM:
+        NumberDivMod(node->AsOp());
+        break;
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        NumberOvfBinOp(node->AsOp());
+        break;
+    default:
+        unreached();
     }
 
 #ifdef DEBUG
@@ -6764,22 +6764,22 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (arity)
     {
-        case 0:
-            vnp = vnStore->VNPairForFunc(node->GetType(), func);
-            break;
-        case 1:
-            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0]);
-            break;
-        case 2:
-            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1]);
-            break;
-        case 3:
-            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2]);
-            break;
-        default:
-            assert(arity == 4);
-            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2], opsVnp[3]);
-            break;
+    case 0:
+        vnp = vnStore->VNPairForFunc(node->GetType(), func);
+        break;
+    case 1:
+        vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0]);
+        break;
+    case 2:
+        vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1]);
+        break;
+    case 3:
+        vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2]);
+        break;
+    default:
+        assert(arity == 4);
+        vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2], opsVnp[3]);
+        break;
     }
 
     node->SetVNP(vnStore->PackExset(vnp, xvnp));
@@ -6853,31 +6853,31 @@ void ValueNumbering::NumberOvfConv(GenTreeUnOp* node)
 
     switch (node->GetType())
     {
-        case TYP_BYTE:
-            vnf = VNF_CONVS8;
-            exc = VNF_ConvS8OverflowExc;
-            min = node->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
-            max = INT8_MAX;
-            break;
-        case TYP_UBYTE:
-            vnf = VNF_CONVU8;
-            exc = VNF_ConvU8OverflowExc;
-            min = 0;
-            max = UINT8_MAX;
-            break;
-        case TYP_SHORT:
-            vnf = VNF_CONVS16;
-            exc = VNF_ConvS16OverflowExc;
-            min = node->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
-            max = INT16_MAX;
-            break;
-        default:
-            assert(node->TypeIs(TYP_USHORT));
-            vnf = VNF_CONVU16;
-            exc = VNF_ConvU16OverflowExc;
-            min = 0;
-            max = UINT16_MAX;
-            break;
+    case TYP_BYTE:
+        vnf = VNF_CONVS8;
+        exc = VNF_ConvS8OverflowExc;
+        min = node->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+        max = INT8_MAX;
+        break;
+    case TYP_UBYTE:
+        vnf = VNF_CONVU8;
+        exc = VNF_ConvU8OverflowExc;
+        min = 0;
+        max = UINT8_MAX;
+        break;
+    case TYP_SHORT:
+        vnf = VNF_CONVS16;
+        exc = VNF_ConvS16OverflowExc;
+        min = node->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+        max = INT16_MAX;
+        break;
+    default:
+        assert(node->TypeIs(TYP_USHORT));
+        vnf = VNF_CONVU16;
+        exc = VNF_ConvU16OverflowExc;
+        min = 0;
+        max = UINT16_MAX;
+        break;
     }
 
     int64_t value;
@@ -6954,21 +6954,21 @@ void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
 
     switch (node->GetOper())
     {
-        case GT_OVF_TRUNC:
-            exc = VNF_TruncOverflowExc;
-            min = 0;
-            max = INT32_MAX;
-            break;
-        case GT_OVF_STRUNC:
-            exc = VNF_STruncOverflowExc;
-            min = INT32_MIN;
-            max = INT32_MAX;
-            break;
-        default:
-            exc = VNF_UTruncOverflowExc;
-            min = 0;
-            max = UINT32_MAX;
-            break;
+    case GT_OVF_TRUNC:
+        exc = VNF_TruncOverflowExc;
+        min = 0;
+        max = INT32_MAX;
+        break;
+    case GT_OVF_STRUNC:
+        exc = VNF_STruncOverflowExc;
+        min = INT32_MIN;
+        max = INT32_MAX;
+        break;
+    default:
+        exc = VNF_UTruncOverflowExc;
+        min = 0;
+        max = UINT32_MAX;
+        break;
     }
 
     int64_t value;
@@ -7035,25 +7035,25 @@ void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
 
                 switch (vnf)
                 {
-                    case VNOP_OVF_SADD:
-                        overflows = !CheckedOps::SAdd(i1, i2, &result);
-                        break;
-                    case VNOP_OVF_UADD:
-                        overflows = !CheckedOps::UAdd(i1, i2, &result);
-                        break;
-                    case VNOP_OVF_SSUB:
-                        overflows = !CheckedOps::SSub(i1, i2, &result);
-                        break;
-                    case VNOP_OVF_USUB:
-                        overflows = !CheckedOps::USub(i1, i2, &result);
-                        break;
-                    case VNOP_OVF_SMUL:
-                        overflows = !CheckedOps::SMul(i1, i2, &result);
-                        break;
-                    default:
-                        assert(vnf == VNOP_OVF_UMUL);
-                        overflows = !CheckedOps::UMul(i1, i2, &result);
-                        break;
+                case VNOP_OVF_SADD:
+                    overflows = !CheckedOps::SAdd(i1, i2, &result);
+                    break;
+                case VNOP_OVF_UADD:
+                    overflows = !CheckedOps::UAdd(i1, i2, &result);
+                    break;
+                case VNOP_OVF_SSUB:
+                    overflows = !CheckedOps::SSub(i1, i2, &result);
+                    break;
+                case VNOP_OVF_USUB:
+                    overflows = !CheckedOps::USub(i1, i2, &result);
+                    break;
+                case VNOP_OVF_SMUL:
+                    overflows = !CheckedOps::SMul(i1, i2, &result);
+                    break;
+                default:
+                    assert(vnf == VNOP_OVF_UMUL);
+                    overflows = !CheckedOps::UMul(i1, i2, &result);
+                    break;
                 }
 
                 if (!overflows)
@@ -7068,25 +7068,25 @@ void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
 
                 switch (vnf)
                 {
-                    case VNOP_OVF_SADD:
-                        overflows = !CheckedOps::SAdd(val1, val2, &result);
-                        break;
-                    case VNOP_OVF_UADD:
-                        overflows = !CheckedOps::UAdd(val1, val2, &result);
-                        break;
-                    case VNOP_OVF_SSUB:
-                        overflows = !CheckedOps::SSub(val1, val2, &result);
-                        break;
-                    case VNOP_OVF_USUB:
-                        overflows = !CheckedOps::USub(val1, val2, &result);
-                        break;
-                    case VNOP_OVF_SMUL:
-                        overflows = !CheckedOps::SMul(val1, val2, &result);
-                        break;
-                    default:
-                        assert(vnf == VNOP_OVF_UMUL);
-                        overflows = !CheckedOps::UMul(val1, val2, &result);
-                        break;
+                case VNOP_OVF_SADD:
+                    overflows = !CheckedOps::SAdd(val1, val2, &result);
+                    break;
+                case VNOP_OVF_UADD:
+                    overflows = !CheckedOps::UAdd(val1, val2, &result);
+                    break;
+                case VNOP_OVF_SSUB:
+                    overflows = !CheckedOps::SSub(val1, val2, &result);
+                    break;
+                case VNOP_OVF_USUB:
+                    overflows = !CheckedOps::USub(val1, val2, &result);
+                    break;
+                case VNOP_OVF_SMUL:
+                    overflows = !CheckedOps::SMul(val1, val2, &result);
+                    break;
+                default:
+                    assert(vnf == VNOP_OVF_UMUL);
+                    overflows = !CheckedOps::UMul(val1, val2, &result);
+                    break;
                 }
 
                 if (!overflows)
@@ -7108,26 +7108,26 @@ void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
             {
                 switch (vnf)
                 {
-                    case VNOP_OVF_SADD:
-                    case VNOP_OVF_UADD:
-                    case VNOP_OVF_SSUB:
-                    case VNOP_OVF_USUB:
-                        if (val2 == 0)
-                        {
-                            vn = vn1;
-                        }
-                        break;
-                    default:
-                        assert((vnf == VNOP_OVF_SMUL) || (vnf == VNOP_OVF_UMUL));
-                        if (val2 == 1)
-                        {
-                            vn = vn1;
-                        }
-                        else if (val2 == 0)
-                        {
-                            vn = vnStore->VNZeroForType(node->GetType());
-                        }
-                        break;
+                case VNOP_OVF_SADD:
+                case VNOP_OVF_UADD:
+                case VNOP_OVF_SSUB:
+                case VNOP_OVF_USUB:
+                    if (val2 == 0)
+                    {
+                        vn = vn1;
+                    }
+                    break;
+                default:
+                    assert((vnf == VNOP_OVF_SMUL) || (vnf == VNOP_OVF_UMUL));
+                    if (val2 == 1)
+                    {
+                        vn = vn1;
+                    }
+                    else if (val2 == 0)
+                    {
+                        vn = vnStore->VNZeroForType(node->GetType());
+                    }
+                    break;
                 }
             }
         }
@@ -7250,54 +7250,54 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
 
     switch (vnf)
     {
-        case VNF_JitNew:
-            addUniqueArg = true;
-            vnpExc       = ValueNumStore::EmptyExsetVNP();
-            break;
+    case VNF_JitNew:
+        addUniqueArg = true;
+        vnpExc       = ValueNumStore::EmptyExsetVNP();
+        break;
 
-        case VNF_JitNewArr:
-            addUniqueArg = true;
-            // The New Array helper may throw an overflow exception
-            vnpExc = vnStore->ExsetCreate(
-                vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[1])));
-            break;
+    case VNF_JitNewArr:
+        addUniqueArg = true;
+        // The New Array helper may throw an overflow exception
+        vnpExc = vnStore->ExsetCreate(
+            vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[1])));
+        break;
 
-        case VNF_Box:
-        case VNF_BoxNullable:
-            // Generate unique VN so, VNForFunc generates a uniq value number for box nullable.
-            // Alternatively instead of using vnpUniqueArg below in VNPairForFunc(...),
-            // we could use the value number of what the byref arg0 points to.
-            //
-            // But retrieving the value number of what the byref arg0 points to is quite a bit more work
-            // and doing so only very rarely allows for an additional optimization.
-            addUniqueArg = true;
-            break;
+    case VNF_Box:
+    case VNF_BoxNullable:
+        // Generate unique VN so, VNForFunc generates a uniq value number for box nullable.
+        // Alternatively instead of using vnpUniqueArg below in VNPairForFunc(...),
+        // we could use the value number of what the byref arg0 points to.
+        //
+        // But retrieving the value number of what the byref arg0 points to is quite a bit more work
+        // and doing so only very rarely allows for an additional optimization.
+        addUniqueArg = true;
+        break;
 
-        case VNF_JitReadyToRunNew:
-            addUniqueArg            = true;
-            useEntryPointAddrAsArg0 = true;
-            vnpExc                  = ValueNumStore::EmptyExsetVNP();
-            break;
+    case VNF_JitReadyToRunNew:
+        addUniqueArg            = true;
+        useEntryPointAddrAsArg0 = true;
+        vnpExc                  = ValueNumStore::EmptyExsetVNP();
+        break;
 
-        case VNF_JitReadyToRunNewArr:
-            addUniqueArg            = true;
-            useEntryPointAddrAsArg0 = true;
-            // The New Array helper may throw an overflow exception
-            vnpExc = vnStore->ExsetCreate(
-                vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[0])));
-            break;
+    case VNF_JitReadyToRunNewArr:
+        addUniqueArg            = true;
+        useEntryPointAddrAsArg0 = true;
+        // The New Array helper may throw an overflow exception
+        vnpExc = vnStore->ExsetCreate(
+            vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[0])));
+        break;
 
-        case VNF_ReadyToRunStaticBase:
-        case VNF_ReadyToRunGenericStaticBase:
-        case VNF_ReadyToRunIsInstanceOf:
-        case VNF_ReadyToRunCastClass:
-        case VNF_ReadyToRunGenericHandle:
-            useEntryPointAddrAsArg0 = true;
-            break;
+    case VNF_ReadyToRunStaticBase:
+    case VNF_ReadyToRunGenericStaticBase:
+    case VNF_ReadyToRunIsInstanceOf:
+    case VNF_ReadyToRunCastClass:
+    case VNF_ReadyToRunGenericHandle:
+        useEntryPointAddrAsArg0 = true;
+        break;
 
-        default:
-            assert(HelperCallProperties::IsPure(call->GetHelperFunc()));
-            break;
+    default:
+        assert(HelperCallProperties::IsPure(call->GetHelperFunc()));
+        break;
     }
 
     ValueNumPair vnpUniqueArg;
@@ -7360,19 +7360,19 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
 
     switch (vnpArgIndex)
     {
-        case 1:
-            vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0]);
-            break;
-        case 2:
-            vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1]);
-            break;
-        case 3:
-            vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2]);
-            break;
-        default:
-            noway_assert(vnpArgIndex == 4);
-            vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2], vnpArgs[3]);
-            break;
+    case 1:
+        vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0]);
+        break;
+    case 2:
+        vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1]);
+        break;
+    case 3:
+        vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2]);
+        break;
+    default:
+        noway_assert(vnpArgIndex == 4);
+        vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2], vnpArgs[3]);
+        break;
     }
 
     ValueNumPair exset;
@@ -7435,199 +7435,199 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 
     switch (helpFunc)
     {
-        // These translate to other function symbols:
-        case CORINFO_HELP_DIV:
-            return VNOP_SDIV;
-        case CORINFO_HELP_MOD:
-            return VNOP_SREM;
-        case CORINFO_HELP_UDIV:
-            return VNOP_UDIV;
-        case CORINFO_HELP_UMOD:
-            return VNOP_UREM;
-        case CORINFO_HELP_LLSH:
-            return VNOP_LSH;
-        case CORINFO_HELP_LRSH:
-            return VNOP_RSH;
-        case CORINFO_HELP_LRSZ:
-            return VNOP_RSZ;
-        case CORINFO_HELP_LMUL:
-        case CORINFO_HELP_LMUL_OVF:
-            return VNOP_MUL;
-        case CORINFO_HELP_ULMUL_OVF:
-            return VNOP_MUL; // Is this the right thing?
-        case CORINFO_HELP_LDIV:
-            return VNOP_SDIV;
-        case CORINFO_HELP_LMOD:
-            return VNOP_SREM;
-        case CORINFO_HELP_ULDIV:
-            return VNOP_UDIV;
-        case CORINFO_HELP_ULMOD:
-            return VNOP_UREM;
-        case CORINFO_HELP_LNG2DBL:
-            return VNF_STOFD;
-        case CORINFO_HELP_ULNG2DBL:
-            return VNF_UTOFD;
-        case CORINFO_HELP_DBL2INT:
-            return VNOP_FTOS;
-        case CORINFO_HELP_DBL2UINT:
-            return VNOP_FTOU;
-        case CORINFO_HELP_DBL2LNG:
-            return VNF_FTOSL;
-        case CORINFO_HELP_DBL2ULNG:
-            return VNF_FTOUL;
-        case CORINFO_HELP_DBL2INT_OVF:
-            return VNOP_OVF_FTOS;
-        case CORINFO_HELP_DBL2UINT_OVF:
-            return VNOP_OVF_FTOU;
-        case CORINFO_HELP_DBL2LNG_OVF:
-            return VNF_OVF_FTOSL;
-        case CORINFO_HELP_DBL2ULNG_OVF:
-            return VNF_OVF_FTOUL;
-        case CORINFO_HELP_FLTREM:
-        case CORINFO_HELP_DBLREM:
-            return VNOP_FREM;
-        case CORINFO_HELP_FLTROUND:
-        case CORINFO_HELP_DBLROUND:
-            return VNF_Round;
+    // These translate to other function symbols:
+    case CORINFO_HELP_DIV:
+        return VNOP_SDIV;
+    case CORINFO_HELP_MOD:
+        return VNOP_SREM;
+    case CORINFO_HELP_UDIV:
+        return VNOP_UDIV;
+    case CORINFO_HELP_UMOD:
+        return VNOP_UREM;
+    case CORINFO_HELP_LLSH:
+        return VNOP_LSH;
+    case CORINFO_HELP_LRSH:
+        return VNOP_RSH;
+    case CORINFO_HELP_LRSZ:
+        return VNOP_RSZ;
+    case CORINFO_HELP_LMUL:
+    case CORINFO_HELP_LMUL_OVF:
+        return VNOP_MUL;
+    case CORINFO_HELP_ULMUL_OVF:
+        return VNOP_MUL; // Is this the right thing?
+    case CORINFO_HELP_LDIV:
+        return VNOP_SDIV;
+    case CORINFO_HELP_LMOD:
+        return VNOP_SREM;
+    case CORINFO_HELP_ULDIV:
+        return VNOP_UDIV;
+    case CORINFO_HELP_ULMOD:
+        return VNOP_UREM;
+    case CORINFO_HELP_LNG2DBL:
+        return VNF_STOFD;
+    case CORINFO_HELP_ULNG2DBL:
+        return VNF_UTOFD;
+    case CORINFO_HELP_DBL2INT:
+        return VNOP_FTOS;
+    case CORINFO_HELP_DBL2UINT:
+        return VNOP_FTOU;
+    case CORINFO_HELP_DBL2LNG:
+        return VNF_FTOSL;
+    case CORINFO_HELP_DBL2ULNG:
+        return VNF_FTOUL;
+    case CORINFO_HELP_DBL2INT_OVF:
+        return VNOP_OVF_FTOS;
+    case CORINFO_HELP_DBL2UINT_OVF:
+        return VNOP_OVF_FTOU;
+    case CORINFO_HELP_DBL2LNG_OVF:
+        return VNF_OVF_FTOSL;
+    case CORINFO_HELP_DBL2ULNG_OVF:
+        return VNF_OVF_FTOUL;
+    case CORINFO_HELP_FLTREM:
+    case CORINFO_HELP_DBLREM:
+        return VNOP_FREM;
+    case CORINFO_HELP_FLTROUND:
+    case CORINFO_HELP_DBLROUND:
+        return VNF_Round;
 
-        // These allocation operations probably require some augmentation -- perhaps allocSiteId,
-        // something about array length...
-        case CORINFO_HELP_NEWFAST:
-        case CORINFO_HELP_NEWSFAST:
-        case CORINFO_HELP_NEWSFAST_FINALIZE:
-        case CORINFO_HELP_NEWSFAST_ALIGN8:
-        case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
-        case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
-            return VNF_JitNew;
+    // These allocation operations probably require some augmentation -- perhaps allocSiteId,
+    // something about array length...
+    case CORINFO_HELP_NEWFAST:
+    case CORINFO_HELP_NEWSFAST:
+    case CORINFO_HELP_NEWSFAST_FINALIZE:
+    case CORINFO_HELP_NEWSFAST_ALIGN8:
+    case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
+    case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
+        return VNF_JitNew;
 
-        case CORINFO_HELP_READYTORUN_NEW:
-            return VNF_JitReadyToRunNew;
+    case CORINFO_HELP_READYTORUN_NEW:
+        return VNF_JitReadyToRunNew;
 
-        case CORINFO_HELP_NEWARR_1_DIRECT:
-        case CORINFO_HELP_NEWARR_1_OBJ:
-        case CORINFO_HELP_NEWARR_1_VC:
-        case CORINFO_HELP_NEWARR_1_ALIGN8:
-            return VNF_JitNewArr;
+    case CORINFO_HELP_NEWARR_1_DIRECT:
+    case CORINFO_HELP_NEWARR_1_OBJ:
+    case CORINFO_HELP_NEWARR_1_VC:
+    case CORINFO_HELP_NEWARR_1_ALIGN8:
+        return VNF_JitNewArr;
 
-        case CORINFO_HELP_READYTORUN_NEWARR_1:
-            return VNF_JitReadyToRunNewArr;
+    case CORINFO_HELP_READYTORUN_NEWARR_1:
+        return VNF_JitReadyToRunNewArr;
 
-        case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
-            return VNF_GetgenericsGcstaticBase;
-        case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
-            return VNF_GetgenericsNongcstaticBase;
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-            return VNF_GetsharedGcstaticBase;
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-            return VNF_GetsharedNongcstaticBase;
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-            return VNF_GetsharedGcstaticBaseNoctor;
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-            return VNF_GetsharedNongcstaticBaseNoctor;
-        case CORINFO_HELP_READYTORUN_STATIC_BASE:
-            return VNF_ReadyToRunStaticBase;
-        case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
-            return VNF_ReadyToRunGenericStaticBase;
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-            return VNF_GetsharedGcstaticBaseDynamicclass;
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-            return VNF_GetsharedNongcstaticBaseDynamicclass;
-        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
-            return VNF_ClassinitSharedDynamicclass;
-        case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
-            return VNF_GetgenericsGcthreadstaticBase;
-        case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
-            return VNF_GetgenericsNongcthreadstaticBase;
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-            return VNF_GetsharedGcthreadstaticBase;
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-            return VNF_GetsharedNongcthreadstaticBase;
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-            return VNF_GetsharedGcthreadstaticBaseNoctor;
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-            return VNF_GetsharedNongcthreadstaticBaseNoctor;
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-            return VNF_GetsharedGcthreadstaticBaseDynamicclass;
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
-            return VNF_GetsharedNongcthreadstaticBaseDynamicclass;
-        case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
-            return VNF_GetStaticAddrContext;
-        case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
-            return VNF_GetStaticAddrTLS;
+    case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
+        return VNF_GetgenericsGcstaticBase;
+    case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
+        return VNF_GetgenericsNongcstaticBase;
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+        return VNF_GetsharedGcstaticBase;
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+        return VNF_GetsharedNongcstaticBase;
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+        return VNF_GetsharedGcstaticBaseNoctor;
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+        return VNF_GetsharedNongcstaticBaseNoctor;
+    case CORINFO_HELP_READYTORUN_STATIC_BASE:
+        return VNF_ReadyToRunStaticBase;
+    case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
+        return VNF_ReadyToRunGenericStaticBase;
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+        return VNF_GetsharedGcstaticBaseDynamicclass;
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+        return VNF_GetsharedNongcstaticBaseDynamicclass;
+    case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+        return VNF_ClassinitSharedDynamicclass;
+    case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
+        return VNF_GetgenericsGcthreadstaticBase;
+    case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
+        return VNF_GetgenericsNongcthreadstaticBase;
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+        return VNF_GetsharedGcthreadstaticBase;
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+        return VNF_GetsharedNongcthreadstaticBase;
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
+        return VNF_GetsharedGcthreadstaticBaseNoctor;
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+        return VNF_GetsharedNongcthreadstaticBaseNoctor;
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+        return VNF_GetsharedGcthreadstaticBaseDynamicclass;
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+        return VNF_GetsharedNongcthreadstaticBaseDynamicclass;
+    case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
+        return VNF_GetStaticAddrContext;
+    case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
+        return VNF_GetStaticAddrTLS;
 
-        case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
-        case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
-            return VNF_RuntimeHandleMethod;
+    case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
+    case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
+        return VNF_RuntimeHandleMethod;
 
-        case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
-            return VNF_ReadyToRunGenericHandle;
+    case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
+        return VNF_ReadyToRunGenericHandle;
 
-        case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
-        case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
-            return VNF_RuntimeHandleClass;
+    case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
+    case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
+        return VNF_RuntimeHandleClass;
 
-        case CORINFO_HELP_STRCNS:
-            return VNF_LazyStrCns;
+    case CORINFO_HELP_STRCNS:
+        return VNF_LazyStrCns;
 
-        case CORINFO_HELP_CHKCASTCLASS:
-        case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
-        case CORINFO_HELP_CHKCASTARRAY:
-        case CORINFO_HELP_CHKCASTINTERFACE:
-        case CORINFO_HELP_CHKCASTANY:
-            return VNF_CastClass;
+    case CORINFO_HELP_CHKCASTCLASS:
+    case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
+    case CORINFO_HELP_CHKCASTARRAY:
+    case CORINFO_HELP_CHKCASTINTERFACE:
+    case CORINFO_HELP_CHKCASTANY:
+        return VNF_CastClass;
 
-        case CORINFO_HELP_READYTORUN_CHKCAST:
-            return VNF_ReadyToRunCastClass;
+    case CORINFO_HELP_READYTORUN_CHKCAST:
+        return VNF_ReadyToRunCastClass;
 
-        case CORINFO_HELP_ISINSTANCEOFCLASS:
-        case CORINFO_HELP_ISINSTANCEOFINTERFACE:
-        case CORINFO_HELP_ISINSTANCEOFARRAY:
-        case CORINFO_HELP_ISINSTANCEOFANY:
-            return VNF_IsInstanceOf;
+    case CORINFO_HELP_ISINSTANCEOFCLASS:
+    case CORINFO_HELP_ISINSTANCEOFINTERFACE:
+    case CORINFO_HELP_ISINSTANCEOFARRAY:
+    case CORINFO_HELP_ISINSTANCEOFANY:
+        return VNF_IsInstanceOf;
 
-        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
-            return VNF_TypeHandleToRuntimeType;
+    case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
+        return VNF_TypeHandleToRuntimeType;
 
-        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
-            return VNF_TypeHandleToRuntimeTypeHandle;
+    case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        return VNF_TypeHandleToRuntimeTypeHandle;
 
-        case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
-            return VNF_AreTypesEquivalent;
+    case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
+        return VNF_AreTypesEquivalent;
 
-        case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
-            return VNF_ReadyToRunIsInstanceOf;
+    case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
+        return VNF_ReadyToRunIsInstanceOf;
 
-        case CORINFO_HELP_LDELEMA_REF:
-            return VNF_LdElemA;
+    case CORINFO_HELP_LDELEMA_REF:
+        return VNF_LdElemA;
 
-        case CORINFO_HELP_UNBOX:
-            return VNF_Unbox;
+    case CORINFO_HELP_UNBOX:
+        return VNF_Unbox;
 
-        // A constant within any method.
-        case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
-            return VNF_ManagedThreadId;
+    // A constant within any method.
+    case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
+        return VNF_ManagedThreadId;
 
-        case CORINFO_HELP_GETREFANY:
-            // TODO-CQ: This should really be interpreted as just a struct field reference, in terms of values.
-            return VNF_GetRefanyVal;
+    case CORINFO_HELP_GETREFANY:
+        // TODO-CQ: This should really be interpreted as just a struct field reference, in terms of values.
+        return VNF_GetRefanyVal;
 
-        case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
-            return VNF_GetClassFromMethodParam;
+    case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
+        return VNF_GetClassFromMethodParam;
 
-        case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
-            return VNF_GetSyncFromClassHandle;
+    case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
+        return VNF_GetSyncFromClassHandle;
 
-        case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
-            return VNF_LoopCloneChoiceAddr;
+    case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
+        return VNF_LoopCloneChoiceAddr;
 
-        case CORINFO_HELP_BOX:
-            return VNF_Box;
+    case CORINFO_HELP_BOX:
+        return VNF_Box;
 
-        case CORINFO_HELP_BOX_NULLABLE:
-            return VNF_BoxNullable;
+    case CORINFO_HELP_BOX_NULLABLE:
+        return VNF_BoxNullable;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 

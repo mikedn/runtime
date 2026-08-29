@@ -85,20 +85,20 @@ struct Compiler::MorphAssertion
 
         switch (valKind)
         {
-            case ValueKind::IntCon:
-                return (x.intCon.value == y.intCon.value) && (x.intCon.handleKind == y.intCon.handleKind);
+        case ValueKind::IntCon:
+            return (x.intCon.value == y.intCon.value) && (x.intCon.handleKind == y.intCon.handleKind);
 #ifndef TARGET_64BIT
-            case ValueKind::LngCon:
-                return (x.lngCon.value == y.lngCon.value);
+        case ValueKind::LngCon:
+            return (x.lngCon.value == y.lngCon.value);
 #endif
-            case ValueKind::DblCon:
-                return jitstd::bit_cast<uint64_t>(x.dblCon.value) == jitstd::bit_cast<uint64_t>(y.dblCon.value);
-            case ValueKind::LclVar:
-                return x.lcl.lclNum == y.lcl.lclNum;
-            case ValueKind::Range:
-                return (x.range.min == y.range.min) && (y.range.max == y.range.max);
-            default:
-                return false;
+        case ValueKind::DblCon:
+            return jitstd::bit_cast<uint64_t>(x.dblCon.value) == jitstd::bit_cast<uint64_t>(y.dblCon.value);
+        case ValueKind::LclVar:
+            return x.lcl.lclNum == y.lcl.lclNum;
+        case ValueKind::Range:
+            return (x.range.min == y.range.min) && (y.range.max == y.range.max);
+        default:
+            return false;
         }
     }
 
@@ -372,15 +372,15 @@ void Compiler::morphAssertionTrace(const MorphAssertion& assertion, GenTree* nod
 
     switch (assertion.kind)
     {
-        case Kind::Equal:
-            op = assertion.valKind == ValueKind::Range ? "in" : "==";
-            break;
-        case Kind::NotNull:
-            op = "!=";
-            break;
-        default:
-            op = "???";
-            break;
+    case Kind::Equal:
+        op = assertion.valKind == ValueKind::Range ? "in" : "==";
+        break;
+    case Kind::NotNull:
+        op = "!=";
+        break;
+    default:
+        op = "???";
+        break;
     }
 
     printf(" %s ", op);
@@ -389,33 +389,33 @@ void Compiler::morphAssertionTrace(const MorphAssertion& assertion, GenTree* nod
 
     switch (assertion.valKind)
     {
-        case ValueKind::LclVar:
-            printf("V%02u", val.lcl.lclNum);
-            break;
-        case ValueKind::IntCon:
-            if (val.intCon.handleKind != HandleKind::None)
-            {
-                printf("%08p (%s)", dspPtr(val.intCon.value), dmpGetHandleKindName(val.intCon.handleKind));
-            }
-            else
-            {
-                printf("%Id", val.intCon.value);
-            }
-            break;
+    case ValueKind::LclVar:
+        printf("V%02u", val.lcl.lclNum);
+        break;
+    case ValueKind::IntCon:
+        if (val.intCon.handleKind != HandleKind::None)
+        {
+            printf("%08p (%s)", dspPtr(val.intCon.value), dmpGetHandleKindName(val.intCon.handleKind));
+        }
+        else
+        {
+            printf("%Id", val.intCon.value);
+        }
+        break;
 #ifndef TARGET_64BIT
-        case ValueKind::LngCon:
-            printf("0x%016llx", val.lngCon.value);
-            break;
+    case ValueKind::LngCon:
+        printf("0x%016llx", val.lngCon.value);
+        break;
 #endif
-        case ValueKind::DblCon:
-            printf("%#.17g", val.dblCon.value);
-            break;
-        case ValueKind::Range:
-            printf("[%d..%d]", val.range.min, val.range.max);
-            break;
-        default:
-            printf("???");
-            break;
+    case ValueKind::DblCon:
+        printf("%#.17g", val.dblCon.value);
+        break;
+    case ValueKind::Range:
+        printf("[%d..%d]", val.range.min, val.range.max);
+        break;
+    default:
+        printf("???");
+        break;
     }
 
     printf("\n");
@@ -537,155 +537,155 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
 
     switch (val->GetOper())
     {
-        case GT_CNS_INT:
+    case GT_CNS_INT:
 #ifdef TARGET_ARM
-            if (!ArmImm::IsMovImm(val->AsIntCon()->GetInt32Value()))
-            {
-                return;
-            }
-#endif
-
-            if (lcl->TypeIs(TYP_LONG) && !val->TypeIs(TYP_LONG))
-            {
-                return;
-            }
-
-            assertion.kind                  = Kind::Equal;
-            assertion.valKind               = ValueKind::IntCon;
-            assertion.val.intCon.value      = val->AsIntCon()->GetValue(lcl->GetType());
-            assertion.val.intCon.handleKind = val->AsIntCon()->GetHandleKind();
-            break;
-
-#ifndef TARGET_64BIT
-        case GT_CNS_LNG:
-            assert(lcl->TypeIs(TYP_LONG) && store->TypeIs(TYP_LONG) && val->TypeIs(TYP_LONG));
-
-            assertion.kind             = Kind::Equal;
-            assertion.valKind          = ValueKind::LngCon;
-            assertion.val.lngCon.value = val->AsLngCon()->GetValue();
-            break;
-#endif
-
-        case GT_CNS_DBL:
-            assert((lcl->GetType() == store->GetType()) && (lcl->GetType() == val->GetType()));
-
-            if (_isnan(val->AsDblCon()->GetValue()))
-            {
-                return;
-            }
-
-            assertion.kind             = Kind::Equal;
-            assertion.valKind          = ValueKind::DblCon;
-            assertion.val.dblCon.value = val->AsDblCon()->GetValue();
-            break;
-
-        case GT_LCL_LOAD:
+        if (!ArmImm::IsMovImm(val->AsIntCon()->GetInt32Value()))
         {
-            LclVarDsc* valLcl    = val->AsLclLoad()->GetLcl();
-            unsigned   valLclNum = valLcl->GetLclNum();
-
-            if ((lclNum == valLclNum) || valLcl->IsAddressExposed())
-            {
-                return;
-            }
-
-            // TODO-MIKE-Review: This might be overly restrictive when small int locals are
-            // involved. It should be possible to allow a copy from a small int local to an
-            // INT local, probably with a bit of care when doing the actual substitution
-            // (now it expects copies to be symmetric).
-            if (lcl->GetType() != valLcl->GetType())
-            {
-                return;
-            }
-
-            // TODO-MIKE-Review: This looks a bit odd. Local assertion propagation runs before
-            // morphing so we haven't yet inserted the necessary (or not) widening cast. This
-            // might be a leftover from global assertion propagation.
-            if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
-            {
-                return;
-            }
-
-            assertion.kind           = Kind::Equal;
-            assertion.valKind        = ValueKind::LclVar;
-            assertion.val.lcl.lclNum = valLclNum;
+            return;
         }
+#endif
+
+        if (lcl->TypeIs(TYP_LONG) && !val->TypeIs(TYP_LONG))
+        {
+            return;
+        }
+
+        assertion.kind                  = Kind::Equal;
+        assertion.valKind               = ValueKind::IntCon;
+        assertion.val.intCon.value      = val->AsIntCon()->GetValue(lcl->GetType());
+        assertion.val.intCon.handleKind = val->AsIntCon()->GetHandleKind();
         break;
 
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-            assertion.kind      = Kind::Equal;
-            assertion.valKind   = ValueKind::Range;
-            assertion.val.range = {0, 1};
-            break;
+#ifndef TARGET_64BIT
+    case GT_CNS_LNG:
+        assert(lcl->TypeIs(TYP_LONG) && store->TypeIs(TYP_LONG) && val->TypeIs(TYP_LONG));
 
-        case GT_LCL_LOAD_FLD:
-        case GT_IND_LOAD:
-            if (!varTypeIsSmall(val->GetType()))
-            {
-                return;
-            }
-
-            assertion.kind      = Kind::Equal;
-            assertion.valKind   = ValueKind::Range;
-            assertion.val.range = GetSmallTypeRange(val->GetType());
-            break;
-
-#ifdef TARGET_64BIT
-        case GT_OVF_U:
-            assert(val->TypeIs(TYP_INT, TYP_LONG));
-
-            if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
-            {
-                // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
-                // this case. In typical idiotic fashion old comment stated what the code is
-                // doing instead of why it is doing it.
-                return;
-            }
-
-            if (lcl->TypeIs(TYP_LONG))
-            {
-                // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
-                // it's likely that there aren't many useful cases.
-                return;
-            }
-
-            if (!val->TypeIs(TYP_INT))
-            {
-                return;
-            }
-
-            assertion.kind      = Kind::Equal;
-            assertion.valKind   = ValueKind::Range;
-            assertion.val.range = {0, INT32_MAX};
-            break;
+        assertion.kind             = Kind::Equal;
+        assertion.valKind          = ValueKind::LngCon;
+        assertion.val.lngCon.value = val->AsLngCon()->GetValue();
+        break;
 #endif
 
-        case GT_CONV:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
-            {
-                // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
-                // this case. In typical idiotic fashion old comment stated what the code is
-                // doing instead of why it is doing it.
-                return;
-            }
+    case GT_CNS_DBL:
+        assert((lcl->GetType() == store->GetType()) && (lcl->GetType() == val->GetType()));
 
-            assert(!lcl->TypeIs(TYP_LONG));
-            assert(varTypeIsSmallInt(val->GetType()));
-
-            assertion.kind      = Kind::Equal;
-            assertion.valKind   = ValueKind::Range;
-            assertion.val.range = GetSmallTypeRange(val->GetType());
-            break;
-
-        default:
+        if (_isnan(val->AsDblCon()->GetValue()))
+        {
             return;
+        }
+
+        assertion.kind             = Kind::Equal;
+        assertion.valKind          = ValueKind::DblCon;
+        assertion.val.dblCon.value = val->AsDblCon()->GetValue();
+        break;
+
+    case GT_LCL_LOAD:
+    {
+        LclVarDsc* valLcl    = val->AsLclLoad()->GetLcl();
+        unsigned   valLclNum = valLcl->GetLclNum();
+
+        if ((lclNum == valLclNum) || valLcl->IsAddressExposed())
+        {
+            return;
+        }
+
+        // TODO-MIKE-Review: This might be overly restrictive when small int locals are
+        // involved. It should be possible to allow a copy from a small int local to an
+        // INT local, probably with a bit of care when doing the actual substitution
+        // (now it expects copies to be symmetric).
+        if (lcl->GetType() != valLcl->GetType())
+        {
+            return;
+        }
+
+        // TODO-MIKE-Review: This looks a bit odd. Local assertion propagation runs before
+        // morphing so we haven't yet inserted the necessary (or not) widening cast. This
+        // might be a leftover from global assertion propagation.
+        if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
+        {
+            return;
+        }
+
+        assertion.kind           = Kind::Equal;
+        assertion.valKind        = ValueKind::LclVar;
+        assertion.val.lcl.lclNum = valLclNum;
+    }
+    break;
+
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+        assertion.kind      = Kind::Equal;
+        assertion.valKind   = ValueKind::Range;
+        assertion.val.range = {0, 1};
+        break;
+
+    case GT_LCL_LOAD_FLD:
+    case GT_IND_LOAD:
+        if (!varTypeIsSmall(val->GetType()))
+        {
+            return;
+        }
+
+        assertion.kind      = Kind::Equal;
+        assertion.valKind   = ValueKind::Range;
+        assertion.val.range = GetSmallTypeRange(val->GetType());
+        break;
+
+#ifdef TARGET_64BIT
+    case GT_OVF_U:
+        assert(val->TypeIs(TYP_INT, TYP_LONG));
+
+        if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
+        {
+            // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
+            // this case. In typical idiotic fashion old comment stated what the code is
+            // doing instead of why it is doing it.
+            return;
+        }
+
+        if (lcl->TypeIs(TYP_LONG))
+        {
+            // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
+            // it's likely that there aren't many useful cases.
+            return;
+        }
+
+        if (!val->TypeIs(TYP_INT))
+        {
+            return;
+        }
+
+        assertion.kind      = Kind::Equal;
+        assertion.valKind   = ValueKind::Range;
+        assertion.val.range = {0, INT32_MAX};
+        break;
+#endif
+
+    case GT_CONV:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
+        {
+            // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
+            // this case. In typical idiotic fashion old comment stated what the code is
+            // doing instead of why it is doing it.
+            return;
+        }
+
+        assert(!lcl->TypeIs(TYP_LONG));
+        assert(varTypeIsSmallInt(val->GetType()));
+
+        assertion.kind      = Kind::Equal;
+        assertion.valKind   = ValueKind::Range;
+        assertion.val.range = GetSmallTypeRange(val->GetType());
+        break;
+
+    default:
+        return;
     }
 
     morphAssertionAdd(assertion);
@@ -717,43 +717,43 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_STORE:
-            morphAssertionGenerateEqual(tree->AsLclStore(), tree->AsLclStore()->GetValue());
-            break;
-
-        case GT_IND_LOAD_OBJ:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_LOAD_BLK:
-        case GT_IND_STORE_BLK:
-            assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
-            FALLTHROUGH;
-        case GT_IND_LOAD:
-        case GT_IND_STORE:
-        case GT_NULLCHECK:
-            morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
-            break;
-        case GT_ARR_LENGTH:
-            morphAssertionGenerateNotNull(tree->AsArrLen()->GetArray());
-            break;
-        case GT_ARR_ELEM:
-            morphAssertionGenerateNotNull(tree->AsArrElem()->GetArray());
-            break;
-
-        case GT_CALL:
-        {
-            // A virtual call can create a non-null assertion. We transform some virtual calls into non-virtual calls
-            // with a GTF_CALL_NULLCHECK flag set.
-            // Ignore tail calls because they have 'this` pointer in the regular arg list and an implicit null check.
-            GenTreeCall* const call = tree->AsCall();
-            if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
-            {
-                morphAssertionGenerateNotNull(call->GetFirstArg());
-            }
-        }
+    case GT_LCL_STORE:
+        morphAssertionGenerateEqual(tree->AsLclStore(), tree->AsLclStore()->GetValue());
         break;
 
-        default:
-            break;
+    case GT_IND_LOAD_OBJ:
+    case GT_IND_STORE_OBJ:
+    case GT_IND_LOAD_BLK:
+    case GT_IND_STORE_BLK:
+        assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
+        FALLTHROUGH;
+    case GT_IND_LOAD:
+    case GT_IND_STORE:
+    case GT_NULLCHECK:
+        morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
+        break;
+    case GT_ARR_LENGTH:
+        morphAssertionGenerateNotNull(tree->AsArrLen()->GetArray());
+        break;
+    case GT_ARR_ELEM:
+        morphAssertionGenerateNotNull(tree->AsArrElem()->GetArray());
+        break;
+
+    case GT_CALL:
+    {
+        // A virtual call can create a non-null assertion. We transform some virtual calls into non-virtual calls
+        // with a GTF_CALL_NULLCHECK flag set.
+        // Ignore tail calls because they have 'this` pointer in the regular arg list and an implicit null check.
+        GenTreeCall* const call = tree->AsCall();
+        if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
+        {
+            morphAssertionGenerateNotNull(call->GetFirstArg());
+        }
+    }
+    break;
+
+    default:
+        break;
     }
 }
 
@@ -820,101 +820,101 @@ GenTree* Compiler::morphAssertionPropagateLclLoadConst(const MorphAssertion& ass
 
     switch (assertion.valKind)
     {
-        case ValueKind::DblCon:
-            // There could be a positive zero and a negative zero, so don't propagate zeroes.
-            // TODO-MIKE-Review: So what?
-            // P.S. This is likely debris from old stupid code that was conflating copy and
-            // equality assertions.
-            if (val.dblCon.value == 0.0)
-            {
-                break;
-            }
-
-            assert(lcl->GetType() == load->GetType());
-
-            conNode = load->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
+    case ValueKind::DblCon:
+        // There could be a positive zero and a negative zero, so don't propagate zeroes.
+        // TODO-MIKE-Review: So what?
+        // P.S. This is likely debris from old stupid code that was conflating copy and
+        // equality assertions.
+        if (val.dblCon.value == 0.0)
+        {
             break;
+        }
+
+        assert(lcl->GetType() == load->GetType());
+
+        conNode = load->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
+        break;
 
 #ifndef TARGET_64BIT
-        case ValueKind::LngCon:
-            assert(lcl->TypeIs(TYP_LONG));
+    case ValueKind::LngCon:
+        assert(lcl->TypeIs(TYP_LONG));
 
-            if (load->TypeIs(TYP_INT))
-            {
-                // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
-                // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                conNode = load->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
-                break;
-            }
-
-            assert(load->TypeIs(TYP_LONG));
-
-            conNode = load->ChangeToLngCon(val.lngCon.value);
+        if (load->TypeIs(TYP_INT))
+        {
+            // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
+            // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
+            conNode = load->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
             break;
+        }
+
+        assert(load->TypeIs(TYP_LONG));
+
+        conNode = load->ChangeToLngCon(val.lngCon.value);
+        break;
 #endif
 
-        case ValueKind::IntCon:
-            if (varTypeIsSmall(lcl->GetType())
+    case ValueKind::IntCon:
+        if (varTypeIsSmall(lcl->GetType())
 #ifdef TARGET_64BIT
-                || lcl->TypeIs(TYP_INT) // Handle INT separately on 32 bit as it may be a handle.
+            || lcl->TypeIs(TYP_INT) // Handle INT separately on 32 bit as it may be a handle.
 #endif
-                )
-            {
-                // For small int locals we often get INT LCL_VARs, otherwise the types should match.
-                assert((lcl->GetType() == load->GetType()) || load->TypeIs(TYP_INT));
-                assert(lcl->TypeIs(TYP_INT) || varTypeSmallIntCanRepresentValue(lcl->GetType(), val.intCon.value));
+            )
+        {
+            // For small int locals we often get INT LCL_VARs, otherwise the types should match.
+            assert((lcl->GetType() == load->GetType()) || load->TypeIs(TYP_INT));
+            assert(lcl->TypeIs(TYP_INT) || varTypeSmallIntCanRepresentValue(lcl->GetType(), val.intCon.value));
 
-                conNode = load->ChangeToIntCon(TYP_INT, val.intCon.value);
-                break;
-            }
+            conNode = load->ChangeToIntCon(TYP_INT, val.intCon.value);
+            break;
+        }
 
-            if (load->TypeIs(TYP_STRUCT))
-            {
-                assert(val.intCon.value == 0);
-                assert(lcl->GetType() == load->GetType());
+        if (load->TypeIs(TYP_STRUCT))
+        {
+            assert(val.intCon.value == 0);
+            assert(lcl->GetType() == load->GetType());
 
-                conNode = load->ChangeToIntCon(TYP_INT, 0);
-                break;
-            }
+            conNode = load->ChangeToIntCon(TYP_INT, 0);
+            break;
+        }
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(load->GetType()))
-            {
-                assert(val.intCon.value == 0);
-                assert(lcl->GetType() == load->GetType());
+        if (varTypeIsSIMD(load->GetType()))
+        {
+            assert(val.intCon.value == 0);
+            assert(lcl->GetType() == load->GetType());
 
-                conNode = gtNewVecZeroNode(lcl->GetLayout());
-                break;
-            }
+            conNode = gtNewVecZeroNode(lcl->GetLayout());
+            break;
+        }
 #endif
 
-            if (lcl->TypeIs(TYP_LONG) && load->TypeIs(TYP_INT))
-            {
-                // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
-                // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                conNode = load->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
-                break;
-            }
-
-            assert(varTypeIsI(lcl->GetType()));
-            assert(varTypeIsI(load->GetType()));
-
-            if (val.intCon.handleKind == HandleKind::None)
-            {
-                conNode = load->ChangeToIntCon(val.intCon.value);
-            }
-            else if (opts.compReloc)
-            {
-                break;
-            }
-            else
-            {
-                conNode = load->ChangeToIntCon(reinterpret_cast<void*>(val.intCon.value), val.intCon.handleKind);
-            }
+        if (lcl->TypeIs(TYP_LONG) && load->TypeIs(TYP_INT))
+        {
+            // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
+            // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
+            conNode = load->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
             break;
+        }
 
-        default:
+        assert(varTypeIsI(lcl->GetType()));
+        assert(varTypeIsI(load->GetType()));
+
+        if (val.intCon.handleKind == HandleKind::None)
+        {
+            conNode = load->ChangeToIntCon(val.intCon.value);
+        }
+        else if (opts.compReloc)
+        {
             break;
+        }
+        else
+        {
+            conNode = load->ChangeToIntCon(reinterpret_cast<void*>(val.intCon.value), val.intCon.handleKind);
+        }
+        break;
+
+    default:
+        break;
     }
 
     if (conNode != nullptr)
@@ -1413,39 +1413,39 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
 
         switch (tree->GetOper())
         {
-            case GT_LCL_LOAD:
-                newTree = morphAssertionPropagateLclLoad(tree->AsLclLoad());
-                break;
-            case GT_LCL_LOAD_FLD:
-                newTree = morphAssertionPropagateLclLoadFld(tree->AsLclLoadFld());
-                break;
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_STORE_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_STORE_BLK:
-            case GT_IND_LOAD:
-            case GT_IND_STORE:
-            case GT_NULLCHECK:
-                newTree = morphAssertionPropagateIndir(tree->AsIndir());
-                break;
-            case GT_OVF_U:
-                newTree = morphAssertionPropagateOvfUnsigned(tree->AsUnOp());
-                break;
-            case GT_CONV:
-            case GT_OVF_SCONV:
-            case GT_OVF_UCONV:
-                newTree = morphAssertionPropagateConv(tree->AsUnOp());
-                break;
-            case GT_CALL:
-                newTree = morphAssertionPropagateCall(tree->AsCall());
-                break;
-            case GT_EQ:
-            case GT_NE:
-                newTree = morphAssertionPropagateRelOp(tree->AsOp());
-                break;
-            default:
-                newTree = nullptr;
-                break;
+        case GT_LCL_LOAD:
+            newTree = morphAssertionPropagateLclLoad(tree->AsLclLoad());
+            break;
+        case GT_LCL_LOAD_FLD:
+            newTree = morphAssertionPropagateLclLoadFld(tree->AsLclLoadFld());
+            break;
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_STORE_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
+        case GT_NULLCHECK:
+            newTree = morphAssertionPropagateIndir(tree->AsIndir());
+            break;
+        case GT_OVF_U:
+            newTree = morphAssertionPropagateOvfUnsigned(tree->AsUnOp());
+            break;
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            newTree = morphAssertionPropagateConv(tree->AsUnOp());
+            break;
+        case GT_CALL:
+            newTree = morphAssertionPropagateCall(tree->AsCall());
+            break;
+        case GT_EQ:
+        case GT_NE:
+            newTree = morphAssertionPropagateRelOp(tree->AsOp());
+            break;
+        default:
+            newTree = nullptr;
+            break;
         }
     } while (newTree != nullptr);
 

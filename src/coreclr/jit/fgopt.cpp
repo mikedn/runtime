@@ -1730,75 +1730,75 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
 
     switch (bNext->bbJumpKind)
     {
-        case BBJ_CALLFINALLY:
-            // Propagate RETLESS property
-            block->bbFlags |= (bNext->bbFlags & BBF_RETLESS_CALL);
+    case BBJ_CALLFINALLY:
+        // Propagate RETLESS property
+        block->bbFlags |= (bNext->bbFlags & BBF_RETLESS_CALL);
 
-            FALLTHROUGH;
+        FALLTHROUGH;
 
-        case BBJ_COND:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-            block->bbJumpDest = bNext->bbJumpDest;
+    case BBJ_COND:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+        block->bbJumpDest = bNext->bbJumpDest;
 
-            /* Update the predecessor list for 'bNext->bbJumpDest' */
-            fgReplacePred(bNext->bbJumpDest, bNext, block);
+        /* Update the predecessor list for 'bNext->bbJumpDest' */
+        fgReplacePred(bNext->bbJumpDest, bNext, block);
 
-            /* Update the predecessor list for 'bNext->bbNext' if it is different than 'bNext->bbJumpDest' */
-            if (bNext->bbJumpKind == BBJ_COND && bNext->bbJumpDest != bNext->bbNext)
-            {
-                fgReplacePred(bNext->bbNext, bNext, block);
-            }
-            break;
-
-        case BBJ_NONE:
-            /* Update the predecessor list for 'bNext->bbNext' */
-            fgReplacePred(bNext->bbNext, bNext, block);
-            break;
-
-        case BBJ_EHFILTERRET:
-            fgReplacePred(bNext->bbJumpDest, bNext, block);
-            break;
-
-        case BBJ_EHFINALLYRET:
+        /* Update the predecessor list for 'bNext->bbNext' if it is different than 'bNext->bbJumpDest' */
+        if (bNext->bbJumpKind == BBJ_COND && bNext->bbJumpDest != bNext->bbNext)
         {
-            unsigned  hndIndex = block->getHndIndex();
-            EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
-
-            if (ehDsc->HasFinallyHandler()) // No need to do this for fault handlers
-            {
-                BasicBlock* begBlk;
-                BasicBlock* endBlk;
-                ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
-
-                BasicBlock* finBeg = ehDsc->ebdHndBeg;
-
-                for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
-                {
-                    if (bcall->bbJumpKind != BBJ_CALLFINALLY || bcall->bbJumpDest != finBeg)
-                    {
-                        continue;
-                    }
-
-                    noway_assert(bcall->isBBCallAlwaysPair());
-                    fgReplacePred(bcall->bbNext, bNext, block);
-                }
-            }
+            fgReplacePred(bNext->bbNext, bNext, block);
         }
         break;
 
-        case BBJ_THROW:
-        case BBJ_RETURN:
-            /* no jumps or fall through blocks to set here */
-            break;
+    case BBJ_NONE:
+        /* Update the predecessor list for 'bNext->bbNext' */
+        fgReplacePred(bNext->bbNext, bNext, block);
+        break;
 
-        case BBJ_SWITCH:
-            fgChangeSwitchBlock(bNext, block);
-            break;
+    case BBJ_EHFILTERRET:
+        fgReplacePred(bNext->bbJumpDest, bNext, block);
+        break;
 
-        default:
-            noway_assert(!"Unexpected bbJumpKind");
-            break;
+    case BBJ_EHFINALLYRET:
+    {
+        unsigned  hndIndex = block->getHndIndex();
+        EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
+
+        if (ehDsc->HasFinallyHandler()) // No need to do this for fault handlers
+        {
+            BasicBlock* begBlk;
+            BasicBlock* endBlk;
+            ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
+
+            BasicBlock* finBeg = ehDsc->ebdHndBeg;
+
+            for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
+            {
+                if (bcall->bbJumpKind != BBJ_CALLFINALLY || bcall->bbJumpDest != finBeg)
+                {
+                    continue;
+                }
+
+                noway_assert(bcall->isBBCallAlwaysPair());
+                fgReplacePred(bcall->bbNext, bNext, block);
+            }
+        }
+    }
+    break;
+
+    case BBJ_THROW:
+    case BBJ_RETURN:
+        /* no jumps or fall through blocks to set here */
+        break;
+
+    case BBJ_SWITCH:
+        fgChangeSwitchBlock(bNext, block);
+        break;
+
+    default:
+        noway_assert(!"Unexpected bbJumpKind");
+        break;
     }
 
     if (bNext->isLoopAlign())
@@ -2185,193 +2185,192 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
 
     switch (block->bbJumpKind)
     {
-        case BBJ_COND:
-        case BBJ_SWITCH:
+    case BBJ_COND:
+    case BBJ_SWITCH:
 
-            /* can never happen */
-            noway_assert(!"Conditional or switch block with empty body!");
+        /* can never happen */
+        noway_assert(!"Conditional or switch block with empty body!");
+        break;
+
+    case BBJ_THROW:
+    case BBJ_CALLFINALLY:
+    case BBJ_RETURN:
+    case BBJ_EHCATCHRET:
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHFILTERRET:
+
+        /* leave them as is */
+        /* some compilers generate multiple returns and put all of them at the end -
+         * to solve that we need the predecessor list */
+
+        break;
+
+    case BBJ_ALWAYS:
+
+        // A GOTO cannot be to the next block since that
+        // should have been fixed by the  optimization above
+        // An exception is made for a jump from Hot to Cold
+        noway_assert(block->bbJumpDest != block->bbNext || block->isBBCallAlwaysPairTail() ||
+                     fgInDifferentRegions(block, block->bbNext));
+
+        /* Cannot remove the first BB */
+        if (!bPrev)
+        {
             break;
+        }
 
-        case BBJ_THROW:
-        case BBJ_CALLFINALLY:
-        case BBJ_RETURN:
-        case BBJ_EHCATCHRET:
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-
-            /* leave them as is */
-            /* some compilers generate multiple returns and put all of them at the end -
-             * to solve that we need the predecessor list */
-
+        /* Do not remove a block that jumps to itself - used for while (true){} */
+        if (block->bbJumpDest == block)
+        {
             break;
+        }
 
-        case BBJ_ALWAYS:
+        /* Empty GOTO can be removed iff bPrev is BBJ_NONE */
+        if (bPrev->bbJumpKind != BBJ_NONE)
+        {
+            break;
+        }
 
-            // A GOTO cannot be to the next block since that
-            // should have been fixed by the  optimization above
-            // An exception is made for a jump from Hot to Cold
-            noway_assert(block->bbJumpDest != block->bbNext || block->isBBCallAlwaysPairTail() ||
-                         fgInDifferentRegions(block, block->bbNext));
+        // can't allow fall through into cold code
+        if (block->bbNext == fgFirstColdBlock)
+        {
+            break;
+        }
 
-            /* Cannot remove the first BB */
-            if (!bPrev)
+        /* Can fall through since this is similar with removing
+         * a BBJ_NONE block, only the successor is different */
+
+        FALLTHROUGH;
+
+    case BBJ_NONE:
+
+        /* special case if this is the first BB */
+        if (!bPrev)
+        {
+            assert(block == fgFirstBB);
+        }
+        else
+        {
+            /* If this block follows a BBJ_CALLFINALLY do not remove it
+             * (because we don't know who may jump to it) */
+            if (bPrev->bbJumpKind == BBJ_CALLFINALLY)
             {
                 break;
             }
-
-            /* Do not remove a block that jumps to itself - used for while (true){} */
-            if (block->bbJumpDest == block)
-            {
-                break;
-            }
-
-            /* Empty GOTO can be removed iff bPrev is BBJ_NONE */
-            if (bPrev->bbJumpKind != BBJ_NONE)
-            {
-                break;
-            }
-
-            // can't allow fall through into cold code
-            if (block->bbNext == fgFirstColdBlock)
-            {
-                break;
-            }
-
-            /* Can fall through since this is similar with removing
-             * a BBJ_NONE block, only the successor is different */
-
-            FALLTHROUGH;
-
-        case BBJ_NONE:
-
-            /* special case if this is the first BB */
-            if (!bPrev)
-            {
-                assert(block == fgFirstBB);
-            }
-            else
-            {
-                /* If this block follows a BBJ_CALLFINALLY do not remove it
-                 * (because we don't know who may jump to it) */
-                if (bPrev->bbJumpKind == BBJ_CALLFINALLY)
-                {
-                    break;
-                }
-            }
+        }
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-            /* Don't remove finally targets */
-            if (block->bbFlags & BBF_FINALLY_TARGET)
-                break;
+        /* Don't remove finally targets */
+        if (block->bbFlags & BBF_FINALLY_TARGET)
+            break;
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
 #if defined(FEATURE_EH_FUNCLETS)
-            /* Don't remove an empty block that is in a different EH region
-             * from its successor block, if the block is the target of a
-             * catch return. It is required that the return address of a
-             * catch be in the correct EH region, for re-raise of thread
-             * abort exceptions to work. Insert a NOP in the empty block
-             * to ensure we generate code for the block, if we keep it.
-             */
+        /* Don't remove an empty block that is in a different EH region
+         * from its successor block, if the block is the target of a
+         * catch return. It is required that the return address of a
+         * catch be in the correct EH region, for re-raise of thread
+         * abort exceptions to work. Insert a NOP in the empty block
+         * to ensure we generate code for the block, if we keep it.
+         */
+        {
+            BasicBlock* succBlock;
+
+            if (block->bbJumpKind == BBJ_ALWAYS)
             {
-                BasicBlock* succBlock;
-
-                if (block->bbJumpKind == BBJ_ALWAYS)
-                {
-                    succBlock = block->bbJumpDest;
-                }
-                else
-                {
-                    succBlock = block->bbNext;
-                }
-
-                if ((succBlock != nullptr) && !BasicBlock::sameEHRegion(block, succBlock))
-                {
-                    // The empty block and the block that follows it are in different
-                    // EH regions. Is this a case where they can't be merged?
-
-                    bool okToMerge = true; // assume it's ok
-                    for (BasicBlock* const predBlock : block->PredBlocks())
-                    {
-                        if (predBlock->bbJumpKind == BBJ_EHCATCHRET)
-                        {
-                            assert(predBlock->bbJumpDest == block);
-                            okToMerge = false; // we can't get rid of the empty block
-                            break;
-                        }
-                    }
-
-                    if (!okToMerge)
-                    {
-                        // Insert a NOP in the empty block to ensure we generate code
-                        // for the catchret target in the right EH region.
-                        GenTree* nop = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-
-                        if (block->IsLIR())
-                        {
-                            LIR::AsRange(block).InsertAtEnd(nop);
-                        }
-                        else
-                        {
-                            Statement* nopStmt = fgNewStmtAtEnd(block, nop);
-                            gtSetStmtOrder(nopStmt);
-                        }
-
-                        JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
-                                block->bbNum);
-
-                        break; // go to the next block
-                    }
-                }
+                succBlock = block->bbJumpDest;
             }
-#endif // FEATURE_EH_FUNCLETS
-
-            if (!ehCanDeleteEmptyBlock(block))
+            else
             {
-                // We're not allowed to remove this block due to reasons related to the EH table.
-                break;
+                succBlock = block->bbNext;
             }
 
-            /* special case if this is the last BB */
-            if (block == fgLastBB)
+            if ((succBlock != nullptr) && !BasicBlock::sameEHRegion(block, succBlock))
             {
-                if (!bPrev)
-                {
-                    break;
-                }
-                fgLastBB = bPrev;
-            }
+                // The empty block and the block that follows it are in different
+                // EH regions. Is this a case where they can't be merged?
 
-            // When using profile weights, phComputeEdgeWeights expects the first non-internal block
-            // to have profile weight. Make sure we don't break that invariant.
-            if (fgIsUsingProfileWeights() && block->hasProfileWeight() && (block->bbFlags & BBF_INTERNAL) == 0)
-            {
-                BasicBlock* bNext = block->bbNext;
-
-                // Check if the next block can't maintain the invariant.
-                if ((bNext == nullptr) || ((bNext->bbFlags & BBF_INTERNAL) != 0) || !bNext->hasProfileWeight())
+                bool okToMerge = true; // assume it's ok
+                for (BasicBlock* const predBlock : block->PredBlocks())
                 {
-                    // Check if the current block is the first non-internal block.
-                    BasicBlock* curBB = bPrev;
-                    while ((curBB != nullptr) && (curBB->bbFlags & BBF_INTERNAL) != 0)
+                    if (predBlock->bbJumpKind == BBJ_EHCATCHRET)
                     {
-                        curBB = curBB->bbPrev;
-                    }
-                    if (curBB == nullptr)
-                    {
-                        // This block is the first non-internal block and it has profile weight.
-                        // Don't delete it.
+                        assert(predBlock->bbJumpDest == block);
+                        okToMerge = false; // we can't get rid of the empty block
                         break;
                     }
                 }
+
+                if (!okToMerge)
+                {
+                    // Insert a NOP in the empty block to ensure we generate code
+                    // for the catchret target in the right EH region.
+                    GenTree* nop = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
+
+                    if (block->IsLIR())
+                    {
+                        LIR::AsRange(block).InsertAtEnd(nop);
+                    }
+                    else
+                    {
+                        Statement* nopStmt = fgNewStmtAtEnd(block, nop);
+                        gtSetStmtOrder(nopStmt);
+                    }
+
+                    JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n", block->bbNum);
+
+                    break; // go to the next block
+                }
             }
+        }
+#endif // FEATURE_EH_FUNCLETS
 
-            fgRemoveBlock(block, false);
-            return true;
-
-        default:
-            noway_assert(!"Unexpected bbJumpKind");
+        if (!ehCanDeleteEmptyBlock(block))
+        {
+            // We're not allowed to remove this block due to reasons related to the EH table.
             break;
+        }
+
+        /* special case if this is the last BB */
+        if (block == fgLastBB)
+        {
+            if (!bPrev)
+            {
+                break;
+            }
+            fgLastBB = bPrev;
+        }
+
+        // When using profile weights, phComputeEdgeWeights expects the first non-internal block
+        // to have profile weight. Make sure we don't break that invariant.
+        if (fgIsUsingProfileWeights() && block->hasProfileWeight() && (block->bbFlags & BBF_INTERNAL) == 0)
+        {
+            BasicBlock* bNext = block->bbNext;
+
+            // Check if the next block can't maintain the invariant.
+            if ((bNext == nullptr) || ((bNext->bbFlags & BBF_INTERNAL) != 0) || !bNext->hasProfileWeight())
+            {
+                // Check if the current block is the first non-internal block.
+                BasicBlock* curBB = bPrev;
+                while ((curBB != nullptr) && (curBB->bbFlags & BBF_INTERNAL) != 0)
+                {
+                    curBB = curBB->bbPrev;
+                }
+                if (curBB == nullptr)
+                {
+                    // This block is the first non-internal block and it has profile weight.
+                    // Don't delete it.
+                    break;
+                }
+            }
+        }
+
+        fgRemoveBlock(block, false);
+        return true;
+
+    default:
+        noway_assert(!"Unexpected bbJumpKind");
+        break;
     }
     return false;
 }
@@ -3538,40 +3537,40 @@ bool Compiler::fgExpandRarelyRunBlocks()
 
         switch (bPrev->bbJumpKind)
         {
-            case BBJ_ALWAYS:
+        case BBJ_ALWAYS:
 
-                if (bPrev->bbJumpDest->isRunRarely())
-                {
-                    reason = "Unconditional jump to a rarely run block";
-                }
-                break;
+            if (bPrev->bbJumpDest->isRunRarely())
+            {
+                reason = "Unconditional jump to a rarely run block";
+            }
+            break;
 
-            case BBJ_CALLFINALLY:
+        case BBJ_CALLFINALLY:
 
-                if (bPrev->isBBCallAlwaysPair() && block->isRunRarely())
-                {
-                    reason = "Call of finally followed by a rarely run block";
-                }
-                break;
+            if (bPrev->isBBCallAlwaysPair() && block->isRunRarely())
+            {
+                reason = "Call of finally followed by a rarely run block";
+            }
+            break;
 
-            case BBJ_NONE:
+        case BBJ_NONE:
 
-                if (block->isRunRarely())
-                {
-                    reason = "Falling into a rarely run block";
-                }
-                break;
+            if (block->isRunRarely())
+            {
+                reason = "Falling into a rarely run block";
+            }
+            break;
 
-            case BBJ_COND:
+        case BBJ_COND:
 
-                if (block->isRunRarely() && bPrev->bbJumpDest->isRunRarely())
-                {
-                    reason = "Both sides of a conditional jump are rarely run";
-                }
-                break;
+            if (block->isRunRarely() && bPrev->bbJumpDest->isRunRarely())
+            {
+                reason = "Both sides of a conditional jump are rarely run";
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
 
         if (reason != nullptr)
@@ -5317,24 +5316,24 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
             {
                 switch (block->bbJumpKind)
                 {
-                    case BBJ_COND:
-                    case BBJ_ALWAYS:
-                        if (block->bbJumpDest == block)
-                        {
-                            fgRemoveBlock(block, true);
+                case BBJ_COND:
+                case BBJ_ALWAYS:
+                    if (block->bbJumpDest == block)
+                    {
+                        fgRemoveBlock(block, true);
 
-                            change   = true;
-                            modified = true;
+                        change   = true;
+                        modified = true;
 
-                            /* we removed the current block - the rest of the optimizations
-                             * won't have a target so continue with the next block */
+                        /* we removed the current block - the rest of the optimizations
+                         * won't have a target so continue with the next block */
 
-                            continue;
-                        }
-                        break;
+                        continue;
+                    }
+                    break;
 
-                    default:
-                        break;
+                default:
+                    break;
                 }
             }
 

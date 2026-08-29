@@ -87,25 +87,25 @@ void Compiler::fgDebugCheckUpdate()
         {
             switch (block->bbJumpKind)
             {
-                case BBJ_CALLFINALLY:
-                case BBJ_EHFINALLYRET:
-                case BBJ_EHFILTERRET:
-                case BBJ_RETURN:
-                /* for BBJ_ALWAYS is probably just a GOTO, but will have to be treated */
-                case BBJ_ALWAYS:
-                case BBJ_EHCATCHRET:
-                    /* These jump kinds are allowed to have empty tree lists */
-                    break;
+            case BBJ_CALLFINALLY:
+            case BBJ_EHFINALLYRET:
+            case BBJ_EHFILTERRET:
+            case BBJ_RETURN:
+            /* for BBJ_ALWAYS is probably just a GOTO, but will have to be treated */
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+                /* These jump kinds are allowed to have empty tree lists */
+                break;
 
-                default:
-                    /* it may be the case that the block had more than one reference to it
-                     * so we couldn't remove it */
+            default:
+                /* it may be the case that the block had more than one reference to it
+                 * so we couldn't remove it */
 
-                    if (block->countOfInEdges() == 0)
-                    {
-                        noway_assert(!"Empty block not removed!");
-                    }
-                    break;
+                if (block->countOfInEdges() == 0)
+                {
+                    noway_assert(!"Empty block not removed!");
+                }
+                break;
             }
         }
 
@@ -355,90 +355,90 @@ void Compiler::fgTableDispBasicBlock(const BasicBlock* block, int ibcColWidth)
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
-                printf("-> " FMT_BB "%*s ( cond )", block->bbJumpDest->bbNum,
-                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                break;
+        case BBJ_COND:
+            printf("-> " FMT_BB "%*s ( cond )", block->bbJumpDest->bbNum,
+                   maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            break;
 
-            case BBJ_CALLFINALLY:
-                printf("-> " FMT_BB "%*s (callf )", block->bbJumpDest->bbNum,
-                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                break;
+        case BBJ_CALLFINALLY:
+            printf("-> " FMT_BB "%*s (callf )", block->bbJumpDest->bbNum,
+                   maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            break;
 
-            case BBJ_ALWAYS:
-                if ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0)
-                {
-                    printf("-> " FMT_BB "%*s (ALWAYS)", block->bbJumpDest->bbNum,
-                           maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                }
-                else
-                {
-                    printf("-> " FMT_BB "%*s (always)", block->bbJumpDest->bbNum,
-                           maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                }
-                break;
-
-            case BBJ_LEAVE:
-                printf("-> " FMT_BB "%*s (leave )", block->bbJumpDest->bbNum,
-                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                break;
-
-            case BBJ_EHFINALLYRET:
-                printf("%*s        (finret)", maxBlockNumWidth - 2, "");
-                break;
-
-            case BBJ_EHFILTERRET:
-                printf("-> " FMT_BB "%*s (fltret)", block->bbJumpDest->bbNum,
-                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                break;
-
-            case BBJ_EHCATCHRET:
-                printf("-> " FMT_BB "%*s ( cret )", block->bbJumpDest->bbNum,
-                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
-                break;
-
-            case BBJ_THROW:
-                printf("%*s        (throw )", maxBlockNumWidth - 2, "");
-                break;
-
-            case BBJ_RETURN:
-                printf("%*s        (return)", maxBlockNumWidth - 2, "");
-                break;
-
-            default:
-                printf("%*s                ", maxBlockNumWidth - 2, "");
-                break;
-
-            case BBJ_SWITCH:
+        case BBJ_ALWAYS:
+            if ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0)
             {
-                printf("->");
-
-                const BBswtDesc* switchDesc   = block->bbJumpSwt;
-                int              switchLength = 0;
-
-                for (unsigned i = 0; i < switchDesc->bbsCount; i++)
-                {
-                    switchLength += printf("%s" FMT_BB, i == 0 ? "" : ",", switchDesc->bbsDstTab[i]->bbNum);
-
-                    if (switchDesc->bbsHasDefault && (i == switchDesc->bbsCount - 1))
-                    {
-                        switchLength += printf("[def]");
-                    }
-
-                    if (switchDesc->bbsHasDominantCase && (i == switchDesc->bbsDominantCase))
-                    {
-                        switchLength += printf("[dom(" FMT_WT ")]", switchDesc->bbsDominantFraction);
-                    }
-                }
-
-                if (switchLength < 7)
-                {
-                    printf("%*s", 8 - switchLength, "");
-                }
-
-                printf(" (switch)");
+                printf("-> " FMT_BB "%*s (ALWAYS)", block->bbJumpDest->bbNum,
+                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            }
+            else
+            {
+                printf("-> " FMT_BB "%*s (always)", block->bbJumpDest->bbNum,
+                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
             }
             break;
+
+        case BBJ_LEAVE:
+            printf("-> " FMT_BB "%*s (leave )", block->bbJumpDest->bbNum,
+                   maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            break;
+
+        case BBJ_EHFINALLYRET:
+            printf("%*s        (finret)", maxBlockNumWidth - 2, "");
+            break;
+
+        case BBJ_EHFILTERRET:
+            printf("-> " FMT_BB "%*s (fltret)", block->bbJumpDest->bbNum,
+                   maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            break;
+
+        case BBJ_EHCATCHRET:
+            printf("-> " FMT_BB "%*s ( cret )", block->bbJumpDest->bbNum,
+                   maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
+            break;
+
+        case BBJ_THROW:
+            printf("%*s        (throw )", maxBlockNumWidth - 2, "");
+            break;
+
+        case BBJ_RETURN:
+            printf("%*s        (return)", maxBlockNumWidth - 2, "");
+            break;
+
+        default:
+            printf("%*s                ", maxBlockNumWidth - 2, "");
+            break;
+
+        case BBJ_SWITCH:
+        {
+            printf("->");
+
+            const BBswtDesc* switchDesc   = block->bbJumpSwt;
+            int              switchLength = 0;
+
+            for (unsigned i = 0; i < switchDesc->bbsCount; i++)
+            {
+                switchLength += printf("%s" FMT_BB, i == 0 ? "" : ",", switchDesc->bbsDstTab[i]->bbNum);
+
+                if (switchDesc->bbsHasDefault && (i == switchDesc->bbsCount - 1))
+                {
+                    switchLength += printf("[def]");
+                }
+
+                if (switchDesc->bbsHasDominantCase && (i == switchDesc->bbsDominantCase))
+                {
+                    switchLength += printf("[dom(" FMT_WT ")]", switchDesc->bbsDominantFraction);
+                }
+            }
+
+            if (switchLength < 7)
+            {
+                printf("%*s", 8 - switchLength, "");
+            }
+
+            printf(" (switch)");
+        }
+        break;
         }
 
         printf(" ");
@@ -475,23 +475,23 @@ void Compiler::fgTableDispBasicBlock(const BasicBlock* block, int ibcColWidth)
 
     switch (block->bbCatchTyp)
     {
-        case BBCT_NONE:
-            break;
-        case BBCT_FAULT:
-            length += printf("fault { ");
-            break;
-        case BBCT_FINALLY:
-            length += printf("finally { ");
-            break;
-        case BBCT_FILTER:
-            length += printf("filter { ");
-            break;
-        case BBCT_FILTER_HANDLER:
-            length += printf("filtHnd { ");
-            break;
-        default:
-            length += printf("catch { ");
-            break;
+    case BBCT_NONE:
+        break;
+    case BBCT_FAULT:
+        length += printf("fault { ");
+        break;
+    case BBCT_FINALLY:
+        length += printf("finally { ");
+        break;
+    case BBCT_FILTER:
+        length += printf("filter { ");
+        break;
+    case BBCT_FILTER_HANDLER:
+        length += printf("filtHnd { ");
+        break;
+    default:
+        length += printf("catch { ");
+        break;
     }
 
     if ((block->bbFlags & BBF_TRY_BEG) != 0)
@@ -809,44 +809,44 @@ private:
     {
         switch (blockPred->bbJumpKind)
         {
-            case BBJ_COND:
-                assert(blockPred->bbNext == block || blockPred->bbJumpDest == block);
-                return true;
+        case BBJ_COND:
+            assert(blockPred->bbNext == block || blockPred->bbJumpDest == block);
+            return true;
 
-            case BBJ_NONE:
-                assert(blockPred->bbNext == block);
-                return true;
+        case BBJ_NONE:
+            assert(blockPred->bbNext == block);
+            return true;
 
-            case BBJ_CALLFINALLY:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-            case BBJ_EHFILTERRET:
-                assert(blockPred->bbJumpDest == block);
-                return true;
+        case BBJ_CALLFINALLY:
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+        case BBJ_EHFILTERRET:
+            assert(blockPred->bbJumpDest == block);
+            return true;
 
-            case BBJ_EHFINALLYRET:
-                assert(CheckEHFinallyRet(blockPred, block));
-                return true;
+        case BBJ_EHFINALLYRET:
+            assert(CheckEHFinallyRet(blockPred, block));
+            return true;
 
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                assert(!"THROW and RETURN block cannot be in the predecessor list!");
-                break;
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            assert(!"THROW and RETURN block cannot be in the predecessor list!");
+            break;
 
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : blockPred->SwitchTargets())
+        case BBJ_SWITCH:
+            for (BasicBlock* const bTarget : blockPred->SwitchTargets())
+            {
+                if (block == bTarget)
                 {
-                    if (block == bTarget)
-                    {
-                        return true;
-                    }
+                    return true;
                 }
-                assert(!"SWITCH in the predecessor list with no jump label to BLOCK!");
-                break;
+            }
+            assert(!"SWITCH in the predecessor list with no jump label to BLOCK!");
+            break;
 
-            default:
-                assert(!"Unexpected bbJumpKind");
-                break;
+        default:
+            assert(!"Unexpected bbJumpKind");
+            break;
         }
         return false;
     }
@@ -1248,60 +1248,60 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
             switch (node->GetOper())
             {
-                case GT_CATCH_ARG:
-                    expectedFlags |= GTF_ORDER_SIDEEFF;
-                    break;
+            case GT_CATCH_ARG:
+                expectedFlags |= GTF_ORDER_SIDEEFF;
+                break;
 
-                case GT_IND_LOAD:
-                    if (GenTreeIntCon* addr = node->AsIndLoad()->GetAddr()->IsIntCon())
+            case GT_IND_LOAD:
+                if (GenTreeIntCon* addr = node->AsIndLoad()->GetAddr()->IsIntCon())
+                {
+                    HandleKind handleKind = addr->GetHandleKind();
+
+                    if (handleKind != HandleKind::None)
                     {
-                        HandleKind handleKind = addr->GetHandleKind();
-
-                        if (handleKind != HandleKind::None)
+                        if ((node->gtFlags & GTF_IND_INVARIANT) != 0)
                         {
-                            if ((node->gtFlags & GTF_IND_INVARIANT) != 0)
-                            {
-                                expectedFlags |= GTF_IND_INVARIANT;
-                            }
+                            expectedFlags |= GTF_IND_INVARIANT;
+                        }
 
-                            // We currently expect all handles to be non-null.
-                            assert((node->gtFlags & GTF_IND_NONFAULTING) != 0);
+                        // We currently expect all handles to be non-null.
+                        assert((node->gtFlags & GTF_IND_NONFAULTING) != 0);
 
-                            actualFlags |= GTF_IND_NONFAULTING;
-                            expectedFlags |= GTF_IND_NONFAULTING;
+                        actualFlags |= GTF_IND_NONFAULTING;
+                        expectedFlags |= GTF_IND_NONFAULTING;
 
-                            if ((handleKind != HandleKind::Static) && (handleKind != HandleKind::BlockCount) &&
-                                (handleKind != HandleKind::MutableData))
-                            {
-                                actualFlags |= GTF_IND_INVARIANT;
-                            }
+                        if ((handleKind != HandleKind::Static) && (handleKind != HandleKind::BlockCount) &&
+                            (handleKind != HandleKind::MutableData))
+                        {
+                            actualFlags |= GTF_IND_INVARIANT;
+                        }
 
-                            if (handleKind == HandleKind::Static)
-                            {
-                                actualFlags |= GTF_GLOB_REF;
-                            }
+                        if (handleKind == HandleKind::Static)
+                        {
+                            actualFlags |= GTF_GLOB_REF;
                         }
                     }
-                    break;
+                }
+                break;
 
-                case GT_CALL:
-                    // Calls may have argument "setup" trees that are stores but
-                    // their GTF_ASG side effect is not inherited by the call node.
-                    // Struct args can have complicated setup, where the temp store
-                    // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
-                    // for GTF_ASG instead of a store node.
+            case GT_CALL:
+                // Calls may have argument "setup" trees that are stores but
+                // their GTF_ASG side effect is not inherited by the call node.
+                // Struct args can have complicated setup, where the temp store
+                // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
+                // for GTF_ASG instead of a store node.
 
-                    for (GenTreeUse& use : node->AsCall()->Uses())
+                for (GenTreeUse& use : node->AsCall()->Uses())
+                {
+                    if (use.GetNode()->HasAnySideEffect(GTF_ASG))
                     {
-                        if (use.GetNode()->HasAnySideEffect(GTF_ASG))
-                        {
-                            actualFlags |= GTF_ASG;
-                        }
+                        actualFlags |= GTF_ASG;
                     }
-                    break;
+                }
+                break;
 
-                default:
-                    break;
+            default:
+                break;
             }
 
             CheckFlags(node, actualFlags, expectedFlags);
@@ -2783,14 +2783,14 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
                 {
                     switch (rgnType)
                     {
-                        case RegionType::Root:
-                            return "Root";
-                        case RegionType::EH:
-                            return "EH";
-                        case RegionType::Loop:
-                            return "Loop";
-                        default:
-                            return "UNKNOWN";
+                    case RegionType::Root:
+                        return "Root";
+                    case RegionType::EH:
+                        return "EH";
+                    case RegionType::Loop:
+                        return "Loop";
+                    default:
+                        return "UNKNOWN";
                     }
                 }
 
@@ -2927,12 +2927,12 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
                     RegionType rgnType = rgn->m_rgnType;
                     switch (rgnType)
                     {
-                        case RegionType::EH:
-                            return "red";
-                        case RegionType::Loop:
-                            return "blue";
-                        default:
-                            return "black";
+                    case RegionType::EH:
+                        return "red";
+                    case RegionType::Loop:
+                        return "blue";
+                    default:
+                        return "black";
                     }
                 }
 
@@ -3040,21 +3040,21 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
                     const char* handlerType = "";
                     switch (ehDsc->ebdHandlerType)
                     {
-                        case EH_HANDLER_CATCH:
-                            handlerType = "catch";
-                            break;
-                        case EH_HANDLER_FILTER:
-                            handlerType = "filter-hnd";
-                            break;
-                        case EH_HANDLER_FAULT:
-                            handlerType = "fault";
-                            break;
-                        case EH_HANDLER_FINALLY:
-                            handlerType = "finally";
-                            break;
-                        case EH_HANDLER_FAULT_WAS_FINALLY:
-                            handlerType = "fault-was-finally";
-                            break;
+                    case EH_HANDLER_CATCH:
+                        handlerType = "catch";
+                        break;
+                    case EH_HANDLER_FILTER:
+                        handlerType = "filter-hnd";
+                        break;
+                    case EH_HANDLER_FAULT:
+                        handlerType = "fault";
+                        break;
+                    case EH_HANDLER_FINALLY:
+                        handlerType = "finally";
+                        break;
+                    case EH_HANDLER_FAULT_WAS_FINALLY:
+                        handlerType = "fault-was-finally";
+                        break;
                     }
                     sprintf_s(name, sizeof(name), "EH#%u %s", XTnum, handlerType);
                     rgnGraph.Insert(name, RegionGraph::RegionType::EH, ehDsc->ebdHndBeg, ehDsc->ebdHndLast);

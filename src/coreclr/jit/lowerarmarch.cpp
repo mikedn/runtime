@@ -32,27 +32,27 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 
     switch (instr->GetOper())
     {
-        case GT_ADD:
-        case GT_SUB:
-            return ArmImm::IsAddImm(value, instr->HasImplicitFlagsDef() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE);
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            return ArmImm::IsAddImm(value, INS_FLAGS_SET);
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_CMP:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-            return ArmImm::IsAluImm(value);
-        default:
-            return false;
+    case GT_ADD:
+    case GT_SUB:
+        return ArmImm::IsAddImm(value, instr->HasImplicitFlagsDef() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE);
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        return ArmImm::IsAddImm(value, INS_FLAGS_SET);
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_CMP:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+        return ArmImm::IsAluImm(value);
+    default:
+        return false;
     }
 }
 
@@ -508,58 +508,58 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (node->GetIntrinsic())
     {
-        case NI_VEC_PACK:
-            LowerVecPack(node);
-            return;
-        case NI_VEC_SPLAT:
-            LowerVecSplat(node);
-            return;
-        case NI_VEC_REGCAST:
-            LowerVecRegCast(node);
-            return;
-        case NI_VEC_ITOV:
-            LowerVecIToV(node);
-            return;
-        case NI_VEC_FTOV:
-            LowerVecFToV(node);
-            return;
-        case NI_VEC_SUM:
-            LowerVecSum(node);
-            return;
-        case NI_VEC_EXTRACT:
-            LowerVecExtract(node);
-            return;
-        case NI_AdvSimd_FusedMultiplyAddScalar:
-            LowerAdvSimdFusedMultiplyAddScalar(node);
-            return;
-        case NI_AdvSimd_Insert:
-            LowerAdvSimdInsert(node);
-            return;
-        case NI_AdvSimd_Arm64_InsertSelectedScalar:
-            if (GenTreeIntCon* immOp = node->GetOp(3)->IsIntCon())
-            {
-                immOp->SetContained();
-            }
-            FALLTHROUGH;
-        case NI_AdvSimd_LoadAndInsertScalar:
-        case NI_AdvSimd_InsertScalar:
-            if (GenTreeIntCon* immOp = node->GetOp(1)->IsIntCon())
-            {
-                immOp->SetContained();
-            }
-            return;
-        default:
-            if (HWIntrinsicInfo::HasImm(node->GetIntrinsic()))
-            {
-                GenTree* immOp = node->GetLastOp();
-                assert(varTypeIsIntegral(immOp->GetType()));
+    case NI_VEC_PACK:
+        LowerVecPack(node);
+        return;
+    case NI_VEC_SPLAT:
+        LowerVecSplat(node);
+        return;
+    case NI_VEC_REGCAST:
+        LowerVecRegCast(node);
+        return;
+    case NI_VEC_ITOV:
+        LowerVecIToV(node);
+        return;
+    case NI_VEC_FTOV:
+        LowerVecFToV(node);
+        return;
+    case NI_VEC_SUM:
+        LowerVecSum(node);
+        return;
+    case NI_VEC_EXTRACT:
+        LowerVecExtract(node);
+        return;
+    case NI_AdvSimd_FusedMultiplyAddScalar:
+        LowerAdvSimdFusedMultiplyAddScalar(node);
+        return;
+    case NI_AdvSimd_Insert:
+        LowerAdvSimdInsert(node);
+        return;
+    case NI_AdvSimd_Arm64_InsertSelectedScalar:
+        if (GenTreeIntCon* immOp = node->GetOp(3)->IsIntCon())
+        {
+            immOp->SetContained();
+        }
+        FALLTHROUGH;
+    case NI_AdvSimd_LoadAndInsertScalar:
+    case NI_AdvSimd_InsertScalar:
+        if (GenTreeIntCon* immOp = node->GetOp(1)->IsIntCon())
+        {
+            immOp->SetContained();
+        }
+        return;
+    default:
+        if (HWIntrinsicInfo::HasImm(node->GetIntrinsic()))
+        {
+            GenTree* immOp = node->GetLastOp();
+            assert(varTypeIsIntegral(immOp->GetType()));
 
-                if (immOp->IsIntCon())
-                {
-                    immOp->SetContained();
-                }
+            if (immOp->IsIntCon())
+            {
+                immOp->SetContained();
             }
-            return;
+        }
+        return;
     }
 }
 

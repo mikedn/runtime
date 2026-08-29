@@ -14,195 +14,12 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_LOAD:
-        case GT_LCL_LOAD_FLD:
-            assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
+    case GT_LCL_LOAD:
+    case GT_LCL_LOAD_FLD:
+        assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
 
-            if (tree->OperIs(GT_LCL_LOAD_FLD) && tree->AsLclLoadFld()->IsOffsetMisaligned())
-            {
-                BuildInternalIntDef(tree);
-
-                if (tree->TypeIs(TYP_DOUBLE))
-                {
-                    BuildInternalIntDef(tree);
-                }
-
-                BuildInternalUses();
-            }
-
-            BuildDef(tree);
-            break;
-
-        case GT_LCL_STORE:
-            BuildLclStore(tree->AsLclStore());
-            break;
-
-        case GT_LCL_STORE_FLD:
-            BuildLclStoreFld(tree->AsLclStoreFld());
-            break;
-
-        case GT_KEEPALIVE:
-            BuildKeepAlive(tree->AsUnOp());
-            break;
-
-        case GT_CKFINITE:
-            BuildInternalIntDef(tree);
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_INTRINSIC:
-            BuildIntrinsic(tree->AsIntrinsic());
-            break;
-
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            BuildOvfTruncate(tree->AsUnOp());
-            break;
-
-        case GT_OVF_U:
-            BuildOvfUnsigned(tree->AsUnOp());
-            break;
-
-        case GT_CONV:
-            BuildConv(tree->AsUnOp());
-            break;
-
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            BuildOvfConv(tree->AsUnOp());
-            break;
-
-        case GT_FTOS:
-        case GT_FTOU:
-            BuildInternalFloatDef(tree, RBM_ALLFLOAT);
-            setInternalRegsDelayFree = true;
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_FNEG:
-        case GT_FXT:
-        case GT_FTRUNC:
-        case GT_STOF:
-        case GT_UTOF:
-        case GT_NEG:
-        case GT_NOT:
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildDef(tree);
-            break;
-
-        case GT_SWITCH_TABLE:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            break;
-
-        case GT_SMULL:
-        case GT_UMULL:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildDef(tree, TYP_INT, RBM_NONE, 0);
-            BuildDef(tree, TYP_INT, RBM_NONE, 1);
-            break;
-
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FDIV:
-        case GT_MUL:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildDef(tree);
-            break;
-
-        case GT_FMUL:
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
-        case GT_ADD:
-        case GT_SUB:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROR:
-            BuildUse(tree->AsOp()->GetOp(0));
-
-            if (!tree->AsOp()->GetOp(1)->isContained())
-            {
-                BuildUse(tree->AsOp()->GetOp(1));
-            }
-
-            BuildDef(tree);
-            break;
-
-        case GT_JMPTABLE:
-        case GT_LCL_ADDR:
-        case GT_CONST_ADDR:
-        case GT_REG_USE:
-        case GT_LABEL:
-        case GT_SETCC:
-            BuildDef(tree);
-            break;
-
-        case GT_NOP:
-        case GT_NO_OP:
-        case GT_IL_OFFSET:
-        case GT_START_NONGC:
-        case GT_PINVOKE_PROLOG:
-        case GT_PROF_HOOK:
-        case GT_MEMORYBARRIER:
-        case GT_JTRUE:
-        case GT_JCC:
-        case GT_JMP:
-            break;
-
-        case GT_INDEX_ADDR:
-            BuildInternalIntDef(tree);
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_LSH_HI:
-        case GT_RSH_LO:
-            BuildShiftLong(tree->AsOp());
-            break;
-
-        case GT_RETURNTRAP:
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
-            break;
-
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            BuildInternalIntDef(tree);
-            setInternalRegsDelayFree = true;
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_START_PREEMPTGC:
-            BuildKills(tree, RBM_NONE);
-            break;
-
-        case GT_CNS_DBL:
+        if (tree->OperIs(GT_LCL_LOAD_FLD) && tree->AsLclLoadFld()->IsOffsetMisaligned())
+        {
             BuildInternalIntDef(tree);
 
             if (tree->TypeIs(TYP_DOUBLE))
@@ -211,98 +28,281 @@ void LinearScan::BuildNode(GenTree* tree)
             }
 
             BuildInternalUses();
-            FALLTHROUGH;
-        case GT_CNS_INT:
-            BuildDef(tree)->getInterval()->isConstant = true;
-            break;
+        }
 
-        case GT_RETURN:
-            BuildReturn(tree->AsUnOp());
-            BuildKills(tree, getKillSetForReturn());
-            break;
+        BuildDef(tree);
+        break;
 
-        case GT_RETFILT:
-            if (!tree->TypeIs(TYP_VOID))
-            {
-                assert(tree->TypeIs(TYP_INT));
-                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
-            }
-            break;
+    case GT_LCL_STORE:
+        BuildLclStore(tree->AsLclStore());
+        break;
 
-        case GT_BOUNDS_CHECK:
-            BuildBoundsChk(tree->AsBoundsChk());
-            break;
+    case GT_LCL_STORE_FLD:
+        BuildLclStoreFld(tree->AsLclStoreFld());
+        break;
 
-        case GT_LEA:
-            BuildAddrMode(tree->AsAddrMode());
-            break;
+    case GT_KEEPALIVE:
+        BuildKeepAlive(tree->AsUnOp());
+        break;
 
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_CMP:
-            BuildCmp(tree->AsOp());
-            break;
+    case GT_CKFINITE:
+        BuildInternalIntDef(tree);
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
 
-        case GT_CALL:
-            BuildCall(tree->AsCall());
-            break;
+    case GT_INTRINSIC:
+        BuildIntrinsic(tree->AsIntrinsic());
+        break;
 
-        case GT_IND_STORE_BLK:
-        case GT_IND_STORE_OBJ:
-            BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
-            break;
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+        BuildOvfTruncate(tree->AsUnOp());
+        break;
 
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            BuildStoreDynBlk(tree->AsDynBlk());
-            break;
+    case GT_OVF_U:
+        BuildOvfUnsigned(tree->AsUnOp());
+        break;
 
-        case GT_LCLHEAP:
-            BuildLclHeap(tree->AsUnOp());
-            break;
+    case GT_CONV:
+        BuildConv(tree->AsUnOp());
+        break;
 
-        case GT_IND_STORE:
-            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
-            {
-                BuildGCWriteBarrier(tree->AsIndStore());
-            }
-            else
-            {
-                BuildIndir(tree->AsIndStore());
-                BuildUse(tree->AsIndStore()->GetValue());
-            }
-            break;
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        BuildOvfConv(tree->AsUnOp());
+        break;
 
-        case GT_IND_LOAD:
-            BuildIndir(tree->AsIndLoad());
-            break;
+    case GT_FTOS:
+    case GT_FTOU:
+        BuildInternalFloatDef(tree, RBM_ALLFLOAT);
+        setInternalRegsDelayFree = true;
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
 
-        case GT_CATCH_ARG:
-            BuildDef(tree, RBM_EXCEPTION_OBJECT);
-            break;
+    case GT_FNEG:
+    case GT_FXT:
+    case GT_FTRUNC:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_NEG:
+    case GT_NOT:
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildDef(tree);
+        break;
 
-        case GT_ARG_STORE:
-            BuildArgStore(tree->AsArgStore());
-            break;
+    case GT_SWITCH_TABLE:
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        break;
 
-        case GT_PUTARG_REG:
-            BuildPutArgReg(tree->AsUnOp());
-            break;
+    case GT_SMULL:
+    case GT_UMULL:
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildDef(tree, TYP_INT, RBM_NONE, 0);
+        BuildDef(tree, TYP_INT, RBM_NONE, 1);
+        break;
 
-        case GT_BITCAST:
-            BuildBitCast(tree->AsUnOp());
-            break;
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FDIV:
+    case GT_MUL:
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildDef(tree);
+        break;
 
-        case GT_INSTR:
-            BuildInstr(tree->AsInstr());
-            break;
+    case GT_FMUL:
+    case GT_ADD_LO:
+    case GT_ADD_HI:
+    case GT_SUB_LO:
+    case GT_SUB_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
+    case GT_ADD:
+    case GT_SUB:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROR:
+        BuildUse(tree->AsOp()->GetOp(0));
 
-        default:
-            unreached();
+        if (!tree->AsOp()->GetOp(1)->isContained())
+        {
+            BuildUse(tree->AsOp()->GetOp(1));
+        }
+
+        BuildDef(tree);
+        break;
+
+    case GT_JMPTABLE:
+    case GT_LCL_ADDR:
+    case GT_CONST_ADDR:
+    case GT_REG_USE:
+    case GT_LABEL:
+    case GT_SETCC:
+        BuildDef(tree);
+        break;
+
+    case GT_NOP:
+    case GT_NO_OP:
+    case GT_IL_OFFSET:
+    case GT_START_NONGC:
+    case GT_PINVOKE_PROLOG:
+    case GT_PROF_HOOK:
+    case GT_MEMORYBARRIER:
+    case GT_JTRUE:
+    case GT_JCC:
+    case GT_JMP:
+        break;
+
+    case GT_INDEX_ADDR:
+        BuildInternalIntDef(tree);
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
+
+    case GT_LSH_HI:
+    case GT_RSH_LO:
+        BuildShiftLong(tree->AsOp());
+        break;
+
+    case GT_RETURNTRAP:
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+        break;
+
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        BuildInternalIntDef(tree);
+        setInternalRegsDelayFree = true;
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
+
+    case GT_START_PREEMPTGC:
+        BuildKills(tree, RBM_NONE);
+        break;
+
+    case GT_CNS_DBL:
+        BuildInternalIntDef(tree);
+
+        if (tree->TypeIs(TYP_DOUBLE))
+        {
+            BuildInternalIntDef(tree);
+        }
+
+        BuildInternalUses();
+        FALLTHROUGH;
+    case GT_CNS_INT:
+        BuildDef(tree)->getInterval()->isConstant = true;
+        break;
+
+    case GT_RETURN:
+        BuildReturn(tree->AsUnOp());
+        BuildKills(tree, getKillSetForReturn());
+        break;
+
+    case GT_RETFILT:
+        if (!tree->TypeIs(TYP_VOID))
+        {
+            assert(tree->TypeIs(TYP_INT));
+            BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
+        }
+        break;
+
+    case GT_BOUNDS_CHECK:
+        BuildBoundsChk(tree->AsBoundsChk());
+        break;
+
+    case GT_LEA:
+        BuildAddrMode(tree->AsAddrMode());
+        break;
+
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_CMP:
+        BuildCmp(tree->AsOp());
+        break;
+
+    case GT_CALL:
+        BuildCall(tree->AsCall());
+        break;
+
+    case GT_IND_STORE_BLK:
+    case GT_IND_STORE_OBJ:
+        BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
+        break;
+
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        BuildStoreDynBlk(tree->AsDynBlk());
+        break;
+
+    case GT_LCLHEAP:
+        BuildLclHeap(tree->AsUnOp());
+        break;
+
+    case GT_IND_STORE:
+        if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
+        {
+            BuildGCWriteBarrier(tree->AsIndStore());
+        }
+        else
+        {
+            BuildIndir(tree->AsIndStore());
+            BuildUse(tree->AsIndStore()->GetValue());
+        }
+        break;
+
+    case GT_IND_LOAD:
+        BuildIndir(tree->AsIndLoad());
+        break;
+
+    case GT_CATCH_ARG:
+        BuildDef(tree, RBM_EXCEPTION_OBJECT);
+        break;
+
+    case GT_ARG_STORE:
+        BuildArgStore(tree->AsArgStore());
+        break;
+
+    case GT_PUTARG_REG:
+        BuildPutArgReg(tree->AsUnOp());
+        break;
+
+    case GT_BITCAST:
+        BuildBitCast(tree->AsUnOp());
+        break;
+
+    case GT_INSTR:
+        BuildInstr(tree->AsInstr());
+        break;
+
+    default:
+        unreached();
     }
 }
 
@@ -374,15 +374,15 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* intrinsic)
     {
         GenTree* op1;
 
-        case NI_System_Math_Abs:
-        case NI_System_Math_Sqrt:
-            op1 = intrinsic->GetOp(0);
-            assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == intrinsic->GetType()));
-            BuildUse(op1);
-            BuildDef(intrinsic);
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Abs:
+    case NI_System_Math_Sqrt:
+        op1 = intrinsic->GetOp(0);
+        assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == intrinsic->GetType()));
+        BuildUse(op1);
+        BuildDef(intrinsic);
+        break;
+    default:
+        unreached();
     }
 }
 

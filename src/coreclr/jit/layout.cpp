@@ -144,90 +144,90 @@ public:
         {
             ClassLayout* layout;
 
-            case TYP_SIMD8:
+        case TYP_SIMD8:
 #ifdef TARGET_ARM64
-                layout = m_vectorLayoutTable[Vector64BaseIndex + elementTypeIndex];
+            layout = m_vectorLayoutTable[Vector64BaseIndex + elementTypeIndex];
+            if (layout != nullptr)
+            {
+                return layout;
+            }
+            if (elementType == TYP_FLOAT)
+            {
+                layout = m_vectorLayoutTable[Vector234BaseIndex + 0];
                 if (layout != nullptr)
                 {
                     return layout;
                 }
-                if (elementType == TYP_FLOAT)
-                {
-                    layout = m_vectorLayoutTable[Vector234BaseIndex + 0];
-                    if (layout != nullptr)
-                    {
-                        return layout;
-                    }
-                }
-                layout = FindLayout(Vector64BaseIndex);
-                if (layout != nullptr)
-                {
-                    return layout;
-                }
+            }
+            layout = FindLayout(Vector64BaseIndex);
+            if (layout != nullptr)
+            {
+                return layout;
+            }
 #endif
-                return m_vectorLayoutTable[Vector234BaseIndex + 0];
+            return m_vectorLayoutTable[Vector234BaseIndex + 0];
 
-            case TYP_SIMD12:
-                return m_vectorLayoutTable[Vector234BaseIndex + 1];
+        case TYP_SIMD12:
+            return m_vectorLayoutTable[Vector234BaseIndex + 1];
 
-            case TYP_SIMD16:
-                layout = m_vectorLayoutTable[Vector128BaseIndex + elementTypeIndex];
+        case TYP_SIMD16:
+            layout = m_vectorLayoutTable[Vector128BaseIndex + elementTypeIndex];
+            if (layout != nullptr)
+            {
+                return layout;
+            }
+            layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
+            if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
+            {
+                return layout;
+            }
+            if (elementType == TYP_FLOAT)
+            {
+                layout = m_vectorLayoutTable[Vector234BaseIndex + 2];
                 if (layout != nullptr)
                 {
                     return layout;
                 }
-                layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
-                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
-                {
-                    return layout;
-                }
-                if (elementType == TYP_FLOAT)
-                {
-                    layout = m_vectorLayoutTable[Vector234BaseIndex + 2];
-                    if (layout != nullptr)
-                    {
-                        return layout;
-                    }
-                }
-                layout = FindLayout(Vector128BaseIndex);
-                if (layout != nullptr)
-                {
-                    return layout;
-                }
-                layout = FindLayout(VectorTBaseIndex);
-                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
-                {
-                    return layout;
-                }
-                return m_vectorLayoutTable[Vector234BaseIndex + 2];
+            }
+            layout = FindLayout(Vector128BaseIndex);
+            if (layout != nullptr)
+            {
+                return layout;
+            }
+            layout = FindLayout(VectorTBaseIndex);
+            if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
+            {
+                return layout;
+            }
+            return m_vectorLayoutTable[Vector234BaseIndex + 2];
 
 #ifdef TARGET_XARCH
-            case TYP_SIMD32:
-                layout = m_vectorLayoutTable[Vector256BaseIndex + elementTypeIndex];
-                if (layout != nullptr)
-                {
-                    return layout;
-                }
-                layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
-                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
-                {
-                    return layout;
-                }
-                layout = FindLayout(Vector256BaseIndex);
-                if (layout != nullptr)
-                {
-                    return layout;
-                }
-                layout = FindLayout(VectorTBaseIndex);
-                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
-                {
-                    return layout;
-                }
-                return nullptr;
+        case TYP_SIMD32:
+            layout = m_vectorLayoutTable[Vector256BaseIndex + elementTypeIndex];
+            if (layout != nullptr)
+            {
+                return layout;
+            }
+            layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
+            if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
+            {
+                return layout;
+            }
+            layout = FindLayout(Vector256BaseIndex);
+            if (layout != nullptr)
+            {
+                return layout;
+            }
+            layout = FindLayout(VectorTBaseIndex);
+            if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
+            {
+                return layout;
+            }
+            return nullptr;
 #endif
 
-            default:
-                return nullptr;
+        default:
+            return nullptr;
         }
     }
 #endif // FEATURE_SIMD
@@ -440,13 +440,13 @@ private:
 
             switch (simdType)
             {
-                case TYP_SIMD8:
-                    return Vector234BaseIndex + 0;
-                case TYP_SIMD12:
-                    return Vector234BaseIndex + 1;
-                default:
-                    assert(simdType == TYP_SIMD16);
-                    return Vector234BaseIndex + 2;
+            case TYP_SIMD8:
+                return Vector234BaseIndex + 0;
+            case TYP_SIMD12:
+                return Vector234BaseIndex + 1;
+            default:
+                assert(simdType == TYP_SIMD16);
+                return Vector234BaseIndex + 2;
             }
         }
 
@@ -456,19 +456,19 @@ private:
         switch (simdType)
         {
 #ifdef TARGET_ARM64
-            case TYP_SIMD8:
-                index += Vector64BaseIndex;
-                break;
+        case TYP_SIMD8:
+            index += Vector64BaseIndex;
+            break;
 #endif
 #ifdef TARGET_XARCH
-            case TYP_SIMD32:
-                index += (kind == VectorKind::VectorNT ? Vector256BaseIndex : VectorTBaseIndex);
-                break;
+        case TYP_SIMD32:
+            index += (kind == VectorKind::VectorNT ? Vector256BaseIndex : VectorTBaseIndex);
+            break;
 #endif
-            default:
-                assert(simdType == TYP_SIMD16);
-                index += (kind == VectorKind::VectorNT ? Vector128BaseIndex : VectorTBaseIndex);
-                break;
+        default:
+            assert(simdType == TYP_SIMD16);
+            index += (kind == VectorKind::VectorNT ? Vector128BaseIndex : VectorTBaseIndex);
+            break;
         }
 
         return index;
@@ -601,20 +601,20 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 
     switch (node->GetOper())
     {
-        case GT_IND_LOAD_OBJ:
-            return node->AsIndLoadObj()->GetLayout();
-        case GT_CALL:
-            return node->AsCall()->GetRetLayout();
-        case GT_LCL_USE:
-            return node->AsLclUse()->GetDef()->GetLcl()->GetLayout();
-        case GT_LCL_LOAD:
-            return node->AsLclLoad()->GetLcl()->GetLayout();
-        case GT_LCL_LOAD_FLD:
-            return node->AsLclLoadFld()->GetLayout(this);
-        case GT_EXTRACT:
-            return node->AsExtract()->GetLayout(this);
-        default:
-            unreached();
+    case GT_IND_LOAD_OBJ:
+        return node->AsIndLoadObj()->GetLayout();
+    case GT_CALL:
+        return node->AsCall()->GetRetLayout();
+    case GT_LCL_USE:
+        return node->AsLclUse()->GetDef()->GetLcl()->GetLayout();
+    case GT_LCL_LOAD:
+        return node->AsLclLoad()->GetLcl()->GetLayout();
+    case GT_LCL_LOAD_FLD:
+        return node->AsLclLoadFld()->GetLayout(this);
+    case GT_EXTRACT:
+        return node->AsExtract()->GetLayout(this);
+    default:
+        unreached();
     }
 }
 
@@ -627,34 +627,34 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
 
     switch (node->GetOper())
     {
-        case GT_IND_LOAD_OBJ:
-            return node->AsIndLoadObj()->GetLayout();
-        case GT_CALL:
-            return node->AsCall()->GetRetLayout();
-        case GT_LCL_LOAD:
-            return node->AsLclLoad()->GetLcl()->GetLayout();
-        case GT_EXTRACT:
-            if (ClassLayout* layout = node->AsExtract()->GetLayout(this))
-            {
-                return layout;
-            }
-            goto DEFAULT_VECTOR_LAYOUT;
-        case GT_LCL_LOAD_FLD:
-            if (ClassLayout* layout = node->AsLclLoadFld()->GetLayout(this))
-            {
-                return layout;
-            }
-            FALLTHROUGH;
-        case GT_BITCAST:
-        case GT_IND_LOAD:
-        DEFAULT_VECTOR_LAYOUT:
-            return typGetVectorLayout(node->GetType(), TYP_UNDEF);
+    case GT_IND_LOAD_OBJ:
+        return node->AsIndLoadObj()->GetLayout();
+    case GT_CALL:
+        return node->AsCall()->GetRetLayout();
+    case GT_LCL_LOAD:
+        return node->AsLclLoad()->GetLcl()->GetLayout();
+    case GT_EXTRACT:
+        if (ClassLayout* layout = node->AsExtract()->GetLayout(this))
+        {
+            return layout;
+        }
+        goto DEFAULT_VECTOR_LAYOUT;
+    case GT_LCL_LOAD_FLD:
+        if (ClassLayout* layout = node->AsLclLoadFld()->GetLayout(this))
+        {
+            return layout;
+        }
+        FALLTHROUGH;
+    case GT_BITCAST:
+    case GT_IND_LOAD:
+    DEFAULT_VECTOR_LAYOUT:
+        return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetVecEltType());
+    case GT_HWINTRINSIC:
+        return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetVecEltType());
 #endif
-        default:
-            unreached();
+    default:
+        unreached();
     }
 #else
     return nullptr;
@@ -809,24 +809,24 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 
     switch (hfaType)
     {
-        case CORINFO_HFA_ELEM_FLOAT:
-            m_layoutInfo.hfaElementType = TYP_FLOAT;
-            break;
-        case CORINFO_HFA_ELEM_DOUBLE:
-            m_layoutInfo.hfaElementType = TYP_DOUBLE;
-            break;
+    case CORINFO_HFA_ELEM_FLOAT:
+        m_layoutInfo.hfaElementType = TYP_FLOAT;
+        break;
+    case CORINFO_HFA_ELEM_DOUBLE:
+        m_layoutInfo.hfaElementType = TYP_DOUBLE;
+        break;
 #ifdef FEATURE_SIMD
-        case CORINFO_HFA_ELEM_VECTOR64:
-            m_layoutInfo.hfaElementType = TYP_SIMD8;
-            break;
-        case CORINFO_HFA_ELEM_VECTOR128:
-            m_layoutInfo.hfaElementType = TYP_SIMD16;
-            break;
+    case CORINFO_HFA_ELEM_VECTOR64:
+        m_layoutInfo.hfaElementType = TYP_SIMD8;
+        break;
+    case CORINFO_HFA_ELEM_VECTOR128:
+        m_layoutInfo.hfaElementType = TYP_SIMD16;
+        break;
 #endif
-        default:
-            assert(hfaType == CORINFO_HFA_ELEM_NONE);
-            m_layoutInfo.hfaElementType = TYP_VOID;
-            break;
+    default:
+        assert(hfaType == CORINFO_HFA_ELEM_NONE);
+        m_layoutInfo.hfaElementType = TYP_VOID;
+        break;
     }
 
     assert((m_layoutInfo.hfaElementType == TYP_VOID) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
@@ -869,38 +869,38 @@ var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_P
 
     switch (desc.eightByteClassifications[i])
     {
-        case SystemVClassificationTypeIntegerReference:
-            assert(desc.eightByteSizes[i] == 8);
-            return TYP_REF;
+    case SystemVClassificationTypeIntegerReference:
+        assert(desc.eightByteSizes[i] == 8);
+        return TYP_REF;
 
-        case SystemVClassificationTypeIntegerByRef:
-            assert(desc.eightByteSizes[i] == 8);
-            return TYP_BYREF;
+    case SystemVClassificationTypeIntegerByRef:
+        assert(desc.eightByteSizes[i] == 8);
+        return TYP_BYREF;
 
-        case SystemVClassificationTypeSSE:
-            if (desc.eightByteSizes[i] == 4)
-            {
-                return TYP_FLOAT;
-            }
+    case SystemVClassificationTypeSSE:
+        if (desc.eightByteSizes[i] == 4)
+        {
+            return TYP_FLOAT;
+        }
 
-            assert(desc.eightByteSizes[i] == 8);
-            return TYP_DOUBLE;
+        assert(desc.eightByteSizes[i] == 8);
+        return TYP_DOUBLE;
 
+    default:
+        assert(desc.eightByteClassifications[i] == SystemVClassificationTypeInteger);
+        switch (desc.eightByteSizes[i])
+        {
+        case 1:
+            return TYP_BYTE;
+        case 2:
+            return TYP_SHORT;
+        case 3:
+        case 4:
+            return TYP_INT;
         default:
-            assert(desc.eightByteClassifications[i] == SystemVClassificationTypeInteger);
-            switch (desc.eightByteSizes[i])
-            {
-                case 1:
-                    return TYP_BYTE;
-                case 2:
-                    return TYP_SHORT;
-                case 3:
-                case 4:
-                    return TYP_INT;
-                default:
-                    assert(desc.eightByteSizes[i] <= 8);
-                    return TYP_LONG;
-            }
+            assert(desc.eightByteSizes[i] <= 8);
+            return TYP_LONG;
+        }
     }
 }
 #endif // UNIX_AMD64_ABI
@@ -1106,28 +1106,28 @@ var_types Compiler::abiGetStructIntegerRegisterType(ClassLayout* layout)
 {
     switch (layout->GetSize())
     {
-        case 1:
-            return TYP_UBYTE;
-        case 2:
-            return TYP_USHORT;
+    case 1:
+        return TYP_UBYTE;
+    case 2:
+        return TYP_USHORT;
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
-        case 3:
-            return TYP_INT;
+    case 3:
+        return TYP_INT;
 #endif
 #ifdef TARGET_64BIT
-        case 4:
-            return TYP_INT;
+    case 4:
+        return TYP_INT;
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
-        case 5:
-        case 6:
-        case 7:
-            return TYP_LONG;
+    case 5:
+    case 6:
+    case 7:
+        return TYP_LONG;
 #endif
 #endif
-        case TARGET_POINTER_SIZE:
-            return layout->GetGCPtrType(0);
-        default:
-            return TYP_UNDEF;
+    case TARGET_POINTER_SIZE:
+        return layout->GetGCPtrType(0);
+    default:
+        return TYP_UNDEF;
     }
 }
 

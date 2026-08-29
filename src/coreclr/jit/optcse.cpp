@@ -42,93 +42,93 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 
     switch (node->GetOper())
     {
-        case GT_CALL:
-            return node->IsHelperCall() && HelperCallProperties::IsPure(node->AsCall()->GetHelperFunc());
+    case GT_CALL:
+        return node->IsHelperCall() && HelperCallProperties::IsPure(node->AsCall()->GetHelperFunc());
 
-        case GT_COMMA:
-            return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();
+    case GT_COMMA:
+        return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();
 
-        case GT_LCL_LOAD:
-            // TODO-MIKE-Review: Huh? What volatile LCL_LOAD?!?
-            // In general it doesn't make sense to CSE a LCL_LOAD. Though CSEing
-            // a DNER local may be useful...
-            // P.S. Probably this was referring to the lvVolatileHint crap...
-            return false; // Can't CSE a volatile LCL_VAR
+    case GT_LCL_LOAD:
+        // TODO-MIKE-Review: Huh? What volatile LCL_LOAD?!?
+        // In general it doesn't make sense to CSE a LCL_LOAD. Though CSEing
+        // a DNER local may be useful...
+        // P.S. Probably this was referring to the lvVolatileHint crap...
+        return false; // Can't CSE a volatile LCL_VAR
 
-        case GT_IND_LOAD:
-        case GT_ADD:
-        case GT_LSH:
-        case GT_MUL:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-        case GT_FNEG:
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        case GT_FTRUNC:
-        case GT_FXT:
-        case GT_ARR_ELEM:
-        case GT_ARR_LENGTH:
-        case GT_LCL_LOAD_FLD:
-        case GT_EXTRACT:
-        case GT_NEG:
-        case GT_NOT:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_OVF_U:
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-        case GT_CONV:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-        case GT_SXT:
-        case GT_UXT:
-        case GT_STOF:
-        case GT_UTOF:
-        case GT_FTOS:
-        case GT_FTOU:
-        case GT_TRUNC:
-        case GT_BITCAST:
-        case GT_SUB:
-        case GT_SDIV:
-        case GT_SREM:
-        case GT_UDIV:
-        case GT_UREM:
-        case GT_OR:
-        case GT_AND:
-        case GT_XOR:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_INTRINSIC:
-        case GT_IND_LOAD_OBJ:
-        case GT_CNS_INT:
-        case GT_CNS_DBL:
-            // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
-            return true;
+    case GT_IND_LOAD:
+    case GT_ADD:
+    case GT_LSH:
+    case GT_MUL:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+    case GT_FNEG:
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+    case GT_FTRUNC:
+    case GT_FXT:
+    case GT_ARR_ELEM:
+    case GT_ARR_LENGTH:
+    case GT_LCL_LOAD_FLD:
+    case GT_EXTRACT:
+    case GT_NEG:
+    case GT_NOT:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_OVF_U:
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+    case GT_CONV:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+    case GT_SXT:
+    case GT_UXT:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_FTOS:
+    case GT_FTOU:
+    case GT_TRUNC:
+    case GT_BITCAST:
+    case GT_SUB:
+    case GT_SDIV:
+    case GT_SREM:
+    case GT_UDIV:
+    case GT_UREM:
+    case GT_OR:
+    case GT_AND:
+    case GT_XOR:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_INTRINSIC:
+    case GT_IND_LOAD_OBJ:
+    case GT_CNS_INT:
+    case GT_CNS_DBL:
+        // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
+        return true;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
-            // Probably VN doesn't do anything useful with them.
-            return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
+    case GT_HWINTRINSIC:
+        // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
+        // Probably VN doesn't do anything useful with them.
+        return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
 #endif
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 
@@ -2005,21 +2005,21 @@ public:
 
         switch (kind)
         {
-            case Cse::PromotionKind::Aggresive:
-                lclReason = "CSE - aggressive";
-                break;
-            case Cse::PromotionKind::Moderate:
-                lclReason = "CSE - moderate";
-                break;
-            case Cse::PromotionKind::Conservative:
-                lclReason = "CSE - conservative";
-                break;
-            case Cse::PromotionKind::Stress:
-                lclReason = "CSE - stress mode";
-                break;
-            default:
-                lclReason = "CSE - unknown";
-                break;
+        case Cse::PromotionKind::Aggresive:
+            lclReason = "CSE - aggressive";
+            break;
+        case Cse::PromotionKind::Moderate:
+            lclReason = "CSE - moderate";
+            break;
+        case Cse::PromotionKind::Conservative:
+            lclReason = "CSE - conservative";
+            break;
+        case Cse::PromotionKind::Stress:
+            lclReason = "CSE - stress mode";
+            break;
+        default:
+            lclReason = "CSE - unknown";
+            break;
         }
 #endif // DEBUG
 

@@ -310,17 +310,17 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
 {
     switch (size)
     {
-        case 8:
-            return EA_8BYTE;
-        case 12:
-        case 16:
-            return EA_16BYTE;
+    case 8:
+        return EA_8BYTE;
+    case 12:
+    case 16:
+        return EA_16BYTE;
 #ifdef TARGET_XARCH
-        case 32:
-            return EA_32BYTE;
+    case 32:
+        return EA_32BYTE;
 #endif
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 #endif

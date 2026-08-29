@@ -635,15 +635,15 @@ public:
     {
         switch (_idInsFmt)
         {
-            case IF_LARGEADR: // adrp + add
-            case IF_LARGELDC: // adrp + ldr
-            case IF_LARGEJMP: // b<cond> + b<uncond>
-                return 8;
-            case IF_GC_REG:
-            case IF_NOP_JMP:
-                return 0;
-            default:
-                return 4;
+        case IF_LARGEADR: // adrp + add
+        case IF_LARGELDC: // adrp + ldr
+        case IF_LARGEJMP: // b<cond> + b<uncond>
+            return 8;
+        case IF_GC_REG:
+        case IF_NOP_JMP:
+            return 0;
+        default:
+            return 4;
         }
     }
 #endif // TARGET_ARM64
@@ -653,15 +653,15 @@ public:
     {
         switch (_idInsSize)
         {
-            case ISZ_NONE:
-                return 0;
-            case ISZ_16BIT:
-                return 2;
-            case ISZ_32BIT:
-                return 4;
-            default:
-                assert(_idInsSize == ISZ_48BIT);
-                return 6;
+        case ISZ_NONE:
+            return 0;
+        case ISZ_16BIT:
+            return 2;
+        case ISZ_32BIT:
+            return 4;
+        default:
+            assert(_idInsSize == ISZ_48BIT);
+            return 6;
         }
     }
 

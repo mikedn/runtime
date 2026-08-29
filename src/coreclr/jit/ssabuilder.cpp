@@ -1321,17 +1321,17 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
 
                 switch (call->GetHelperFunc())
                 {
-                    case CORINFO_HELP_NEWARR_1_DIRECT:
-                    case CORINFO_HELP_NEWARR_1_OBJ:
-                    case CORINFO_HELP_NEWARR_1_VC:
-                    case CORINFO_HELP_NEWARR_1_ALIGN8:
-                        length = call->GetArgNodeByArgNum(1)->IsIntCon();
-                        break;
-                    case CORINFO_HELP_READYTORUN_NEWARR_1:
-                        length = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1)->IsIntCon();
-                        break;
-                    default:
-                        break;
+                case CORINFO_HELP_NEWARR_1_DIRECT:
+                case CORINFO_HELP_NEWARR_1_OBJ:
+                case CORINFO_HELP_NEWARR_1_VC:
+                case CORINFO_HELP_NEWARR_1_ALIGN8:
+                    length = call->GetArgNodeByArgNum(1)->IsIntCon();
+                    break;
+                case CORINFO_HELP_READYTORUN_NEWARR_1:
+                    length = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1)->IsIntCon();
+                    break;
+                default:
+                    break;
                 }
 
                 if (length != nullptr)

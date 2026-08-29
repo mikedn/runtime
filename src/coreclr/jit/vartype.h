@@ -283,12 +283,12 @@ constexpr var_types varTypeNodeType(var_types type)
 {
     switch (type)
     {
-        case TYP_UINT:
-            return TYP_INT;
-        case TYP_ULONG:
-            return TYP_LONG;
-        default:
-            return type;
+    case TYP_UINT:
+        return TYP_INT;
+    case TYP_ULONG:
+        return TYP_LONG;
+    default:
+        return type;
     }
 }
 
@@ -296,17 +296,17 @@ constexpr var_types varTypeToSigned(var_types type)
 {
     switch (type)
     {
-        case TYP_BOOL:
-        case TYP_UBYTE:
-            return TYP_BYTE;
-        case TYP_USHORT:
-            return TYP_SHORT;
-        case TYP_UINT:
-            return TYP_INT;
-        case TYP_ULONG:
-            return TYP_LONG;
-        default:
-            return type;
+    case TYP_BOOL:
+    case TYP_UBYTE:
+        return TYP_BYTE;
+    case TYP_USHORT:
+        return TYP_SHORT;
+    case TYP_UINT:
+        return TYP_INT;
+    case TYP_ULONG:
+        return TYP_LONG;
+    default:
+        return type;
     }
 }
 
@@ -314,12 +314,12 @@ constexpr var_types varTypeToSmallUnsigned(var_types type)
 {
     switch (type)
     {
-        case TYP_BYTE:
-            return TYP_UBYTE;
-        case TYP_SHORT:
-            return TYP_USHORT;
-        default:
-            return type;
+    case TYP_BYTE:
+        return TYP_UBYTE;
+    case TYP_SHORT:
+        return TYP_USHORT;
+    default:
+        return type;
     }
 }
 
@@ -340,14 +340,14 @@ constexpr bool varTypeIsValidLclType(var_types type)
 {
     switch (type)
     {
-        case TYP_UNDEF:
-        case TYP_VOID:
-        case TYP_UINT:
-        case TYP_ULONG:
-        case TYP_UNKNOWN:
-            return false;
-        default:
-            return true;
+    case TYP_UNDEF:
+    case TYP_VOID:
+    case TYP_UINT:
+    case TYP_ULONG:
+    case TYP_UNKNOWN:
+        return false;
+    default:
+        return true;
     }
 }
 
@@ -355,17 +355,17 @@ constexpr bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
 {
     switch (type)
     {
-        case TYP_UBYTE:
-        case TYP_BOOL:
-            return FitsIn<uint8_t>(value);
-        case TYP_BYTE:
-            return FitsIn<int8_t>(value);
-        case TYP_USHORT:
-            return FitsIn<uint16_t>(value);
-        case TYP_SHORT:
-            return FitsIn<int16_t>(value);
-        default:
-            unreached();
+    case TYP_UBYTE:
+    case TYP_BOOL:
+        return FitsIn<uint8_t>(value);
+    case TYP_BYTE:
+        return FitsIn<int8_t>(value);
+    case TYP_USHORT:
+        return FitsIn<uint16_t>(value);
+    case TYP_SHORT:
+        return FitsIn<int16_t>(value);
+    default:
+        unreached();
     }
 }
 

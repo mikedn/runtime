@@ -675,12 +675,12 @@ public:
     {
         switch (lvType)
         {
-            case TYP_BLK:
-                return lvExactSize;
-            case TYP_STRUCT:
-                return m_layout->GetSize();
-            default:
-                return varTypeSize(lvType);
+        case TYP_BLK:
+            return lvExactSize;
+        case TYP_STRUCT:
+            return m_layout->GetSize();
+        default:
+            return varTypeSize(lvType);
         }
     }
 
@@ -692,15 +692,15 @@ public:
         switch (lvType)
         {
 #ifdef TARGET_XARCH
-            case TYP_SIMD32:
-                return 32;
+        case TYP_SIMD32:
+            return 32;
 #endif
-            case TYP_SIMD12:
-            case TYP_SIMD16:
-                return 16;
-            default:
-                assert(lvType == TYP_SIMD8);
-                return 8;
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+            return 16;
+        default:
+            assert(lvType == TYP_SIMD8);
+            return 8;
         }
     }
 #endif

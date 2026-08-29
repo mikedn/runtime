@@ -989,14 +989,14 @@ const char* GetGCTypeName(GCtype gcType)
 {
     switch (gcType)
     {
-        case GCT_NONE:
-            return "non-gc";
-        case GCT_GCREF:
-            return "ref";
-        case GCT_BYREF:
-            return "byref";
-        default:
-            return "???";
+    case GCT_NONE:
+        return "non-gc";
+    case GCT_GCREF:
+        return "ref";
+    case GCT_BYREF:
+        return "byref";
+    default:
+        return "???";
     }
 }
 
@@ -1027,43 +1027,43 @@ void GCInfo::DumpRegArgChangeDelta(const char* header)
 
         switch (change->kind)
         {
-            case RegArgChangeKind::AddRegs:
-                printf("def-%s-regs ", GetGCTypeName(change->gcType));
-                dspRegMask(change->regs);
-                break;
-            case RegArgChangeKind::RemoveRegs:
-                printf("kill-%s-regs ", GetGCTypeName(change->gcType));
-                dspRegMask(change->regs);
-                break;
+        case RegArgChangeKind::AddRegs:
+            printf("def-%s-regs ", GetGCTypeName(change->gcType));
+            dspRegMask(change->regs);
+            break;
+        case RegArgChangeKind::RemoveRegs:
+            printf("kill-%s-regs ", GetGCTypeName(change->gcType));
+            dspRegMask(change->regs);
+            break;
 #if FEATURE_FIXED_OUT_ARGS
-            case RegArgChangeKind::StoreArg:
+        case RegArgChangeKind::StoreArg:
 #ifdef TARGET_ARMARCH
-                printf("def-%s-arg [%s,#%d]", GetGCTypeName(change->gcType), spRegName, change->argOffset);
+            printf("def-%s-arg [%s,#%d]", GetGCTypeName(change->gcType), spRegName, change->argOffset);
 #else
-                printf("def-%s-arg [%s%c%02XH]", GetGCTypeName(change->gcType), spRegName,
-                       change->argOffset < 0 ? '-' : '+', abs(change->argOffset));
+            printf("def-%s-arg [%s%c%02XH]", GetGCTypeName(change->gcType), spRegName,
+                   change->argOffset < 0 ? '-' : '+', abs(change->argOffset));
 #endif
-                break;
-            case RegArgChangeKind::KillArgs:
-                printf("kill-args");
-                break;
+            break;
+        case RegArgChangeKind::KillArgs:
+            printf("kill-args");
+            break;
 #else
-            case RegArgChangeKind::PushArg:
-                printf("push-%s %u", GetGCTypeName(change->gcType), change->argOffset);
-                break;
-            case RegArgChangeKind::PopArgs:
-                printf("pop %u", change->argOffset);
-                break;
-            case RegArgChangeKind::Pop:
-                printf("pop");
-                break;
-            case RegArgChangeKind::KillArgs:
-                printf("kill-args %u", change->argOffset);
-                break;
+        case RegArgChangeKind::PushArg:
+            printf("push-%s %u", GetGCTypeName(change->gcType), change->argOffset);
+            break;
+        case RegArgChangeKind::PopArgs:
+            printf("pop %u", change->argOffset);
+            break;
+        case RegArgChangeKind::Pop:
+            printf("pop");
+            break;
+        case RegArgChangeKind::KillArgs:
+            printf("kill-args %u", change->argOffset);
+            break;
 #endif
-            default:
-                printf("???");
-                break;
+        default:
+            printf("???");
+            break;
         }
 
         printf("\n");
@@ -1339,49 +1339,49 @@ bool GCInfo::IsNoGCHelper(CorInfoHelpFunc helper)
 {
     switch (helper)
     {
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-        case CORINFO_HELP_PROF_FCN_ENTER:
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
+    case CORINFO_HELP_PROF_FCN_LEAVE:
+    case CORINFO_HELP_PROF_FCN_ENTER:
+    case CORINFO_HELP_PROF_FCN_TAILCALL:
 
 #ifndef TARGET_64BIT
-        // case CORINFO_HELP_LMUL:
-        // case CORINFO_HELP_LDIV:
-        // case CORINFO_HELP_LMOD:
-        // case CORINFO_HELP_ULDIV:
-        // case CORINFO_HELP_ULMOD:
-        case CORINFO_HELP_LLSH:
-        case CORINFO_HELP_LRSH:
-        case CORINFO_HELP_LRSZ:
+    // case CORINFO_HELP_LMUL:
+    // case CORINFO_HELP_LDIV:
+    // case CORINFO_HELP_LMOD:
+    // case CORINFO_HELP_ULDIV:
+    // case CORINFO_HELP_ULMOD:
+    case CORINFO_HELP_LLSH:
+    case CORINFO_HELP_LRSH:
+    case CORINFO_HELP_LRSZ:
 #endif
 
 #ifdef TARGET_X86
-        case CORINFO_HELP_ASSIGN_REF_EAX:
-        case CORINFO_HELP_ASSIGN_REF_ECX:
-        case CORINFO_HELP_ASSIGN_REF_EBX:
-        case CORINFO_HELP_ASSIGN_REF_EBP:
-        case CORINFO_HELP_ASSIGN_REF_ESI:
-        case CORINFO_HELP_ASSIGN_REF_EDI:
+    case CORINFO_HELP_ASSIGN_REF_EAX:
+    case CORINFO_HELP_ASSIGN_REF_ECX:
+    case CORINFO_HELP_ASSIGN_REF_EBX:
+    case CORINFO_HELP_ASSIGN_REF_EBP:
+    case CORINFO_HELP_ASSIGN_REF_ESI:
+    case CORINFO_HELP_ASSIGN_REF_EDI:
 
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
 #endif
 
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-        case CORINFO_HELP_ASSIGN_BYREF:
+    case CORINFO_HELP_ASSIGN_REF:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF:
+    case CORINFO_HELP_ASSIGN_BYREF:
 
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
 
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            return true;
+    case CORINFO_HELP_INIT_PINVOKE_FRAME:
+        return true;
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 
@@ -1403,51 +1403,51 @@ regMaskTP GCInfo::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
 
     switch (helper)
     {
-        case CORINFO_HELP_PROF_FCN_ENTER:
-            result = RBM_PROFILER_ENTER_TRASH;
-            break;
+    case CORINFO_HELP_PROF_FCN_ENTER:
+        result = RBM_PROFILER_ENTER_TRASH;
+        break;
 
-        case CORINFO_HELP_PROF_FCN_LEAVE:
+    case CORINFO_HELP_PROF_FCN_LEAVE:
 #ifdef TARGET_ARM
-            // profiler scratch remains gc live
-            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
+        // profiler scratch remains gc live
+        result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
 #else
-            result = RBM_PROFILER_LEAVE_TRASH;
+        result = RBM_PROFILER_LEAVE_TRASH;
 #endif
-            break;
+        break;
 
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-            result = RBM_PROFILER_TAILCALL_TRASH;
-            break;
+    case CORINFO_HELP_PROF_FCN_TAILCALL:
+        result = RBM_PROFILER_TAILCALL_TRASH;
+        break;
 
-        case CORINFO_HELP_ASSIGN_BYREF:
+    case CORINFO_HELP_ASSIGN_BYREF:
 #if defined(TARGET_X86)
-            result = RBM_ECX;
+        result = RBM_ECX;
 #elif defined(TARGET_AMD64)
-            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
+        result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
 #elif defined(TARGET_ARMARCH)
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
+        result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
 #else
 #error Unknown target
 #endif
-            break;
+        break;
 
 #ifdef TARGET_ARMARCH
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
-            break;
+    case CORINFO_HELP_ASSIGN_REF:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
+        break;
 #endif
 
 #ifdef TARGET_X86
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            result = RBM_INIT_PINVOKE_FRAME_TRASH;
-            break;
+    case CORINFO_HELP_INIT_PINVOKE_FRAME:
+        result = RBM_INIT_PINVOKE_FRAME_TRASH;
+        break;
 #endif
 
-        default:
-            result = RBM_CALLEE_TRASH_NOGC;
-            break;
+    default:
+        result = RBM_CALLEE_TRASH_NOGC;
+        break;
     }
 
     // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same

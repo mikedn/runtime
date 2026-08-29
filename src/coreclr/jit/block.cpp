@@ -582,26 +582,26 @@ bool BasicBlock::bbFallsThrough() const
 {
     switch (bbJumpKind)
     {
-        case BBJ_THROW:
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-        case BBJ_EHCATCHRET:
-        case BBJ_RETURN:
-        case BBJ_ALWAYS:
-        case BBJ_LEAVE:
-        case BBJ_SWITCH:
-            return false;
+    case BBJ_THROW:
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHFILTERRET:
+    case BBJ_EHCATCHRET:
+    case BBJ_RETURN:
+    case BBJ_ALWAYS:
+    case BBJ_LEAVE:
+    case BBJ_SWITCH:
+        return false;
 
-        case BBJ_NONE:
-        case BBJ_COND:
-            return true;
+    case BBJ_NONE:
+    case BBJ_COND:
+        return true;
 
-        case BBJ_CALLFINALLY:
-            return ((bbFlags & BBF_RETLESS_CALL) == 0);
+    case BBJ_CALLFINALLY:
+        return ((bbFlags & BBF_RETLESS_CALL) == 0);
 
-        default:
-            assert(!"Unknown bbJumpKind in bbFallsThrough()");
-            return true;
+    default:
+        assert(!"Unknown bbJumpKind in bbFallsThrough()");
+        return true;
     }
 }
 
@@ -609,34 +609,34 @@ unsigned BasicBlock::NumSucc() const
 {
     switch (bbJumpKind)
     {
-        case BBJ_THROW:
-        case BBJ_RETURN:
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-            return 0;
+    case BBJ_THROW:
+    case BBJ_RETURN:
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHFILTERRET:
+        return 0;
 
-        case BBJ_CALLFINALLY:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-        case BBJ_NONE:
+    case BBJ_CALLFINALLY:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_LEAVE:
+    case BBJ_NONE:
+        return 1;
+
+    case BBJ_COND:
+        if (bbJumpDest == bbNext)
+        {
             return 1;
+        }
+        else
+        {
+            return 2;
+        }
 
-        case BBJ_COND:
-            if (bbJumpDest == bbNext)
-            {
-                return 1;
-            }
-            else
-            {
-                return 2;
-            }
+    case BBJ_SWITCH:
+        return bbJumpSwt->bbsCount;
 
-        case BBJ_SWITCH:
-            return bbJumpSwt->bbsCount;
-
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -645,31 +645,31 @@ BasicBlock* BasicBlock::GetSucc(unsigned i) const
     assert(i < NumSucc()); // Index bounds check.
     switch (bbJumpKind)
     {
-        case BBJ_CALLFINALLY:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-            return bbJumpDest;
+    case BBJ_CALLFINALLY:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_LEAVE:
+        return bbJumpDest;
 
-        case BBJ_NONE:
+    case BBJ_NONE:
+        return bbNext;
+
+    case BBJ_COND:
+        if (i == 0)
+        {
             return bbNext;
+        }
+        else
+        {
+            assert(i == 1);
+            return bbJumpDest;
+        }
 
-        case BBJ_COND:
-            if (i == 0)
-            {
-                return bbNext;
-            }
-            else
-            {
-                assert(i == 1);
-                return bbJumpDest;
-            }
+    case BBJ_SWITCH:
+        return bbJumpSwt->bbsDstTab[i];
 
-        case BBJ_SWITCH:
-            return bbJumpSwt->bbsDstTab[i];
-
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -680,40 +680,40 @@ unsigned BasicBlock::NumSucc(Compiler* comp) const
 
     switch (bbJumpKind)
     {
-        case BBJ_EHFINALLYRET:
+    case BBJ_EHFINALLYRET:
+    {
+        BasicBlock* hndBeg = comp->fgFirstBlockOfHandler(this);
+
+        if (hndBeg->bbCatchTyp == BBCT_FINALLY)
         {
-            BasicBlock* hndBeg = comp->fgFirstBlockOfHandler(this);
-
-            if (hndBeg->bbCatchTyp == BBCT_FINALLY)
-            {
-                return comp->fgNSuccsOfFinallyRet(this);
-            }
-
-            assert(hndBeg->bbCatchTyp == BBCT_FAULT);
-
-            return 0;
+            return comp->fgNSuccsOfFinallyRet(this);
         }
 
-        case BBJ_THROW:
-        case BBJ_RETURN:
-            return 0;
+        assert(hndBeg->bbCatchTyp == BBCT_FAULT);
 
-        case BBJ_CALLFINALLY:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_EHFILTERRET:
-        case BBJ_LEAVE:
-        case BBJ_NONE:
-            return 1;
+        return 0;
+    }
 
-        case BBJ_COND:
-            return 1 + (bbJumpDest != bbNext);
+    case BBJ_THROW:
+    case BBJ_RETURN:
+        return 0;
 
-        case BBJ_SWITCH:
-            return comp->GetDescriptorForSwitch(this)->numDistinctSuccs;
+    case BBJ_CALLFINALLY:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_EHFILTERRET:
+    case BBJ_LEAVE:
+    case BBJ_NONE:
+        return 1;
 
-        default:
-            unreached();
+    case BBJ_COND:
+        return 1 + (bbJumpDest != bbNext);
+
+    case BBJ_SWITCH:
+        return comp->GetDescriptorForSwitch(this)->numDistinctSuccs;
+
+    default:
+        unreached();
     }
 }
 
@@ -724,42 +724,42 @@ BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp) const
 
     switch (bbJumpKind)
     {
-        case BBJ_EHFINALLYRET:
-            // Note: the following call is expensive.
-            return comp->fgSuccOfFinallyRet(this, i);
+    case BBJ_EHFINALLYRET:
+        // Note: the following call is expensive.
+        return comp->fgSuccOfFinallyRet(this, i);
 
-        case BBJ_EHFILTERRET:
-            assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
-            FALLTHROUGH;
-        case BBJ_CALLFINALLY:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-            return bbJumpDest;
+    case BBJ_EHFILTERRET:
+        assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
+        FALLTHROUGH;
+    case BBJ_CALLFINALLY:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_LEAVE:
+        return bbJumpDest;
 
-        case BBJ_NONE:
-            return bbNext;
+    case BBJ_NONE:
+        return bbNext;
 
-        case BBJ_COND:
-            if (i == 0)
-            {
-                return bbNext;
-            }
-            else
-            {
-                assert(i == 1);
-                return bbJumpDest;
-            }
-
-        case BBJ_SWITCH:
+    case BBJ_COND:
+        if (i == 0)
         {
-            BBswtDesc* sd = comp->GetDescriptorForSwitch(this);
-            assert(i < sd->numDistinctSuccs); // Range check.
-            return sd->nonDuplicates[i];
+            return bbNext;
+        }
+        else
+        {
+            assert(i == 1);
+            return bbJumpDest;
         }
 
-        default:
-            unreached();
+    case BBJ_SWITCH:
+    {
+        BBswtDesc* sd = comp->GetDescriptorForSwitch(this);
+        assert(i < sd->numDistinctSuccs); // Range check.
+        return sd->nonDuplicates[i];
+    }
+
+    default:
+        unreached();
     }
 }
 
@@ -1194,79 +1194,79 @@ void BasicBlock::dspJumpKind() const
 {
     switch (bbJumpKind)
     {
-        case BBJ_EHFINALLYRET:
-            printf(" (finret)");
-            return;
+    case BBJ_EHFINALLYRET:
+        printf(" (finret)");
+        return;
 
-        case BBJ_EHFILTERRET:
-            printf(" (fltret)");
-            return;
+    case BBJ_EHFILTERRET:
+        printf(" (fltret)");
+        return;
 
-        case BBJ_EHCATCHRET:
-            printf(" -> " FMT_BB " (cret)", bbJumpDest->bbNum);
-            return;
+    case BBJ_EHCATCHRET:
+        printf(" -> " FMT_BB " (cret)", bbJumpDest->bbNum);
+        return;
 
-        case BBJ_THROW:
-            printf(" (throw)");
-            return;
+    case BBJ_THROW:
+        printf(" (throw)");
+        return;
 
-        case BBJ_RETURN:
-            printf(" (return)");
-            return;
+    case BBJ_RETURN:
+        printf(" (return)");
+        return;
 
-        case BBJ_NONE:
-            return;
+    case BBJ_NONE:
+        return;
 
-        case BBJ_ALWAYS:
-            if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
-            {
-                printf(" -> " FMT_BB " (ALWAYS)", bbJumpDest->bbNum);
-            }
-            else
-            {
-                printf(" -> " FMT_BB " (always)", bbJumpDest->bbNum);
-            }
-            return;
-
-        case BBJ_LEAVE:
-            printf(" -> " FMT_BB " (leave)", bbJumpDest->bbNum);
-            return;
-
-        case BBJ_CALLFINALLY:
-            printf(" -> " FMT_BB " (callf)", bbJumpDest->bbNum);
-            return;
-
-        case BBJ_COND:
-            printf(" -> " FMT_BB " (cond)", bbJumpDest->bbNum);
-            return;
-
-        case BBJ_SWITCH:
+    case BBJ_ALWAYS:
+        if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
         {
-            printf(" ->");
+            printf(" -> " FMT_BB " (ALWAYS)", bbJumpDest->bbNum);
+        }
+        else
+        {
+            printf(" -> " FMT_BB " (always)", bbJumpDest->bbNum);
+        }
+        return;
 
-            BasicBlock** const successors = bbJumpSwt->bbsDstTab;
+    case BBJ_LEAVE:
+        printf(" -> " FMT_BB " (leave)", bbJumpDest->bbNum);
+        return;
 
-            for (unsigned i = 0, count = bbJumpSwt->bbsCount; i < count; i++)
+    case BBJ_CALLFINALLY:
+        printf(" -> " FMT_BB " (callf)", bbJumpDest->bbNum);
+        return;
+
+    case BBJ_COND:
+        printf(" -> " FMT_BB " (cond)", bbJumpDest->bbNum);
+        return;
+
+    case BBJ_SWITCH:
+    {
+        printf(" ->");
+
+        BasicBlock** const successors = bbJumpSwt->bbsDstTab;
+
+        for (unsigned i = 0, count = bbJumpSwt->bbsCount; i < count; i++)
+        {
+            printf("%c" FMT_BB, (i == 0) ? ' ' : ',', successors[i]->bbNum);
+
+            if (bbJumpSwt->bbsHasDefault && (i == count - 1))
             {
-                printf("%c" FMT_BB, (i == 0) ? ' ' : ',', successors[i]->bbNum);
-
-                if (bbJumpSwt->bbsHasDefault && (i == count - 1))
-                {
-                    printf("[def]");
-                }
-
-                if (bbJumpSwt->bbsHasDominantCase && (i == bbJumpSwt->bbsDominantCase))
-                {
-                    printf("[dom(" FMT_WT ")]", bbJumpSwt->bbsDominantFraction);
-                }
+                printf("[def]");
             }
 
-            printf(" (switch)");
-            return;
+            if (bbJumpSwt->bbsHasDominantCase && (i == bbJumpSwt->bbsDominantCase))
+            {
+                printf("[dom(" FMT_WT ")]", bbJumpSwt->bbsDominantFraction);
+            }
         }
 
-        default:
-            unreached();
+        printf(" (switch)");
+        return;
+    }
+
+    default:
+        unreached();
     }
 }
 

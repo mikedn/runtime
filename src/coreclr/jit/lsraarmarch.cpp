@@ -159,53 +159,53 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
     switch (kind)
     {
-        case StructStoreKind::UnrollRegs:
-        case StructStoreKind::UnrollInit:
-            break;
+    case StructStoreKind::UnrollRegs:
+    case StructStoreKind::UnrollInit:
+        break;
 
-        case StructStoreKind::UnrollCopyWB:
-            dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
+    case StructStoreKind::UnrollCopyWB:
+        dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
 
-            // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
-            // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
-            // which is killed and thus needn't be reserved as an internal register.
+        // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
+        // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
+        // which is killed and thus needn't be reserved as an internal register.
 
-            // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
+        // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
 
-            if (srcAddrOrFill != nullptr)
-            {
-                assert(!srcAddrOrFill->isContained());
-                srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
-            }
+        if (srcAddrOrFill != nullptr)
+        {
+            assert(!srcAddrOrFill->isContained());
+            srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
+        }
 
-            internalIntRegMask &= ~(dstAddrRegMask | RBM_WRITE_BARRIER_SRC_BYREF);
-            FALLTHROUGH;
-        case StructStoreKind::UnrollCopy:
-            BuildInternalIntDef(store, internalIntRegMask);
+        internalIntRegMask &= ~(dstAddrRegMask | RBM_WRITE_BARRIER_SRC_BYREF);
+        FALLTHROUGH;
+    case StructStoreKind::UnrollCopy:
+        BuildInternalIntDef(store, internalIntRegMask);
 #ifdef TARGET_ARM64
-            if (layout->GetSize() >= 2 * REGSIZE_BYTES)
-            {
-                // Reserve an additional temp register for LDP/STP.
-                BuildInternalIntDef(store, internalIntRegMask);
-            }
+        if (layout->GetSize() >= 2 * REGSIZE_BYTES)
+        {
+            // Reserve an additional temp register for LDP/STP.
+            BuildInternalIntDef(store, internalIntRegMask);
+        }
 #endif
-            break;
+        break;
 
-        case StructStoreKind::MemSet:
-            assert(!src->isContained());
-            dstAddrRegMask = RBM_ARG_0;
-            srcRegMask     = RBM_ARG_1;
-            sizeRegMask    = RBM_ARG_2;
-            break;
+    case StructStoreKind::MemSet:
+        assert(!src->isContained());
+        dstAddrRegMask = RBM_ARG_0;
+        srcRegMask     = RBM_ARG_1;
+        sizeRegMask    = RBM_ARG_2;
+        break;
 
-        case StructStoreKind::MemCpy:
-            dstAddrRegMask = RBM_ARG_0;
-            srcRegMask     = RBM_ARG_1;
-            sizeRegMask    = RBM_ARG_2;
-            break;
+    case StructStoreKind::MemCpy:
+        dstAddrRegMask = RBM_ARG_0;
+        srcRegMask     = RBM_ARG_1;
+        sizeRegMask    = RBM_ARG_2;
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     // TODO-MIKE-Review: Should temp registers be reserved for src/dest like on XARCH?

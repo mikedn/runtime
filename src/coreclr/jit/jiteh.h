@@ -23,17 +23,17 @@ inline CORINFO_EH_CLAUSE_FLAGS ToCORINFO_EH_CLAUSE_FLAGS(EHHandlerType type)
 {
     switch (type)
     {
-        case EH_HANDLER_CATCH:
-            return CORINFO_EH_CLAUSE_NONE;
-        case EH_HANDLER_FILTER:
-            return CORINFO_EH_CLAUSE_FILTER;
-        case EH_HANDLER_FAULT:
-        case EH_HANDLER_FAULT_WAS_FINALLY:
-            return CORINFO_EH_CLAUSE_FAULT;
-        case EH_HANDLER_FINALLY:
-            return CORINFO_EH_CLAUSE_FINALLY;
-        default:
-            unreached();
+    case EH_HANDLER_CATCH:
+        return CORINFO_EH_CLAUSE_NONE;
+    case EH_HANDLER_FILTER:
+        return CORINFO_EH_CLAUSE_FILTER;
+    case EH_HANDLER_FAULT:
+    case EH_HANDLER_FAULT_WAS_FINALLY:
+        return CORINFO_EH_CLAUSE_FAULT;
+    case EH_HANDLER_FINALLY:
+        return CORINFO_EH_CLAUSE_FINALLY;
+    default:
+        unreached();
     }
 }
 

@@ -506,40 +506,40 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         switch (intrinsic)
         {
 #ifdef TARGET_ARM64
-            case NI_Vector64_get_Count:
+        case NI_Vector64_get_Count:
 #endif
-            case NI_Vector128_get_Count:
+        case NI_Vector128_get_Count:
 #ifdef TARGET_XARCH
-            case NI_Vector256_get_Count:
+        case NI_Vector256_get_Count:
 #endif
-                assert(sig.paramCount == 0);
-                assert(sig.retType == TYP_INT);
+            assert(sig.paramCount == 0);
+            assert(sig.retType == TYP_INT);
 
-                if (var_types eltType = typGetObjLayout(clsHnd)->GetElementType())
-                {
-                    GenTreeIntCon* countNode = comp->gtNewIconNode(varTypeVecLength(vecSize, eltType));
-                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
-                    return countNode;
-                }
+            if (var_types eltType = typGetObjLayout(clsHnd)->GetElementType())
+            {
+                GenTreeIntCon* countNode = comp->gtNewIconNode(varTypeVecLength(vecSize, eltType));
+                countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
+                return countNode;
+            }
 
-                return nullptr;
+            return nullptr;
 
 #ifdef TARGET_XARCH
-            case NI_SSE_Prefetch0:
-            case NI_SSE_Prefetch1:
-            case NI_SSE_Prefetch2:
-            case NI_SSE_PrefetchNonTemporal:
-            case NI_SSE_StoreFence:
-            case NI_SSE2_LoadFence:
-            case NI_SSE2_MemoryFence:
-                assert(retType == TYP_VOID);
-                break;
+        case NI_SSE_Prefetch0:
+        case NI_SSE_Prefetch1:
+        case NI_SSE_Prefetch2:
+        case NI_SSE_PrefetchNonTemporal:
+        case NI_SSE_StoreFence:
+        case NI_SSE2_LoadFence:
+        case NI_SSE2_MemoryFence:
+            assert(retType == TYP_VOID);
+            break;
 #endif
 
-            default:
-                assert(HWIntrinsicInfo::IsScalar(intrinsic));
-                assert(varTypeIsArithmetic(retType));
-                break;
+        default:
+            assert(HWIntrinsicInfo::IsScalar(intrinsic));
+            assert(varTypeIsArithmetic(retType));
+            break;
         }
 
         baseType = retType;
@@ -697,129 +697,129 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
 
     switch (sig.paramCount)
     {
-        case 0:
-            assert(!isScalar);
-            return NewVecNode(nodeType, intrinsic, baseType, vecSize);
+    case 0:
+        assert(!isScalar);
+        return NewVecNode(nodeType, intrinsic, baseType, vecSize);
 
-        case 1:
-            op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
+    case 1:
+        op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
-            if (HWIntrinsicInfo::IsLoad(intrinsic))
+        if (HWIntrinsicInfo::IsLoad(intrinsic))
+        {
+            if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
             {
-                if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
-                {
-                    op1 = op1->AsUnOp()->GetOp(0);
-                }
+                op1 = op1->AsUnOp()->GetOp(0);
             }
+        }
 
-            retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
-                               : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1);
-            break;
+        retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
+                           : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1);
+        break;
 
-        case 2:
+    case 2:
 #ifdef TARGET_ARM64
-            switch (intrinsic)
+        switch (intrinsic)
+        {
+        case NI_AdvSimd_AddWideningLower:
+            if (baseType == sig.paramLayout[0]->GetElementType())
             {
-                case NI_AdvSimd_AddWideningLower:
-                    if (baseType == sig.paramLayout[0]->GetElementType())
-                    {
-                        intrinsic = NI_AdvSimd_ADDL;
-                    }
-                    break;
-                case NI_AdvSimd_SubtractWideningLower:
-                    if (baseType == sig.paramLayout[0]->GetElementType())
-                    {
-                        intrinsic = NI_AdvSimd_SUBL;
-                    }
-                    break;
-                case NI_AdvSimd_AddWideningUpper:
-                    if (baseType == sig.paramLayout[0]->GetElementType())
-                    {
-                        intrinsic = NI_AdvSimd_ADDL2;
-                    }
-                    break;
-                case NI_AdvSimd_SubtractWideningUpper:
-                    if (baseType == sig.paramLayout[0]->GetElementType())
-                    {
-                        intrinsic = NI_AdvSimd_SUBL2;
-                    }
-                    break;
-                case NI_AdvSimd_Arm64_AddSaturateScalar:
-                    if (baseType != sig.paramLayout[1]->GetElementType())
-                    {
-                        intrinsic = NI_AdvSimd_Arm64_SUQADD;
-                    }
-                    break;
-                default:
-                    break;
+                intrinsic = NI_AdvSimd_ADDL;
             }
-#endif
-            op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
-#ifdef TARGET_ARM64
-            op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-#endif
-            op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
-
-            if (!isScalar)
-            {
-                retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2);
-            }
-            else
-            {
-                retNode = comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
-            }
-
             break;
-
-        case 3:
-            op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
-            op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
-            op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
-
-#ifdef TARGET_ARM64
-            assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op2->GetType()));
-
-            if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
+        case NI_AdvSimd_SubtractWideningLower:
+            if (baseType == sig.paramLayout[0]->GetElementType())
             {
-                if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
-                {
-                    op1 = op1->AsUnOp()->GetOp(0);
-                }
-
-                op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+                intrinsic = NI_AdvSimd_SUBL;
             }
-            else if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar))
-            {
-                op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-            }
-            else
-            {
-                op3 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
-            }
-#endif
-
-            retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
-                               : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3);
-
             break;
-
-#ifdef TARGET_ARM64
-        case 4:
-            op4 = PopHWIntrinsicArg(sig.paramType[3], sig.paramLayout[3]);
-            op4 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op4, mustExpand, immLowerBound, immUpperBound);
-            op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
-            op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
-            op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
-
-            assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op3->GetType()));
-            assert(!isScalar);
-
-            retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3, op4);
+        case NI_AdvSimd_AddWideningUpper:
+            if (baseType == sig.paramLayout[0]->GetElementType())
+            {
+                intrinsic = NI_AdvSimd_ADDL2;
+            }
             break;
-#endif
-
+        case NI_AdvSimd_SubtractWideningUpper:
+            if (baseType == sig.paramLayout[0]->GetElementType())
+            {
+                intrinsic = NI_AdvSimd_SUBL2;
+            }
+            break;
+        case NI_AdvSimd_Arm64_AddSaturateScalar:
+            if (baseType != sig.paramLayout[1]->GetElementType())
+            {
+                intrinsic = NI_AdvSimd_Arm64_SUQADD;
+            }
+            break;
         default:
-            return nullptr;
+            break;
+        }
+#endif
+        op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+#ifdef TARGET_ARM64
+        op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+#endif
+        op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
+
+        if (!isScalar)
+        {
+            retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2);
+        }
+        else
+        {
+            retNode = comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
+        }
+
+        break;
+
+    case 3:
+        op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
+        op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+        op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
+
+#ifdef TARGET_ARM64
+        assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op2->GetType()));
+
+        if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
+        {
+            if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
+            {
+                op1 = op1->AsUnOp()->GetOp(0);
+            }
+
+            op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+        }
+        else if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar))
+        {
+            op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+        }
+        else
+        {
+            op3 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
+        }
+#endif
+
+        retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
+                           : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3);
+
+        break;
+
+#ifdef TARGET_ARM64
+    case 4:
+        op4 = PopHWIntrinsicArg(sig.paramType[3], sig.paramLayout[3]);
+        op4 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op4, mustExpand, immLowerBound, immUpperBound);
+        op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
+        op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+        op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
+
+        assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op3->GetType()));
+        assert(!isScalar);
+
+        retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3, op4);
+        break;
+#endif
+
+    default:
+        return nullptr;
     }
 
     const bool isMemoryStore = retNode->IsMemoryStore();

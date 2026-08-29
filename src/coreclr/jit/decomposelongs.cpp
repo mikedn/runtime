@@ -71,106 +71,105 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_LOAD:
-            nextNode = DecomposeLclLoad(use);
-            break;
-        case GT_LCL_STORE:
-            nextNode = DecomposeLclStore(use);
-            break;
-        case GT_LCL_LOAD_FLD:
-            nextNode = DecomposeLclLoadFld(use);
-            break;
-        case GT_LCL_STORE_FLD:
-            nextNode = DecomposeLclStoreFld(use);
-            break;
-        case GT_IND_LOAD:
-            nextNode = DecomposeIndLoad(use);
-            break;
-        case GT_IND_STORE:
-            nextNode = DecomposeIndStore(use);
-            break;
-        case GT_OVF_U:
-            nextNode = DecomposeOvfUnsigned(use);
-            break;
-        case GT_SXT:
-            nextNode = DecomposeSignExtend(use);
-            break;
-        case GT_UXT:
-            nextNode = DecomposeUnsignedExtend(use);
-            break;
-        case GT_CNS_LNG:
-            nextNode = DecomposeCnsLng(use);
-            break;
-        case GT_CALL:
-            nextNode = DecomposeCall(use);
-            break;
-        case GT_RETURN:
+    case GT_LCL_LOAD:
+        nextNode = DecomposeLclLoad(use);
+        break;
+    case GT_LCL_STORE:
+        nextNode = DecomposeLclStore(use);
+        break;
+    case GT_LCL_LOAD_FLD:
+        nextNode = DecomposeLclLoadFld(use);
+        break;
+    case GT_LCL_STORE_FLD:
+        nextNode = DecomposeLclStoreFld(use);
+        break;
+    case GT_IND_LOAD:
+        nextNode = DecomposeIndLoad(use);
+        break;
+    case GT_IND_STORE:
+        nextNode = DecomposeIndStore(use);
+        break;
+    case GT_OVF_U:
+        nextNode = DecomposeOvfUnsigned(use);
+        break;
+    case GT_SXT:
+        nextNode = DecomposeSignExtend(use);
+        break;
+    case GT_UXT:
+        nextNode = DecomposeUnsignedExtend(use);
+        break;
+    case GT_CNS_LNG:
+        nextNode = DecomposeCnsLng(use);
+        break;
+    case GT_CALL:
+        nextNode = DecomposeCall(use);
+        break;
+    case GT_RETURN:
 #ifdef TARGET_X86
-            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST) ||
-                   tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
+        assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
 #else
-            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST));
+        assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST));
 #endif
-            break;
-        case GT_BITCAST:
-            nextNode = DecomposeBitCast(use);
-            break;
-        case GT_NOT:
-            nextNode = DecomposeNot(use);
-            break;
-        case GT_BSWAP:
-            nextNode = DecomposeBswap(use);
-            break;
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-            nextNode = DecomposeBitwise(use);
-            break;
-        case GT_NEG:
-            nextNode = DecomposeNeg(use);
-            break;
-        case GT_ADD:
-        case GT_SUB:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            nextNode = DecomposeAddSub(use);
-            break;
-        case GT_MUL:
-            nextNode = DecomposeMul(use);
-            break;
-        case GT_UREM:
-            nextNode = DecomposeUMod(use);
-            break;
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-            nextNode = DecomposeShift(use);
-            break;
+        break;
+    case GT_BITCAST:
+        nextNode = DecomposeBitCast(use);
+        break;
+    case GT_NOT:
+        nextNode = DecomposeNot(use);
+        break;
+    case GT_BSWAP:
+        nextNode = DecomposeBswap(use);
+        break;
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+        nextNode = DecomposeBitwise(use);
+        break;
+    case GT_NEG:
+        nextNode = DecomposeNeg(use);
+        break;
+    case GT_ADD:
+    case GT_SUB:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        nextNode = DecomposeAddSub(use);
+        break;
+    case GT_MUL:
+        nextNode = DecomposeMul(use);
+        break;
+    case GT_UREM:
+        nextNode = DecomposeUMod(use);
+        break;
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+        nextNode = DecomposeShift(use);
+        break;
 #ifdef TARGET_XARCH
-        case GT_ROL:
+    case GT_ROL:
 #endif
-        case GT_ROR:
-            nextNode = DecomposeRotate(use);
-            break;
+    case GT_ROR:
+        nextNode = DecomposeRotate(use);
+        break;
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            nextNode = DecomposeHWIntrinsic(use);
-            break;
+    case GT_HWINTRINSIC:
+        nextNode = DecomposeHWIntrinsic(use);
+        break;
 #endif
-        case GT_LOCKADD:
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-        case GT_XCHG:
-        case GT_CMPXCHG:
-            NYI("Interlocked operations on LONG");
-            break;
-        default:
-            JITDUMP("Illegal LONG node %s in decomposition.", GenTree::OpName(tree->GetOper()));
-            assert(!"Illegal LONG node in decomposition.");
-            break;
+    case GT_LOCKADD:
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+    case GT_XCHG:
+    case GT_CMPXCHG:
+        NYI("Interlocked operations on LONG");
+        break;
+    default:
+        JITDUMP("Illegal LONG node %s in decomposition.", GenTree::OpName(tree->GetOper()));
+        assert(!"Illegal LONG node in decomposition.");
+        break;
     }
 
     JITDUMPLIRRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
@@ -620,31 +619,31 @@ GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
 
     switch (node->GetOper())
     {
-        case GT_ADD:
-            loOper = GT_ADD_LO;
-            hiOper = GT_ADD_HI;
-            break;
-        case GT_OVF_SADD:
-            loOper = GT_ADD_LO;
-            hiOper = GT_OVF_SADDC;
-            break;
-        case GT_OVF_UADD:
-            loOper = GT_ADD_LO;
-            hiOper = GT_OVF_UADDC;
-            break;
-        case GT_SUB:
-            loOper = GT_SUB_LO;
-            hiOper = GT_SUB_HI;
-            break;
-        case GT_OVF_SSUB:
-            loOper = GT_SUB_LO;
-            hiOper = GT_OVF_SSUBB;
-            break;
-        default:
-            assert(node->OperIs(GT_OVF_USUB));
-            loOper = GT_SUB_LO;
-            hiOper = GT_OVF_USUBB;
-            break;
+    case GT_ADD:
+        loOper = GT_ADD_LO;
+        hiOper = GT_ADD_HI;
+        break;
+    case GT_OVF_SADD:
+        loOper = GT_ADD_LO;
+        hiOper = GT_OVF_SADDC;
+        break;
+    case GT_OVF_UADD:
+        loOper = GT_ADD_LO;
+        hiOper = GT_OVF_UADDC;
+        break;
+    case GT_SUB:
+        loOper = GT_SUB_LO;
+        hiOper = GT_SUB_HI;
+        break;
+    case GT_OVF_SSUB:
+        loOper = GT_SUB_LO;
+        hiOper = GT_OVF_SSUBB;
+        break;
+    default:
+        assert(node->OperIs(GT_OVF_USUB));
+        loOper = GT_SUB_LO;
+        hiOper = GT_OVF_USUBB;
+        break;
     }
 
     GenTreeOp* op1 = node->GetOp(0)->AsOp();
@@ -989,17 +988,17 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
     switch (oper)
     {
-        case GT_LSH:
-            helper = CORINFO_HELP_LLSH;
-            break;
-        case GT_RSH:
-            helper = CORINFO_HELP_LRSH;
-            break;
-        case GT_RSZ:
-            helper = CORINFO_HELP_LRSZ;
-            break;
-        default:
-            unreached();
+    case GT_LSH:
+        helper = CORINFO_HELP_LLSH;
+        break;
+    case GT_RSH:
+        helper = CORINFO_HELP_LRSH;
+        break;
+    case GT_RSZ:
+        helper = CORINFO_HELP_LRSZ;
+        break;
+    default:
+        unreached();
     }
 
     GenTreeCall::Use* argList = m_compiler->gtNewCallArgs(loValue, hiValue, shiftByOp);
@@ -1214,10 +1213,10 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 
     switch (intrinsic->GetIntrinsic())
     {
-        case NI_VEC_EXTRACT:
-            return DecomposeVecExtract(use, intrinsic);
-        default:
-            unreached();
+    case NI_VEC_EXTRACT:
+        return DecomposeVecExtract(use, intrinsic);
+    default:
+        unreached();
     }
 }
 

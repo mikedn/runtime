@@ -123,16 +123,16 @@ public:
     {
         switch (kind)
         {
-            case Kind::Undefined:
-            case Kind::Unknown:
-            case Kind::Dependent:
-                return l.kind == kind;
-            case Kind::VN:
-                return l.kind == kind && l.vn == vn && l.cns == cns;
-            case Kind::Constant:
-                return l.kind == kind && l.cns == cns;
-            default:
-                return false;
+        case Kind::Undefined:
+        case Kind::Unknown:
+        case Kind::Dependent:
+            return l.kind == kind;
+        case Kind::VN:
+            return l.kind == kind && l.vn == vn && l.cns == cns;
+        case Kind::Constant:
+            return l.kind == kind && l.cns == cns;
+        default:
+            return false;
         }
     }
 };
@@ -223,25 +223,25 @@ private:
             size_t len;
             int    c;
 
-            case Limit::Kind::Undefined:
-                return "Undefined";
-            case Limit::Kind::Unknown:
-                return "Unknown";
-            case Limit::Kind::Dependent:
-                return "Dependent";
-            case Limit::Kind::Constant:
-                sprintf_s(buf, size, "%d", limit.GetConstant());
-                return buf;
-            case Limit::Kind::VN:
-                len = sprintf_s(buf, size, FMT_VN, limit.GetVN());
-                c   = limit.GetConstant();
-                if (c != 0)
-                {
-                    sprintf_s(buf + len, size - len, "%c%d", c < 0 ? '-' : '+', abs(c));
-                }
-                return buf;
-            default:
-                return "???";
+        case Limit::Kind::Undefined:
+            return "Undefined";
+        case Limit::Kind::Unknown:
+            return "Unknown";
+        case Limit::Kind::Dependent:
+            return "Dependent";
+        case Limit::Kind::Constant:
+            sprintf_s(buf, size, "%d", limit.GetConstant());
+            return buf;
+        case Limit::Kind::VN:
+            len = sprintf_s(buf, size, FMT_VN, limit.GetVN());
+            c   = limit.GetConstant();
+            if (c != 0)
+            {
+                sprintf_s(buf + len, size - len, "%c%d", c < 0 ? '-' : '+', abs(c));
+            }
+            return buf;
+        default:
+            return "???";
         }
     }
 
@@ -794,20 +794,20 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
 
         switch (cmpFunc)
         {
-            case VNF_COND_SLT:
-            case VNF_COND_SLE:
-                range->max = limit;
-                break;
-            case VNF_COND_SGT:
-            case VNF_COND_SGE:
-                range->min = limit;
-                break;
-            case VNF_COND_EQ:
-                range->max = limit;
-                range->min = limit;
-                break;
-            default:
-                break;
+        case VNF_COND_SLT:
+        case VNF_COND_SLE:
+            range->max = limit;
+            break;
+        case VNF_COND_SGT:
+        case VNF_COND_SGE:
+            range->min = limit;
+            break;
+        case VNF_COND_EQ:
+            range->max = limit;
+            range->min = limit;
+            break;
+        default:
+            break;
         }
 
         JITDUMP("%s\n", ToString(*range));
@@ -1082,17 +1082,17 @@ Range RangeCheck::ComputeLeafRange(GenTree* expr) const
     {
         switch (expr->GetType())
         {
-            case TYP_BOOL:
-            case TYP_UBYTE:
-                return Range(Limit::Constant(0), Limit::Constant(255));
-            case TYP_BYTE:
-                return Range(Limit::Constant(-128), Limit::Constant(127));
-            case TYP_USHORT:
-                return Range(Limit::Constant(0), Limit::Constant(65535));
-            case TYP_SHORT:
-                return Range(Limit::Constant(-32768), Limit::Constant(32767));
-            default:
-                return Limit::Unknown();
+        case TYP_BOOL:
+        case TYP_UBYTE:
+            return Range(Limit::Constant(0), Limit::Constant(255));
+        case TYP_BYTE:
+            return Range(Limit::Constant(-128), Limit::Constant(127));
+        case TYP_USHORT:
+            return Range(Limit::Constant(0), Limit::Constant(65535));
+        case TYP_SHORT:
+            return Range(Limit::Constant(-32768), Limit::Constant(32767));
+        default:
+            return Limit::Unknown();
         }
     }
     else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UREM) && expr->TypeIs(TYP_INT))

@@ -243,21 +243,20 @@ void CodeGen::DumpCfiInfo(bool isHotCode, CodeRange range, uint32_t count, const
 
         switch (code.CfiOpCode)
         {
-            case CFI_REL_OFFSET:
-                printf("    CodeOffset: 0x%02X Op: RelOffset DwarfReg:0x%x Offset:0x%X\n", codeOffset, dwarfReg,
-                       offset);
-                break;
-            case CFI_DEF_CFA_REGISTER:
-                assert(offset == 0);
-                printf("    CodeOffset: 0x%02X Op: DefCfaRegister DwarfReg:0x%X\n", codeOffset, dwarfReg);
-                break;
-            case CFI_ADJUST_CFA_OFFSET:
-                assert(dwarfReg == DWARF_REG_ILLEGAL);
-                printf("    CodeOffset: 0x%02X Op: AdjustCfaOffset Offset:0x%X\n", codeOffset, offset);
-                break;
-            default:
-                printf("    Unrecognized CFI_CODE: 0x%IX\n", *reinterpret_cast<const uint64_t*>(&code));
-                break;
+        case CFI_REL_OFFSET:
+            printf("    CodeOffset: 0x%02X Op: RelOffset DwarfReg:0x%x Offset:0x%X\n", codeOffset, dwarfReg, offset);
+            break;
+        case CFI_DEF_CFA_REGISTER:
+            assert(offset == 0);
+            printf("    CodeOffset: 0x%02X Op: DefCfaRegister DwarfReg:0x%X\n", codeOffset, dwarfReg);
+            break;
+        case CFI_ADJUST_CFA_OFFSET:
+            assert(dwarfReg == DWARF_REG_ILLEGAL);
+            printf("    CodeOffset: 0x%02X Op: AdjustCfaOffset Offset:0x%X\n", codeOffset, offset);
+            break;
+        default:
+            printf("    Unrecognized CFI_CODE: 0x%IX\n", *reinterpret_cast<const uint64_t*>(&code));
+            break;
         }
     }
 }
@@ -281,14 +280,14 @@ static const char* GetFuncKindName(FuncKind kind)
 {
     switch (kind)
     {
-        case FUNC_ROOT:
-            return "main function";
-        case FUNC_HANDLER:
-            return "handler";
-        case FUNC_FILTER:
-            return "filter";
-        default:
-            return "???";
+    case FUNC_ROOT:
+        return "main function";
+    case FUNC_HANDLER:
+        return "handler";
+    case FUNC_FILTER:
+        return "filter";
+    default:
+        return "???";
     }
 }
 #endif

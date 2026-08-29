@@ -225,20 +225,20 @@ private:
 
         switch (call->IsHelperCall())
         {
-            case CORINFO_HELP_NEWARR_1_DIRECT:
-            case CORINFO_HELP_NEWARR_1_OBJ:
-            case CORINFO_HELP_NEWARR_1_VC:
-            case CORINFO_HELP_NEWARR_1_ALIGN8:
-                arrayLength = call->GetArgNodeByArgNum(1);
-                break;
-            case CORINFO_HELP_READYTORUN_NEWARR_1:
-                // On arm when compiling on certain platforms for ready to run, a handle will be
-                // inserted before the length. To handle this case, we will grab the last argument
-                // as that's always the length. See moInitCallInfo for where the handle is inserted.
-                arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
-                break;
-            default:
-                break;
+        case CORINFO_HELP_NEWARR_1_DIRECT:
+        case CORINFO_HELP_NEWARR_1_OBJ:
+        case CORINFO_HELP_NEWARR_1_VC:
+        case CORINFO_HELP_NEWARR_1_ALIGN8:
+            arrayLength = call->GetArgNodeByArgNum(1);
+            break;
+        case CORINFO_HELP_READYTORUN_NEWARR_1:
+            // On arm when compiling on certain platforms for ready to run, a handle will be
+            // inserted before the length. To handle this case, we will grab the last argument
+            // as that's always the length. See moInitCallInfo for where the handle is inserted.
+            arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
+            break;
+        default:
+            break;
         }
 
         return arrayLength;

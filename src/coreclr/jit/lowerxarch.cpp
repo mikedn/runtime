@@ -1353,40 +1353,40 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 
     switch (newIntrinsicId)
     {
-        case NI_SSE_COMISS:
-        case NI_SSE_UCOMISS:
-        case NI_SSE2_COMISD:
-        case NI_SSE2_UCOMISD:
-            // In some cases we can generate better code if we swap the operands:
-            //   - If the condition is not one of the "preferred" floating point conditions we can swap
-            //     the operands and change the condition to avoid generating an extra JP/JNP branch.
-            //   - If the first operand can be contained but the second cannot, we can swap operands in
-            //     order to be able to contain the first operand and avoid the need for a temp reg.
-            // We can't handle both situations at the same time and since an extra branch is likely to
-            // be worse than an extra temp reg (x64 has a reasonable number of XMM registers) we'll favor
-            // the branch case:
-            //   - If the condition is not preferred then swap, even if doing this will later prevent
-            //     containment.
-            //   - Allow swapping for containment purposes only if this doesn't result in a non-"preferred"
-            //     condition being generated.
-            if ((cc != nullptr) && cc->GetCondition().PreferSwap())
-            {
-                swapOperands = true;
-            }
-            else
-            {
-                canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->GetCondition()).PreferSwap();
-            }
-            break;
+    case NI_SSE_COMISS:
+    case NI_SSE_UCOMISS:
+    case NI_SSE2_COMISD:
+    case NI_SSE2_UCOMISD:
+        // In some cases we can generate better code if we swap the operands:
+        //   - If the condition is not one of the "preferred" floating point conditions we can swap
+        //     the operands and change the condition to avoid generating an extra JP/JNP branch.
+        //   - If the first operand can be contained but the second cannot, we can swap operands in
+        //     order to be able to contain the first operand and avoid the need for a temp reg.
+        // We can't handle both situations at the same time and since an extra branch is likely to
+        // be worse than an extra temp reg (x64 has a reasonable number of XMM registers) we'll favor
+        // the branch case:
+        //   - If the condition is not preferred then swap, even if doing this will later prevent
+        //     containment.
+        //   - Allow swapping for containment purposes only if this doesn't result in a non-"preferred"
+        //     condition being generated.
+        if ((cc != nullptr) && cc->GetCondition().PreferSwap())
+        {
+            swapOperands = true;
+        }
+        else
+        {
+            canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->GetCondition()).PreferSwap();
+        }
+        break;
 
-        case NI_SSE41_PTEST:
-        case NI_AVX_PTEST:
-            // If we need the Carry flag then we can't swap operands.
-            canSwapOperands = (cc == nullptr) || cc->GetCondition().Is(GenCondition::EQ, GenCondition::NE);
-            break;
+    case NI_SSE41_PTEST:
+    case NI_AVX_PTEST:
+        // If we need the Carry flag then we can't swap operands.
+        canSwapOperands = (cc == nullptr) || cc->GetCondition().Is(GenCondition::EQ, GenCondition::NE);
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     if (canSwapOperands)
@@ -1464,442 +1464,441 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (node->GetIntrinsic())
     {
-        case NI_VEC_PACK:
-            LowerVecPack(node);
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
-            LowerNode(node);
-            return;
+    case NI_VEC_PACK:
+        LowerVecPack(node);
+        assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
+        LowerNode(node);
+        return;
 
-        case NI_VEC_SPLAT:
-            LowerVecSplat(node);
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
-            LowerNode(node);
-            return;
+    case NI_VEC_SPLAT:
+        LowerVecSplat(node);
+        assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
+        LowerNode(node);
+        return;
 
-        case NI_VEC_ITOV:
-            LowerVecIToV(node);
+    case NI_VEC_ITOV:
+        LowerVecIToV(node);
+        return;
+    case NI_VEC_ZEXT:
+    case NI_VEC_TRUNC:
+        TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+        return;
+
+    case NI_VEC_REGCAST:
+        LowerVecRegCast(node);
+        return;
+
+    case NI_VEC_ZERO:
+    case NI_VEC_ONE_BITS:
+        return;
+
+    case NI_VEC_EXTRACT:
+        LowerVecExtract(node);
+        return;
+    case NI_VEC_INSERT:
+        LowerVecInsert(node);
+        return;
+
+    case NI_VEC_SUM:
+        if (node->GetOp(0)->TypeIs(TYP_SIMD32))
+        {
+            LowerVecSum256(node);
+        }
+        else
+        {
+            LowerVecSum128(node);
+        }
+        return;
+
+    case NI_VEC_EQ:
+        LowerVecEquality(node, GT_EQ);
+        return;
+    case NI_VEC_NE:
+        LowerVecEquality(node, GT_NE);
+        return;
+
+    case NI_SSE_Store:
+    case NI_SSE2_Store:
+        TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+
+        if (GenTreeHWIntrinsic* op2 = node->GetOp(1)->IsHWIntrinsic();
+            (op2 != nullptr) &&
+            ((op2->GetIntrinsic() == NI_AVX_ExtractVector128) || (op2->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
+            op2->GetOp(1)->IsIntCon())
+        {
+            op2->SetContained();
+        }
+        return;
+
+    case NI_SSE_Prefetch0:
+    case NI_SSE_Prefetch1:
+    case NI_SSE_Prefetch2:
+    case NI_SSE_PrefetchNonTemporal:
+    case NI_AVX_MaskStore:
+    case NI_AVX2_MaskStore:
+        if (node->GetOp(0)->OperIs(GT_ADD, GT_LEA))
+        {
+            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+        }
+        return;
+
+    case NI_SSE41_Extract:
+    case NI_SSE41_X64_Extract:
+        // Make sure the importer did not blindly import intrinsic with bogus return type
+        // "float Sse41.Extract(Vector128<float>)", the return type should have been int.
+        assert(!varTypeIsFloating(node->GetType()));
+        FALLTHROUGH;
+    case NI_SSE2_Extract:
+    case NI_AVX_ExtractVector128:
+    case NI_AVX2_ExtractVector128:
+        if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+        {
+            imm->SetContained();
+        }
+        return;
+
+    case NI_SSE41_Insert:
+        if (node->GetVecEltType() == TYP_FLOAT)
+        {
+            LowerSse41InsertFloat(node);
             return;
-        case NI_VEC_ZEXT:
-        case NI_VEC_TRUNC:
+        }
+        FALLTHROUGH;
+    case NI_SSE2_Insert:
+    case NI_SSE41_X64_Insert:
+        assert(node->IsTernary());
+        // Insert takes either a 32-bit register or a memory operand.
+        // In either case, only gtSIMDBaseType bits are read and so
+        // widening or narrowing the operand may be unnecessary and it
+        // can just be used directly.
+        node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
+        TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+
+        if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
+        {
+            imm->SetContained();
+        }
+        return;
+
+    case NI_SSE42_CRC32B:
+        node->SetOp(1, TryRemoveCastIfPresent(TYP_BYTE, node->GetOp(1)));
+        break;
+
+    case NI_SSE42_CRC32W:
+        node->SetOp(1, TryRemoveCastIfPresent(TYP_SHORT, node->GetOp(1)));
+        break;
+
+    case NI_SSE2_ConvertToInt32:
+    case NI_SSE2_X64_ConvertToInt64:
+        if (varTypeIsFloating(node->GetVecEltType()))
+        {
             TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
-            return;
+        }
+        return;
 
-        case NI_VEC_REGCAST:
-            LowerVecRegCast(node);
-            return;
-
-        case NI_VEC_ZERO:
-        case NI_VEC_ONE_BITS:
-            return;
-
-        case NI_VEC_EXTRACT:
-            LowerVecExtract(node);
-            return;
-        case NI_VEC_INSERT:
-            LowerVecInsert(node);
-            return;
-
-        case NI_VEC_SUM:
-            if (node->GetOp(0)->TypeIs(TYP_SIMD32))
-            {
-                LowerVecSum256(node);
-            }
-            else
-            {
-                LowerVecSum128(node);
-            }
-            return;
-
-        case NI_VEC_EQ:
-            LowerVecEquality(node, GT_EQ);
-            return;
-        case NI_VEC_NE:
-            LowerVecEquality(node, GT_NE);
-            return;
-
-        case NI_SSE_Store:
-        case NI_SSE2_Store:
-            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-
-            if (GenTreeHWIntrinsic* op2 = node->GetOp(1)->IsHWIntrinsic();
-                (op2 != nullptr) && ((op2->GetIntrinsic() == NI_AVX_ExtractVector128) ||
-                                     (op2->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
-                op2->GetOp(1)->IsIntCon())
-            {
-                op2->SetContained();
-            }
-            return;
-
-        case NI_SSE_Prefetch0:
-        case NI_SSE_Prefetch1:
-        case NI_SSE_Prefetch2:
-        case NI_SSE_PrefetchNonTemporal:
-        case NI_AVX_MaskStore:
-        case NI_AVX2_MaskStore:
-            if (node->GetOp(0)->OperIs(GT_ADD, GT_LEA))
-            {
-                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-            }
-            return;
-
-        case NI_SSE41_Extract:
-        case NI_SSE41_X64_Extract:
-            // Make sure the importer did not blindly import intrinsic with bogus return type
-            // "float Sse41.Extract(Vector128<float>)", the return type should have been int.
-            assert(!varTypeIsFloating(node->GetType()));
-            FALLTHROUGH;
-        case NI_SSE2_Extract:
-        case NI_AVX_ExtractVector128:
-        case NI_AVX2_ExtractVector128:
-            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
-            {
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE41_Insert:
-            if (node->GetVecEltType() == TYP_FLOAT)
-            {
-                LowerSse41InsertFloat(node);
-                return;
-            }
-            FALLTHROUGH;
-        case NI_SSE2_Insert:
-        case NI_SSE41_X64_Insert:
-            assert(node->IsTernary());
-            // Insert takes either a 32-bit register or a memory operand.
-            // In either case, only gtSIMDBaseType bits are read and so
-            // widening or narrowing the operand may be unnecessary and it
-            // can just be used directly.
-            node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
+    case NI_SSE_ReciprocalScalar:
+    case NI_SSE_ReciprocalSqrtScalar:
+    case NI_SSE_SqrtScalar:
+    case NI_SSE2_SqrtScalar:
+    case NI_SSE41_CeilingScalar:
+    case NI_SSE41_FloorScalar:
+    case NI_SSE41_RoundCurrentDirectionScalar:
+    case NI_SSE41_RoundToNearestIntegerScalar:
+    case NI_SSE41_RoundToNegativeInfinityScalar:
+    case NI_SSE41_RoundToPositiveInfinityScalar:
+    case NI_SSE41_RoundToZeroScalar:
+        if (node->GetNumOps() > 1)
+        {
             TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+        }
+        return;
 
-            if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
-            {
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE42_CRC32B:
-            node->SetOp(1, TryRemoveCastIfPresent(TYP_BYTE, node->GetOp(1)));
-            break;
-
-        case NI_SSE42_CRC32W:
-            node->SetOp(1, TryRemoveCastIfPresent(TYP_SHORT, node->GetOp(1)));
-            break;
-
-        case NI_SSE2_ConvertToInt32:
-        case NI_SSE2_X64_ConvertToInt64:
-            if (varTypeIsFloating(node->GetVecEltType()))
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
-            }
-            return;
-
-        case NI_SSE_ReciprocalScalar:
-        case NI_SSE_ReciprocalSqrtScalar:
-        case NI_SSE_SqrtScalar:
-        case NI_SSE2_SqrtScalar:
-        case NI_SSE41_CeilingScalar:
-        case NI_SSE41_FloorScalar:
-        case NI_SSE41_RoundCurrentDirectionScalar:
-        case NI_SSE41_RoundToNearestIntegerScalar:
-        case NI_SSE41_RoundToNegativeInfinityScalar:
-        case NI_SSE41_RoundToPositiveInfinityScalar:
-        case NI_SSE41_RoundToZeroScalar:
-            if (node->GetNumOps() > 1)
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-            }
-            return;
-
-        case NI_SSE2_CompareGreaterThan:
-            if (node->GetVecEltType() != TYP_DOUBLE)
-            {
-                assert(varTypeIsIntegral(node->GetVecEltType()));
-                break;
-            }
-            FALLTHROUGH;
-        case NI_SSE_CompareGreaterThan:
-        case NI_SSE_CompareGreaterThanOrEqual:
-        case NI_SSE_CompareNotGreaterThan:
-        case NI_SSE_CompareNotGreaterThanOrEqual:
-        case NI_SSE2_CompareGreaterThanOrEqual:
-        case NI_SSE2_CompareNotGreaterThan:
-        case NI_SSE2_CompareNotGreaterThanOrEqual:
-            assert((node->GetVecEltType() == TYP_FLOAT) || (node->GetVecEltType() == TYP_DOUBLE));
-
-            if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                break;
-            }
-
-            // pre-AVX doesn't actually support these intrinsics in hardware so we need to swap the operands around
-            std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
-            break;
-
-        case NI_SSE2_CompareLessThan:
-        case NI_SSE42_CompareLessThan:
-        case NI_AVX2_CompareLessThan:
-            if (node->GetVecEltType() == TYP_DOUBLE)
-            {
-                break;
-            }
-
+    case NI_SSE2_CompareGreaterThan:
+        if (node->GetVecEltType() != TYP_DOUBLE)
+        {
             assert(varTypeIsIntegral(node->GetVecEltType()));
+            break;
+        }
+        FALLTHROUGH;
+    case NI_SSE_CompareGreaterThan:
+    case NI_SSE_CompareGreaterThanOrEqual:
+    case NI_SSE_CompareNotGreaterThan:
+    case NI_SSE_CompareNotGreaterThanOrEqual:
+    case NI_SSE2_CompareGreaterThanOrEqual:
+    case NI_SSE2_CompareNotGreaterThan:
+    case NI_SSE2_CompareNotGreaterThanOrEqual:
+        assert((node->GetVecEltType() == TYP_FLOAT) || (node->GetVecEltType() == TYP_DOUBLE));
 
-            // this isn't actually supported in hardware so we need to swap the operands around
-            std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
+        {
             break;
+        }
 
-        case NI_SSE_CompareScalarOrderedEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FEQ);
-            break;
-        case NI_SSE_CompareScalarOrderedNotEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FNEU);
-            break;
-        case NI_SSE_CompareScalarOrderedLessThan:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FLT);
-            break;
-        case NI_SSE_CompareScalarOrderedLessThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FLE);
-            break;
-        case NI_SSE_CompareScalarOrderedGreaterThan:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FGT);
-            break;
-        case NI_SSE_CompareScalarOrderedGreaterThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FGE);
-            break;
+        // pre-AVX doesn't actually support these intrinsics in hardware so we need to swap the operands around
+        std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
+        break;
 
-        case NI_SSE_CompareScalarUnorderedEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FEQ);
+    case NI_SSE2_CompareLessThan:
+    case NI_SSE42_CompareLessThan:
+    case NI_AVX2_CompareLessThan:
+        if (node->GetVecEltType() == TYP_DOUBLE)
+        {
             break;
-        case NI_SSE_CompareScalarUnorderedNotEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FNEU);
-            break;
-        case NI_SSE_CompareScalarUnorderedLessThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FLE);
-            break;
-        case NI_SSE_CompareScalarUnorderedLessThan:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FLT);
-            break;
-        case NI_SSE_CompareScalarUnorderedGreaterThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FGE);
-            break;
-        case NI_SSE_CompareScalarUnorderedGreaterThan:
-            LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FGT);
-            break;
+        }
 
-        case NI_SSE2_CompareScalarOrderedEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FEQ);
-            break;
-        case NI_SSE2_CompareScalarOrderedNotEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FNEU);
-            break;
-        case NI_SSE2_CompareScalarOrderedLessThan:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FLT);
-            break;
-        case NI_SSE2_CompareScalarOrderedLessThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FLE);
-            break;
-        case NI_SSE2_CompareScalarOrderedGreaterThan:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FGT);
-            break;
-        case NI_SSE2_CompareScalarOrderedGreaterThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FGE);
-            break;
+        assert(varTypeIsIntegral(node->GetVecEltType()));
 
-        case NI_SSE2_CompareScalarUnorderedEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FEQ);
-            break;
-        case NI_SSE2_CompareScalarUnorderedNotEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FNEU);
-            break;
-        case NI_SSE2_CompareScalarUnorderedLessThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FLE);
-            break;
-        case NI_SSE2_CompareScalarUnorderedLessThan:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FLT);
-            break;
-        case NI_SSE2_CompareScalarUnorderedGreaterThanOrEqual:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FGE);
-            break;
-        case NI_SSE2_CompareScalarUnorderedGreaterThan:
-            LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FGT);
-            break;
+        // this isn't actually supported in hardware so we need to swap the operands around
+        std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
+        break;
 
-        case NI_SSE41_TestC:
-            LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::C);
-            break;
-        case NI_SSE41_TestZ:
-            LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::EQ);
-            break;
-        case NI_SSE41_TestNotZAndNotC:
-            LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::UGT);
-            break;
+    case NI_SSE_CompareScalarOrderedEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FEQ);
+        break;
+    case NI_SSE_CompareScalarOrderedNotEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FNEU);
+        break;
+    case NI_SSE_CompareScalarOrderedLessThan:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FLT);
+        break;
+    case NI_SSE_CompareScalarOrderedLessThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FLE);
+        break;
+    case NI_SSE_CompareScalarOrderedGreaterThan:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FGT);
+        break;
+    case NI_SSE_CompareScalarOrderedGreaterThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FGE);
+        break;
 
-        case NI_AVX_TestC:
-            LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::C);
-            break;
-        case NI_AVX_TestZ:
-            LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::EQ);
-            break;
-        case NI_AVX_TestNotZAndNotC:
-            LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::UGT);
-            break;
+    case NI_SSE_CompareScalarUnorderedEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FEQ);
+        break;
+    case NI_SSE_CompareScalarUnorderedNotEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FNEU);
+        break;
+    case NI_SSE_CompareScalarUnorderedLessThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FLE);
+        break;
+    case NI_SSE_CompareScalarUnorderedLessThan:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FLT);
+        break;
+    case NI_SSE_CompareScalarUnorderedGreaterThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FGE);
+        break;
+    case NI_SSE_CompareScalarUnorderedGreaterThan:
+        LowerHWIntrinsicCC(node, NI_SSE_UCOMISS, GenCondition::FGT);
+        break;
 
-        case NI_SSE41_ConvertToVector128Int16:
-        case NI_SSE41_ConvertToVector128Int32:
-        case NI_SSE41_ConvertToVector128Int64:
-        case NI_AVX2_ConvertToVector256Int16:
-        case NI_AVX2_ConvertToVector256Int32:
-        case NI_AVX2_ConvertToVector256Int64:
-            if (!varTypeIsVec(node->GetOp(0)->GetType()))
+    case NI_SSE2_CompareScalarOrderedEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FEQ);
+        break;
+    case NI_SSE2_CompareScalarOrderedNotEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FNEU);
+        break;
+    case NI_SSE2_CompareScalarOrderedLessThan:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FLT);
+        break;
+    case NI_SSE2_CompareScalarOrderedLessThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FLE);
+        break;
+    case NI_SSE2_CompareScalarOrderedGreaterThan:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FGT);
+        break;
+    case NI_SSE2_CompareScalarOrderedGreaterThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_COMISD, GenCondition::FGE);
+        break;
+
+    case NI_SSE2_CompareScalarUnorderedEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FEQ);
+        break;
+    case NI_SSE2_CompareScalarUnorderedNotEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FNEU);
+        break;
+    case NI_SSE2_CompareScalarUnorderedLessThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FLE);
+        break;
+    case NI_SSE2_CompareScalarUnorderedLessThan:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FLT);
+        break;
+    case NI_SSE2_CompareScalarUnorderedGreaterThanOrEqual:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FGE);
+        break;
+    case NI_SSE2_CompareScalarUnorderedGreaterThan:
+        LowerHWIntrinsicCC(node, NI_SSE2_UCOMISD, GenCondition::FGT);
+        break;
+
+    case NI_SSE41_TestC:
+        LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::C);
+        break;
+    case NI_SSE41_TestZ:
+        LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::EQ);
+        break;
+    case NI_SSE41_TestNotZAndNotC:
+        LowerHWIntrinsicCC(node, NI_SSE41_PTEST, GenCondition::UGT);
+        break;
+
+    case NI_AVX_TestC:
+        LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::C);
+        break;
+    case NI_AVX_TestZ:
+        LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::EQ);
+        break;
+    case NI_AVX_TestNotZAndNotC:
+        LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::UGT);
+        break;
+
+    case NI_SSE41_ConvertToVector128Int16:
+    case NI_SSE41_ConvertToVector128Int32:
+    case NI_SSE41_ConvertToVector128Int64:
+    case NI_AVX2_ConvertToVector256Int16:
+    case NI_AVX2_ConvertToVector256Int32:
+    case NI_AVX2_ConvertToVector256Int64:
+        if (!varTypeIsVec(node->GetOp(0)->GetType()))
+        {
+            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+        }
+        else
+        {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+        }
+        return;
+
+    case NI_SSE2_ShiftLeftLogical:
+    case NI_SSE2_ShiftRightArithmetic:
+    case NI_SSE2_ShiftRightLogical:
+    case NI_AVX2_ShiftLeftLogical:
+    case NI_AVX2_ShiftRightArithmetic:
+    case NI_AVX2_ShiftRightLogical:
+        if (varTypeIsVec(node->GetOp(1)->GetType()))
+        {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+        }
+        else if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+        {
+            imm->SetContained();
+        }
+        return;
+
+    case NI_SSE2_Shuffle:
+        if (GenTreeIntCon* imm = node->GetLastOp()->IsIntCon())
+        {
+            imm->SetContained();
+
+            if (node->GetNumOps() == 3)
             {
-                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
             }
             else
             {
                 TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
             }
-            return;
+        }
+        return;
 
-        case NI_SSE2_ShiftLeftLogical:
-        case NI_SSE2_ShiftRightArithmetic:
-        case NI_SSE2_ShiftRightLogical:
-        case NI_AVX2_ShiftLeftLogical:
-        case NI_AVX2_ShiftRightArithmetic:
-        case NI_AVX2_ShiftRightLogical:
-            if (varTypeIsVec(node->GetOp(1)->GetType()))
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-            }
-            else if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
-            {
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE2_Shuffle:
-            if (GenTreeIntCon* imm = node->GetLastOp()->IsIntCon())
-            {
-                imm->SetContained();
-
-                if (node->GetNumOps() == 3)
-                {
-                    TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-                }
-                else
-                {
-                    TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
-                }
-            }
-            return;
-
-        case NI_AVX2_Shuffle:
-            if (varTypeIsByte(node->GetVecEltType()))
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-                return;
-            }
-            FALLTHROUGH;
-        case NI_SSE2_ShuffleHigh:
-        case NI_SSE2_ShuffleLow:
-        case NI_AVX_Permute:
-        case NI_AVX2_Permute4x64:
-        case NI_AVX2_ShuffleHigh:
-        case NI_AVX2_ShuffleLow:
-        case NI_AES_KeygenAssist:
-            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE2_ShiftLeftLogical128BitLane:
-        case NI_SSE2_ShiftRightLogical128BitLane:
-        case NI_AVX2_ShiftLeftLogical128BitLane:
-        case NI_AVX2_ShiftRightLogical128BitLane:
-            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
-            {
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE_Shuffle:
-        case NI_SSSE3_AlignRight:
-        case NI_SSE41_Blend:
-        case NI_SSE41_DotProduct:
-        case NI_SSE41_MultipleSumAbsoluteDifferences:
-        case NI_AVX_Blend:
-        case NI_AVX_Compare:
-        case NI_AVX_CompareScalar:
-        case NI_AVX_DotProduct:
-        case NI_AVX_InsertVector128:
-        case NI_AVX_Permute2x128:
-        case NI_AVX_Shuffle:
-        case NI_AVX2_AlignRight:
-        case NI_AVX2_Blend:
-        case NI_AVX2_InsertVector128:
-        case NI_AVX2_MultipleSumAbsoluteDifferences:
-        case NI_AVX2_Permute2x128:
-        case NI_PCLMULQDQ_CarrylessMultiply:
-            if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
-            {
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-                imm->SetContained();
-            }
-            return;
-
-        case NI_SSE41_BlendVariable:
-            if (comp->codeGen->UseVexEncoding())
-            {
-                node->SetIntrinsic(varTypeIsFloating(node->GetVecEltType()) ? NI_AVX_BlendVariable
-                                                                            : NI_AVX2_BlendVariable);
-            }
-            FALLTHROUGH;
-        case NI_AVX_BlendVariable:
-        case NI_AVX2_BlendVariable:
+    case NI_AVX2_Shuffle:
+        if (varTypeIsByte(node->GetVecEltType()))
+        {
             TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
             return;
+        }
+        FALLTHROUGH;
+    case NI_SSE2_ShuffleHigh:
+    case NI_SSE2_ShuffleLow:
+    case NI_AVX_Permute:
+    case NI_AVX2_Permute4x64:
+    case NI_AVX2_ShuffleHigh:
+    case NI_AVX2_ShuffleLow:
+    case NI_AES_KeygenAssist:
+        if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+        {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+            imm->SetContained();
+        }
+        return;
 
-        case NI_AVXVNNI_MultiplyWideningAndAdd:
-        case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-            TryMakeHWIntrinsicMemOp(node, node->GetOp(2));
-            return;
+    case NI_SSE2_ShiftLeftLogical128BitLane:
+    case NI_SSE2_ShiftRightLogical128BitLane:
+    case NI_AVX2_ShiftLeftLogical128BitLane:
+    case NI_AVX2_ShiftRightLogical128BitLane:
+        if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+        {
+            imm->SetContained();
+        }
+        return;
 
-        case NI_FMA_MultiplyAddScalar:
-            LowerFmaIntrinsic(node);
-            FALLTHROUGH;
-        case NI_FMA_MultiplyAdd:
-        case NI_FMA_MultiplyAddNegated:
-        case NI_FMA_MultiplyAddNegatedScalar:
-        case NI_FMA_MultiplyAddSubtract:
-        case NI_FMA_MultiplySubtract:
-        case NI_FMA_MultiplySubtractAdd:
-        case NI_FMA_MultiplySubtractNegated:
-        case NI_FMA_MultiplySubtractScalar:
-        case NI_FMA_MultiplySubtractNegatedScalar:
-            ContainFmaIntrinsic(node);
-            return;
+    case NI_SSE_Shuffle:
+    case NI_SSSE3_AlignRight:
+    case NI_SSE41_Blend:
+    case NI_SSE41_DotProduct:
+    case NI_SSE41_MultipleSumAbsoluteDifferences:
+    case NI_AVX_Blend:
+    case NI_AVX_Compare:
+    case NI_AVX_CompareScalar:
+    case NI_AVX_DotProduct:
+    case NI_AVX_InsertVector128:
+    case NI_AVX_Permute2x128:
+    case NI_AVX_Shuffle:
+    case NI_AVX2_AlignRight:
+    case NI_AVX2_Blend:
+    case NI_AVX2_InsertVector128:
+    case NI_AVX2_MultipleSumAbsoluteDifferences:
+    case NI_AVX2_Permute2x128:
+    case NI_PCLMULQDQ_CarrylessMultiply:
+        if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
+        {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+            imm->SetContained();
+        }
+        return;
 
-        case NI_AVX2_GATHERD:
-        case NI_AVX2_GATHERQ:
-            node->GetLastOp()->SetContained();
-            return;
+    case NI_SSE41_BlendVariable:
+        if (comp->codeGen->UseVexEncoding())
+        {
+            node->SetIntrinsic(varTypeIsFloating(node->GetVecEltType()) ? NI_AVX_BlendVariable : NI_AVX2_BlendVariable);
+        }
+        FALLTHROUGH;
+    case NI_AVX_BlendVariable:
+    case NI_AVX2_BlendVariable:
+        TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+        return;
 
-        case NI_AVX_MaskLoad:
-        case NI_AVX2_MaskLoad:
-            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-            return;
+    case NI_AVXVNNI_MultiplyWideningAndAdd:
+    case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+        TryMakeHWIntrinsicMemOp(node, node->GetOp(2));
+        return;
 
-        case NI_BMI2_MultiplyNoFlags:
-        case NI_BMI2_X64_MultiplyNoFlags:
-            return;
+    case NI_FMA_MultiplyAddScalar:
+        LowerFmaIntrinsic(node);
+        FALLTHROUGH;
+    case NI_FMA_MultiplyAdd:
+    case NI_FMA_MultiplyAddNegated:
+    case NI_FMA_MultiplyAddNegatedScalar:
+    case NI_FMA_MultiplyAddSubtract:
+    case NI_FMA_MultiplySubtract:
+    case NI_FMA_MultiplySubtractAdd:
+    case NI_FMA_MultiplySubtractNegated:
+    case NI_FMA_MultiplySubtractScalar:
+    case NI_FMA_MultiplySubtractNegatedScalar:
+        ContainFmaIntrinsic(node);
+        return;
 
-        default:
-            break;
+    case NI_AVX2_GATHERD:
+    case NI_AVX2_GATHERQ:
+        node->GetLastOp()->SetContained();
+        return;
+
+    case NI_AVX_MaskLoad:
+    case NI_AVX2_MaskLoad:
+        TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+        return;
+
+    case NI_BMI2_MultiplyNoFlags:
+    case NI_BMI2_X64_MultiplyNoFlags:
+        return;
+
+    default:
+        break;
     }
 
     if (HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()))
@@ -2904,40 +2903,40 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
     {
         switch (eltType)
         {
-            case TYP_LONG:
-                node->SetIntrinsic(NI_SSE41_X64_Extract);
-                break;
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            case TYP_INT:
-                node->SetIntrinsic(NI_SSE41_Extract);
-                break;
-            case TYP_SHORT:
-            case TYP_USHORT:
-                node->SetIntrinsic(NI_SSE2_Extract);
-                break;
-            default:
-                unreached();
+        case TYP_LONG:
+            node->SetIntrinsic(NI_SSE41_X64_Extract);
+            break;
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_INT:
+            node->SetIntrinsic(NI_SSE41_Extract);
+            break;
+        case TYP_SHORT:
+        case TYP_USHORT:
+            node->SetIntrinsic(NI_SSE2_Extract);
+            break;
+        default:
+            unreached();
         }
     }
     else
     {
         switch (eltType)
         {
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            case TYP_SHORT:
-            case TYP_USHORT:
-            case TYP_INT:
-                node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
-                node->SetType(TYP_INT);
-                break;
-            case TYP_LONG:
-                node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, TYP_LONG, 1);
-                node->SetType(TYP_LONG);
-                break;
-            default:
-                unreached();
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_SHORT:
+        case TYP_USHORT:
+        case TYP_INT:
+            node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
+            node->SetType(TYP_INT);
+            break;
+        case TYP_LONG:
+            node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, TYP_LONG, 1);
+            node->SetType(TYP_LONG);
+            break;
+        default:
+            unreached();
         }
 
         node->SetOp(0, vec);
@@ -3039,77 +3038,77 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
 
     switch (eltType)
     {
-        case TYP_SHORT:
-        case TYP_USHORT:
-            intrinsic = NI_SSE2_Insert;
-            break;
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-            assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
-            intrinsic = NI_SSE41_Insert;
-            break;
+    case TYP_SHORT:
+    case TYP_USHORT:
+        intrinsic = NI_SSE2_Insert;
+        break;
+    case TYP_BYTE:
+    case TYP_UBYTE:
+    case TYP_INT:
+        assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
+        intrinsic = NI_SSE41_Insert;
+        break;
 #ifdef TARGET_64BIT
-        case TYP_LONG:
-            assert(comp->opts.IsIsaSupported(InstructionSet_SSE41_X64));
-            intrinsic = NI_SSE41_X64_Insert;
-            break;
+    case TYP_LONG:
+        assert(comp->opts.IsIsaSupported(InstructionSet_SSE41_X64));
+        intrinsic = NI_SSE41_X64_Insert;
+        break;
 #endif
 
-        case TYP_DOUBLE:
-            intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
+    case TYP_DOUBLE:
+        intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
+        BlockRange().Unlink(idx);
+        idx = nullptr;
+        elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_DOUBLE, elt);
+        BlockRange().InsertBefore(node, elt);
+        LowerNode(elt);
+        break;
+
+    case TYP_FLOAT:
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41) && ((index != 0) || elt->IsDblCon()))
+        {
+            intrinsic = NI_SSE41_Insert;
+            idx->AsIntCon()->SetValue(index << 4);
+        }
+        else if (index == 0)
+        {
+            intrinsic = NI_SSE_MoveScalar;
             BlockRange().Unlink(idx);
             idx = nullptr;
-            elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_DOUBLE, elt);
+            elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
             BlockRange().InsertBefore(node, elt);
             LowerNode(elt);
-            break;
+        }
+        else
+        {
+            node->SetOp(0, vec);
+            LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+            vec = ReplaceWithLclLoad(op1Use);
 
-        case TYP_FLOAT:
-            if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41) && ((index != 0) || elt->IsDblCon()))
+            elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
+            BlockRange().InsertBefore(node, elt);
+            LowerNode(elt);
+
+            GenTree*      vec2 = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD16);
+            constexpr int controlBits1[]{0, 0, 0b00110000, 0b00100000};
+            GenTree*      imm = comp->gtNewIconNode(controlBits1[index]);
+            elt               = comp->gtNewVecNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, elt, vec2, imm);
+            BlockRange().InsertBefore(node, vec2, imm, elt);
+            LowerNode(elt);
+
+            intrinsic = NI_SSE_Shuffle;
+            constexpr int controlBits2[]{0, 0b11100010, 0b10000100, 0b00100100};
+            idx->AsIntCon()->SetValue(controlBits2[index]);
+
+            if (index == 1)
             {
-                intrinsic = NI_SSE41_Insert;
-                idx->AsIntCon()->SetValue(index << 4);
+                std::swap(vec, elt);
             }
-            else if (index == 0)
-            {
-                intrinsic = NI_SSE_MoveScalar;
-                BlockRange().Unlink(idx);
-                idx = nullptr;
-                elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
-                BlockRange().InsertBefore(node, elt);
-                LowerNode(elt);
-            }
-            else
-            {
-                node->SetOp(0, vec);
-                LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                vec = ReplaceWithLclLoad(op1Use);
+        }
+        break;
 
-                elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
-                BlockRange().InsertBefore(node, elt);
-                LowerNode(elt);
-
-                GenTree*      vec2 = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD16);
-                constexpr int controlBits1[]{0, 0, 0b00110000, 0b00100000};
-                GenTree*      imm = comp->gtNewIconNode(controlBits1[index]);
-                elt               = comp->gtNewVecNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, elt, vec2, imm);
-                BlockRange().InsertBefore(node, vec2, imm, elt);
-                LowerNode(elt);
-
-                intrinsic = NI_SSE_Shuffle;
-                constexpr int controlBits2[]{0, 0b11100010, 0b10000100, 0b00100100};
-                idx->AsIntCon()->SetValue(controlBits2[index]);
-
-                if (index == 1)
-                {
-                    std::swap(vec, elt);
-                }
-            }
-            break;
-
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     if (vec256TempLcl != nullptr)
@@ -3167,22 +3166,22 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
         {
             switch (vecElt->GetIntrinsic())
             {
-                case NI_VEC_REGCAST:
-                    elt = vecElt->GetOp(0);
-                    node->SetOp(1, elt);
-                    BlockRange().Unlink(vecElt);
-                    break;
-                case NI_SSE_LoadScalarVector128:
-                case NI_SSE_LoadVector128:
-                case NI_SSE_LoadAlignedVector128:
-                    GenTree* addr;
-                    addr = vecElt->GetOp(0);
-                    elt->ChangeOper(GT_IND_LOAD);
-                    elt->SetType(TYP_FLOAT);
-                    elt->AsIndLoad()->SetAddr(addr);
-                    break;
-                default:
-                    break;
+            case NI_VEC_REGCAST:
+                elt = vecElt->GetOp(0);
+                node->SetOp(1, elt);
+                BlockRange().Unlink(vecElt);
+                break;
+            case NI_SSE_LoadScalarVector128:
+            case NI_SSE_LoadVector128:
+            case NI_SSE_LoadAlignedVector128:
+                GenTree* addr;
+                addr = vecElt->GetOp(0);
+                elt->ChangeOper(GT_IND_LOAD);
+                elt->SetType(TYP_FLOAT);
+                elt->AsIndLoad()->SetAddr(addr);
+                break;
+            default:
+                break;
             }
         }
         else if (elt->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
@@ -3514,21 +3513,21 @@ bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2
 
     switch (addr1->GetOper())
     {
-        case GT_LCL_LOAD:
-        case GT_CNS_INT:
-            return LeavesAreRMWEquivalent(addr1, addr2);
+    case GT_LCL_LOAD:
+    case GT_CNS_INT:
+        return LeavesAreRMWEquivalent(addr1, addr2);
 
-        case GT_LEA:
-        {
-            GenTreeAddrMode* am1 = addr1->AsAddrMode();
-            GenTreeAddrMode* am2 = addr2->AsAddrMode();
-            return LeavesAreRMWEquivalent(am1->GetBase(), am2->GetBase()) &&
-                   LeavesAreRMWEquivalent(am1->GetIndex(), am2->GetIndex()) && (am1->GetScale() == am2->GetScale()) &&
-                   (am1->GetOffset() == am2->GetOffset());
-        }
+    case GT_LEA:
+    {
+        GenTreeAddrMode* am1 = addr1->AsAddrMode();
+        GenTreeAddrMode* am2 = addr2->AsAddrMode();
+        return LeavesAreRMWEquivalent(am1->GetBase(), am2->GetBase()) &&
+               LeavesAreRMWEquivalent(am1->GetIndex(), am2->GetIndex()) && (am1->GetScale() == am2->GetScale()) &&
+               (am1->GetOffset() == am2->GetOffset());
+    }
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 
@@ -3546,13 +3545,13 @@ bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
 
     switch (node1->GetOper())
     {
-        case GT_CNS_INT:
-            return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
-                   (node1->AsIntCon()->IsHandle() == node2->AsIntCon()->IsHandle());
-        case GT_LCL_LOAD:
-            return node1->AsLclLoad()->GetLcl() == node2->AsLclLoad()->GetLcl();
-        default:
-            return false;
+    case GT_CNS_INT:
+        return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
+               (node1->AsIntCon()->IsHandle() == node2->AsIntCon()->IsHandle());
+    case GT_LCL_LOAD:
+        return node1->AsLclLoad()->GetLcl() == node2->AsLclLoad()->GetLcl();
+    default:
+        return false;
     }
 }
 
@@ -4450,26 +4449,26 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 {
     switch (node->GetIntrinsic())
     {
-        case NI_System_Math_Ceiling:
-        case NI_System_Math_Floor:
-        case NI_System_Math_Round:
-        case NI_System_Math_Sqrt:
+    case NI_System_Math_Ceiling:
+    case NI_System_Math_Floor:
+    case NI_System_Math_Round:
+    case NI_System_Math_Sqrt:
+    {
+        GenTree* op1 = node->GetOp(0);
+
+        if (IsMemOperand(op1) || op1->IsDblConNonPositiveZero())
         {
-            GenTree* op1 = node->GetOp(0);
-
-            if (IsMemOperand(op1) || op1->IsDblConNonPositiveZero())
-            {
-                op1->SetContained();
-            }
-            else
-            {
-                op1->SetRegOptional();
-            }
+            op1->SetContained();
         }
-        break;
+        else
+        {
+            op1->SetRegOptional();
+        }
+    }
+    break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 
@@ -4523,16 +4522,16 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
     {
         switch (intrinsic)
         {
-            case NI_SSE42_CRC32B:
-                supportsGeneralLoads = true;
-                break;
-            case NI_SSE42_CRC32W:
-                supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
-                break;
-            default:
-                assert(varTypeIsIntegral(op->GetType()));
-                supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
-                break;
+        case NI_SSE42_CRC32B:
+            supportsGeneralLoads = true;
+            break;
+        case NI_SSE42_CRC32W:
+            supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
+            break;
+        default:
+            assert(varTypeIsIntegral(op->GetType()));
+            supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
+            break;
         }
 
         *supportsRegOptional = supportsGeneralLoads;
@@ -4541,145 +4540,144 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
 
     switch (intrinsic)
     {
-        case NI_SSE41_ConvertToVector128Int16:
-        case NI_SSE41_ConvertToVector128Int32:
-        case NI_SSE41_ConvertToVector128Int64:
-        case NI_AVX2_ConvertToVector256Int16:
-        case NI_AVX2_ConvertToVector256Int32:
-        case NI_AVX2_ConvertToVector256Int64:
-            supportsGeneralLoads = !op->IsHWIntrinsic();
-            break;
+    case NI_SSE41_ConvertToVector128Int16:
+    case NI_SSE41_ConvertToVector128Int32:
+    case NI_SSE41_ConvertToVector128Int64:
+    case NI_AVX2_ConvertToVector256Int16:
+    case NI_AVX2_ConvertToVector256Int32:
+    case NI_AVX2_ConvertToVector256Int64:
+        supportsGeneralLoads = !op->IsHWIntrinsic();
+        break;
 
-        case NI_SSE2_ConvertToVector128Double:
-            assert(op->TypeIs(TYP_SIMD16));
+    case NI_SSE2_ConvertToVector128Double:
+        assert(op->TypeIs(TYP_SIMD16));
 
-            // ConvertToVector128Double has Vector128 operands but the memory versions of
-            // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
+        // ConvertToVector128Double has Vector128 operands but the memory versions of
+        // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
 
-            supportsAlignedVecLoads   = !comp->opts.MinOpts();
-            supportsUnalignedVecLoads = true;
-            supportsGeneralLoads      = true;
-            break;
+        supportsAlignedVecLoads   = !comp->opts.MinOpts();
+        supportsUnalignedVecLoads = true;
+        supportsGeneralLoads      = true;
+        break;
 
-        case NI_AVX_CompareScalar:
-            assert(op->TypeIs(TYP_SIMD16));
+    case NI_AVX_CompareScalar:
+        assert(op->TypeIs(TYP_SIMD16));
 
-            // CompareScalar has Vector128 operands but the memory versions of CMPSS
-            // and CMPSD have 32/64 bit operands and don't care about alignment.
+        // CompareScalar has Vector128 operands but the memory versions of CMPSS
+        // and CMPSD have 32/64 bit operands and don't care about alignment.
 
-            supportsAlignedVecLoads   = !comp->opts.MinOpts();
-            supportsUnalignedVecLoads = true;
-            supportsScalarVecLoads    = true;
-            supportsGeneralLoads      = true;
-            break;
+        supportsAlignedVecLoads   = !comp->opts.MinOpts();
+        supportsUnalignedVecLoads = true;
+        supportsScalarVecLoads    = true;
+        supportsGeneralLoads      = true;
+        break;
 
-        case NI_SSE2_Insert:
-        case NI_SSE41_Insert:
-        case NI_SSE41_X64_Insert:
-            assert(instr->GetOp(1) == op);
-            // insertps has its own special handling
-            assert(instr->GetVecEltType() != TYP_FLOAT);
-            assert(varTypeIsIntegral(op->GetType()));
+    case NI_SSE2_Insert:
+    case NI_SSE41_Insert:
+    case NI_SSE41_X64_Insert:
+        assert(instr->GetOp(1) == op);
+        // insertps has its own special handling
+        assert(instr->GetVecEltType() != TYP_FLOAT);
+        assert(varTypeIsIntegral(op->GetType()));
 
-            supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
-            break;
+        supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
+        break;
 
-        case NI_VEC_REGCAST:
-            assert(varTypeIsFloating(instr->GetVecEltType()));
-            supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
-            break;
+    case NI_VEC_REGCAST:
+        assert(varTypeIsFloating(instr->GetVecEltType()));
+        supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
+        break;
 
-        case NI_VEC_ITOV:
-            assert(varTypeIsIntegral(instr->GetVecEltType()));
+    case NI_VEC_ITOV:
+        assert(varTypeIsIntegral(instr->GetVecEltType()));
+        supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
+        break;
+
+    case NI_AVX2_BroadcastScalarToVector128:
+    case NI_AVX2_BroadcastScalarToVector256:
+        // The memory form of this already takes a pointer, and cannot be further contained.
+        // The containable form is the one that takes a SIMD value, that may be in memory.
+        supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
+        break;
+
+    case NI_SSE_ConvertScalarToVector128Single:
+    case NI_SSE2_ConvertScalarToVector128Double:
+    case NI_SSE2_ConvertScalarToVector128Int32:
+    case NI_SSE_X64_ConvertScalarToVector128Single:
+    case NI_SSE2_X64_ConvertScalarToVector128Double:
+    case NI_SSE2_X64_ConvertScalarToVector128Int64:
+        if (!varTypeIsIntegral(op->GetType()))
+        {
+            // The floating-point overload doesn't require any special semantics
+            assert(intrinsic == NI_SSE2_ConvertScalarToVector128Double);
+
+            supportsScalarVecLoads = true;
+            supportsGeneralLoads   = true;
+        }
+        else
+        {
             supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
-            break;
+        }
+        break;
 
-        case NI_AVX2_BroadcastScalarToVector128:
-        case NI_AVX2_BroadcastScalarToVector256:
-            // The memory form of this already takes a pointer, and cannot be further contained.
-            // The containable form is the one that takes a SIMD value, that may be in memory.
-            supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
+    default:
+        if (HWIntrinsicInfo::HasImm(intrinsic))
+        {
             break;
+        }
 
-        case NI_SSE_ConvertScalarToVector128Single:
-        case NI_SSE2_ConvertScalarToVector128Double:
-        case NI_SSE2_ConvertScalarToVector128Int32:
-        case NI_SSE_X64_ConvertScalarToVector128Single:
-        case NI_SSE2_X64_ConvertScalarToVector128Double:
-        case NI_SSE2_X64_ConvertScalarToVector128Int64:
-            if (!varTypeIsIntegral(op->GetType()))
+        if (HWIntrinsicInfo::IsXmmScalar(intrinsic))
+        {
+            if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
             {
-                // The floating-point overload doesn't require any special semantics
-                assert(intrinsic == NI_SSE2_ConvertScalarToVector128Double);
-
                 supportsScalarVecLoads = true;
                 supportsGeneralLoads   = true;
             }
-            else
-            {
-                supportsGeneralLoads =
-                    (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
-            }
             break;
+        }
+        FALLTHROUGH;
+    case NI_SSE_Shuffle:
+    case NI_SSE2_ShiftLeftLogical:
+    case NI_SSE2_ShiftRightArithmetic:
+    case NI_SSE2_ShiftRightLogical:
+    case NI_SSE2_Shuffle:
+    case NI_SSE2_ShuffleHigh:
+    case NI_SSE2_ShuffleLow:
+    case NI_SSSE3_AlignRight:
+    case NI_SSE41_Blend:
+    case NI_SSE41_DotProduct:
+    case NI_SSE41_MultipleSumAbsoluteDifferences:
+    case NI_AES_KeygenAssist:
+    case NI_PCLMULQDQ_CarrylessMultiply:
+    case NI_AVX_Blend:
+    case NI_AVX_Compare:
+    case NI_AVX_DotProduct:
+    case NI_AVX_InsertVector128:
+    case NI_AVX_Permute:
+    case NI_AVX_Permute2x128:
+    case NI_AVX_Shuffle:
+    case NI_AVX2_AlignRight:
+    case NI_AVX2_Blend:
+    case NI_AVX2_InsertVector128:
+    case NI_AVX2_MultipleSumAbsoluteDifferences:
+    case NI_AVX2_Permute2x128:
+    case NI_AVX2_Permute4x64:
+    case NI_AVX2_ShiftLeftLogical:
+    case NI_AVX2_ShiftRightArithmetic:
+    case NI_AVX2_ShiftRightLogical:
+    case NI_AVX2_Shuffle:
+    case NI_AVX2_ShuffleHigh:
+    case NI_AVX2_ShuffleLow:
+        if (!op->TypeIs(TYP_SIMD16, TYP_SIMD32))
+        {
+            *supportsRegOptional = false;
+            return false;
+        }
 
-        default:
-            if (HWIntrinsicInfo::HasImm(intrinsic))
-            {
-                break;
-            }
-
-            if (HWIntrinsicInfo::IsXmmScalar(intrinsic))
-            {
-                if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
-                {
-                    supportsScalarVecLoads = true;
-                    supportsGeneralLoads   = true;
-                }
-                break;
-            }
-            FALLTHROUGH;
-        case NI_SSE_Shuffle:
-        case NI_SSE2_ShiftLeftLogical:
-        case NI_SSE2_ShiftRightArithmetic:
-        case NI_SSE2_ShiftRightLogical:
-        case NI_SSE2_Shuffle:
-        case NI_SSE2_ShuffleHigh:
-        case NI_SSE2_ShuffleLow:
-        case NI_SSSE3_AlignRight:
-        case NI_SSE41_Blend:
-        case NI_SSE41_DotProduct:
-        case NI_SSE41_MultipleSumAbsoluteDifferences:
-        case NI_AES_KeygenAssist:
-        case NI_PCLMULQDQ_CarrylessMultiply:
-        case NI_AVX_Blend:
-        case NI_AVX_Compare:
-        case NI_AVX_DotProduct:
-        case NI_AVX_InsertVector128:
-        case NI_AVX_Permute:
-        case NI_AVX_Permute2x128:
-        case NI_AVX_Shuffle:
-        case NI_AVX2_AlignRight:
-        case NI_AVX2_Blend:
-        case NI_AVX2_InsertVector128:
-        case NI_AVX2_MultipleSumAbsoluteDifferences:
-        case NI_AVX2_Permute2x128:
-        case NI_AVX2_Permute4x64:
-        case NI_AVX2_ShiftLeftLogical:
-        case NI_AVX2_ShiftRightArithmetic:
-        case NI_AVX2_ShiftRightLogical:
-        case NI_AVX2_Shuffle:
-        case NI_AVX2_ShuffleHigh:
-        case NI_AVX2_ShuffleLow:
-            if (!op->TypeIs(TYP_SIMD16, TYP_SIMD32))
-            {
-                *supportsRegOptional = false;
-                return false;
-            }
-
-            supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
-            supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
-            supportsGeneralLoads      = supportsUnalignedVecLoads;
-            break;
+        supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
+        supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
+        supportsGeneralLoads      = supportsUnalignedVecLoads;
+        break;
     }
 
     *supportsRegOptional = supportsGeneralLoads;
@@ -4693,19 +4691,19 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
 
     switch (op->AsHWIntrinsic()->GetIntrinsic())
     {
-        case NI_SSE_LoadAlignedVector128:
-        case NI_SSE2_LoadAlignedVector128:
-        case NI_AVX_LoadAlignedVector256:
-            return supportsAlignedVecLoads;
-        case NI_SSE_LoadScalarVector128:
-        case NI_SSE2_LoadScalarVector128:
-            return supportsScalarVecLoads;
-        case NI_SSE_LoadVector128:
-        case NI_SSE2_LoadVector128:
-        case NI_AVX_LoadVector256:
-            return supportsUnalignedVecLoads;
-        default:
-            return false;
+    case NI_SSE_LoadAlignedVector128:
+    case NI_SSE2_LoadAlignedVector128:
+    case NI_AVX_LoadAlignedVector256:
+        return supportsAlignedVecLoads;
+    case NI_SSE_LoadScalarVector128:
+    case NI_SSE2_LoadScalarVector128:
+        return supportsScalarVecLoads;
+    case NI_SSE_LoadVector128:
+    case NI_SSE2_LoadVector128:
+    case NI_AVX_LoadVector256:
+        return supportsUnalignedVecLoads;
+    default:
+        return false;
     }
 }
 
@@ -4718,23 +4716,23 @@ void Lowering::MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
 
         switch (hwi->GetIntrinsic())
         {
-            case NI_SSE_LoadScalarVector128:
-            case NI_SSE2_LoadScalarVector128:
-                intrinsicLoadType = hwi->GetVecEltType();
-                intrinsicLoadAddr = hwi->GetOp(0);
-                break;
-            case NI_SSE_LoadAlignedVector128:
-            case NI_SSE2_LoadAlignedVector128:
-            case NI_AVX_LoadAlignedVector256:
-            case NI_SSE_LoadVector128:
-            case NI_SSE2_LoadVector128:
-            case NI_AVX_LoadVector256:
-                assert(hwi->TypeIs(TYP_SIMD16, TYP_SIMD32));
-                intrinsicLoadType = hwi->GetType();
-                intrinsicLoadAddr = hwi->GetOp(0);
-                break;
-            default:
-                unreached();
+        case NI_SSE_LoadScalarVector128:
+        case NI_SSE2_LoadScalarVector128:
+            intrinsicLoadType = hwi->GetVecEltType();
+            intrinsicLoadAddr = hwi->GetOp(0);
+            break;
+        case NI_SSE_LoadAlignedVector128:
+        case NI_SSE2_LoadAlignedVector128:
+        case NI_AVX_LoadAlignedVector256:
+        case NI_SSE_LoadVector128:
+        case NI_SSE2_LoadVector128:
+        case NI_AVX_LoadVector256:
+            assert(hwi->TypeIs(TYP_SIMD16, TYP_SIMD32));
+            intrinsicLoadType = hwi->GetType();
+            intrinsicLoadAddr = hwi->GetOp(0);
+            break;
+        default:
+            unreached();
         }
 
         if (intrinsicLoadType != TYP_UNDEF)

@@ -121,211 +121,211 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
     assert(node == use.Def());
     switch (node->GetOper())
     {
-        case GT_BOX:
-            // GT_BOX at this level just passes through so get rid of it
-            use.SetDef(node->AsBox()->GetOp(0));
-            BlockRange().Unlink(node);
-            break;
+    case GT_BOX:
+        // GT_BOX at this level just passes through so get rid of it
+        use.SetDef(node->AsBox()->GetOp(0));
+        BlockRange().Unlink(node);
+        break;
 
-        case GT_ARR_LENGTH:
+    case GT_ARR_LENGTH:
+    {
+        GenTree* array  = node->AsArrLen()->GetArray();
+        unsigned offset = node->AsArrLen()->GetLenOffs();
+        GenTree* addr;
+
+        if (array->IsIntCon(0))
         {
-            GenTree* array  = node->AsArrLen()->GetArray();
-            unsigned offset = node->AsArrLen()->GetLenOffs();
-            GenTree* addr;
+            // If the array is NULL, then we should get a NULL reference
+            // exception when computing its length.  We need to maintain
+            // an invariant where there is no sum of two constants node,
+            // so let's simply return an indirection of NULL. Also change
+            // the address to I_IMPL, there's no reason to keep the REF.
 
-            if (array->IsIntCon(0))
-            {
-                // If the array is NULL, then we should get a NULL reference
-                // exception when computing its length.  We need to maintain
-                // an invariant where there is no sum of two constants node,
-                // so let's simply return an indirection of NULL. Also change
-                // the address to I_IMPL, there's no reason to keep the REF.
+            addr = array;
+            addr->SetType(TYP_I_IMPL);
+        }
+        else
+        {
+            GenTree* intCon = comp->gtNewIconNode(offset, TYP_I_IMPL);
+            addr            = comp->gtNewOperNode(GT_ADD, TYP_BYREF, array, intCon);
 
-                addr = array;
-                addr->SetType(TYP_I_IMPL);
-            }
-            else
-            {
-                GenTree* intCon = comp->gtNewIconNode(offset, TYP_I_IMPL);
-                addr            = comp->gtNewOperNode(GT_ADD, TYP_BYREF, array, intCon);
-
-                BlockRange().InsertAfter(array, intCon, addr);
-            }
-
-            node->ChangeOper(GT_IND_LOAD);
-            node->AsIndir()->SetAddr(addr);
-            goto IND;
+            BlockRange().InsertAfter(array, intCon, addr);
         }
 
-        case GT_IND_LOAD_OBJ:
-            if (varTypeIsSIMD(node->GetType()))
-            {
-                node->SetOper(GT_IND_LOAD);
-            }
-            FALLTHROUGH;
-        case GT_IND_LOAD:
-        case GT_IND_LOAD_BLK:
-        IND:
-            // Remove side effects that may have been inherited from address.
-            node->RemoveSideEffects(GTF_ASG);
+        node->ChangeOper(GT_IND_LOAD);
+        node->AsIndir()->SetAddr(addr);
+        goto IND;
+    }
 
-            if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
-            {
-                node->RemoveSideEffects(GTF_EXCEPT);
-            }
-            break;
+    case GT_IND_LOAD_OBJ:
+        if (varTypeIsSIMD(node->GetType()))
+        {
+            node->SetOper(GT_IND_LOAD);
+        }
+        FALLTHROUGH;
+    case GT_IND_LOAD:
+    case GT_IND_LOAD_BLK:
+    IND:
+        // Remove side effects that may have been inherited from address.
+        node->RemoveSideEffects(GTF_ASG);
+
+        if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
+        {
+            node->RemoveSideEffects(GTF_EXCEPT);
+        }
+        break;
 
 #ifndef TARGET_ARM64
-        case GT_CLS_VAR_ADDR:
-            assert(!comp->opts.compReloc);
-            {
-                INDEBUG(FieldSeqNode* fieldSeq = node->AsClsVar()->GetFieldSeq());
+    case GT_CLS_VAR_ADDR:
+        assert(!comp->opts.compReloc);
+        {
+            INDEBUG(FieldSeqNode* fieldSeq = node->AsClsVar()->GetFieldSeq());
 
-                GenTreeIntCon* intCon = node->ChangeToIntCon(node->AsClsVar()->GetFieldAddr(), HandleKind::Static);
+            GenTreeIntCon* intCon = node->ChangeToIntCon(node->AsClsVar()->GetFieldAddr(), HandleKind::Static);
 #ifdef DEBUG
-                intCon->SetDumpHandle(fieldSeq->GetFieldHandle());
-                intCon->SetFieldSeq(fieldSeq);
+            intCon->SetDumpHandle(fieldSeq->GetFieldHandle());
+            intCon->SetFieldSeq(fieldSeq);
 #endif
-            }
-            break;
+        }
+        break;
 #endif // TARGET_ARM64
 
-        case GT_NOP:
-            // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
-            // 'to prevent constant folding'. In this case, remove the NOP.
-            if (GenTree* value = node->AsUnOp()->gtGetOp1())
-            {
-                if (!use.IsDummyUse())
-                {
-                    use.SetDef(value);
-                }
-                else
-                {
-                    value->SetUnusedValue();
-                }
-
-                BlockRange().Unlink(node);
-
-                return GenTreeWalkResult::Continue;
-            }
-            break;
-
-        case GT_COMMA:
+    case GT_NOP:
+        // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
+        // 'to prevent constant folding'. In this case, remove the NOP.
+        if (GenTree* value = node->AsUnOp()->gtGetOp1())
         {
-            GenTree* sideEffects = node->AsOp()->GetOp(0);
-
-            if (!sideEffects->HasAnySideEffect(GTF_SIDE_EFFECT))
-            {
-                BlockRange().RemoveDeadTree(sideEffects);
-            }
-            else if (sideEffects->IsValue())
-            {
-                sideEffects->SetUnusedValue();
-            }
-
-            BlockRange().Unlink(node);
-
-            GenTree* value = node->AsOp()->GetOp(1);
-
             if (!use.IsDummyUse())
             {
-                use.SetDef(node->AsOp()->GetOp(1));
+                use.SetDef(value);
             }
-            else if (!value->HasAnySideEffect(GTF_SIDE_EFFECT))
-            {
-                BlockRange().RemoveDeadTree(value);
-            }
-            else if (value->IsValue())
+            else
             {
                 value->SetUnusedValue();
             }
 
+            BlockRange().Unlink(node);
+
             return GenTreeWalkResult::Continue;
         }
+        break;
 
-        case GT_CALL:
-            node->AsCall()->RemoveSetupUses();
-            break;
+    case GT_COMMA:
+    {
+        GenTree* sideEffects = node->AsOp()->GetOp(0);
 
-        case GT_INTRINSIC:
-            // Non-target intrinsics should have already been rewritten back into user calls.
-            assert(!node->AsIntrinsic()->IsUserCall());
-            break;
+        if (!sideEffects->HasAnySideEffect(GTF_SIDE_EFFECT))
+        {
+            BlockRange().RemoveDeadTree(sideEffects);
+        }
+        else if (sideEffects->IsValue())
+        {
+            sideEffects->SetUnusedValue();
+        }
 
-        case GT_SDIV:
-        case GT_UDIV:
-        case GT_SREM:
-        case GT_UREM:
-            node->RemoveSideEffects(GTF_ALL_EFFECT & ~GTF_EXCEPT);
-            break;
+        BlockRange().Unlink(node);
 
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        case GT_NOT:
-        case GT_NEG:
-        case GT_BITCAST:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        case GT_FNEG:
-        case GT_FTRUNC:
-        case GT_FXT:
-        case GT_SXT:
-        case GT_UXT:
-        case GT_STOF:
-        case GT_UTOF:
-        case GT_FTOS:
-        case GT_FTOU:
-        case GT_TRUNC:
-        case GT_CONV:
-        case GT_RETURN:
-        case GT_JTRUE:
-        case GT_SWITCH:
-            node->SetSideEffects(GTF_NONE);
-            break;
+        GenTree* value = node->AsOp()->GetOp(1);
 
-        case GT_OVF_U:
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-        case GT_OVF_FTOS:
-        case GT_OVF_FTOU:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            node->SetSideEffects(GTF_EXCEPT);
-            break;
+        if (!use.IsDummyUse())
+        {
+            use.SetDef(node->AsOp()->GetOp(1));
+        }
+        else if (!value->HasAnySideEffect(GTF_SIDE_EFFECT))
+        {
+            BlockRange().RemoveDeadTree(value);
+        }
+        else if (value->IsValue())
+        {
+            value->SetUnusedValue();
+        }
 
-        default:
-            // These nodes should not be present before rationalization.
-            assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_LOCKADD, GT_INSTR));
+        return GenTreeWalkResult::Continue;
+    }
+
+    case GT_CALL:
+        node->AsCall()->RemoveSetupUses();
+        break;
+
+    case GT_INTRINSIC:
+        // Non-target intrinsics should have already been rewritten back into user calls.
+        assert(!node->AsIntrinsic()->IsUserCall());
+        break;
+
+    case GT_SDIV:
+    case GT_UDIV:
+    case GT_SREM:
+    case GT_UREM:
+        node->RemoveSideEffects(GTF_ALL_EFFECT & ~GTF_EXCEPT);
+        break;
+
+    case GT_ADD:
+    case GT_SUB:
+    case GT_MUL:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    case GT_NOT:
+    case GT_NEG:
+    case GT_BITCAST:
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+    case GT_FNEG:
+    case GT_FTRUNC:
+    case GT_FXT:
+    case GT_SXT:
+    case GT_UXT:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_FTOS:
+    case GT_FTOU:
+    case GT_TRUNC:
+    case GT_CONV:
+    case GT_RETURN:
+    case GT_JTRUE:
+    case GT_SWITCH:
+        node->SetSideEffects(GTF_NONE);
+        break;
+
+    case GT_OVF_U:
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+    case GT_OVF_FTOS:
+    case GT_OVF_FTOU:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        node->SetSideEffects(GTF_EXCEPT);
+        break;
+
+    default:
+        // These nodes should not be present before rationalization.
+        assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_LOCKADD, GT_INSTR));
 #ifdef TARGET_ARM64
-            assert(!node->OperIs(GT_JCMP));
+        assert(!node->OperIs(GT_JCMP));
 #endif
-            break;
+        break;
     }
 
     // Do some extra processing on top-level nodes to remove unused local reads.

@@ -283,15 +283,15 @@ public:
     {
         switch (type)
         {
-            case TYP_REF:
-                liveGCRefRegs = regs;
-                break;
-            case TYP_BYREF:
-                liveGCByRefRegs = regs;
-                break;
-            default:
-                assert(!"Bad GC reg type");
-                break;
+        case TYP_REF:
+            liveGCRefRegs = regs;
+            break;
+        case TYP_BYREF:
+            liveGCByRefRegs = regs;
+            break;
+        default:
+            assert(!"Bad GC reg type");
+            break;
         }
     }
 
@@ -299,13 +299,13 @@ public:
     {
         switch (type)
         {
-            case TYP_REF:
-                return liveGCRefRegs;
-            case TYP_BYREF:
-                return liveGCByRefRegs;
-            default:
-                assert(!"Bad GC reg type");
-                return RBM_NONE;
+        case TYP_REF:
+            return liveGCRefRegs;
+        case TYP_BYREF:
+            return liveGCByRefRegs;
+        default:
+            assert(!"Bad GC reg type");
+            return RBM_NONE;
         }
     }
 

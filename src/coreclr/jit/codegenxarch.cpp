@@ -859,54 +859,54 @@ static instruction GetOperIns(genTreeOps oper)
 {
     switch (oper)
     {
-        case GT_ADD:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-            return INS_add;
-        case GT_AND:
-            return INS_and;
-        case GT_LSH:
-            return INS_shl;
-        case GT_NEG:
-            return INS_neg;
-        case GT_NOT:
-            return INS_not;
-        case GT_OR:
-            return INS_or;
-        case GT_ROL:
-            return INS_rol;
-        case GT_ROR:
-            return INS_ror;
-        case GT_RSH:
-            return INS_sar;
-        case GT_RSZ:
-            return INS_shr;
-        case GT_SUB:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            return INS_sub;
-        case GT_XOR:
-            return INS_xor;
+    case GT_ADD:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+        return INS_add;
+    case GT_AND:
+        return INS_and;
+    case GT_LSH:
+        return INS_shl;
+    case GT_NEG:
+        return INS_neg;
+    case GT_NOT:
+        return INS_not;
+    case GT_OR:
+        return INS_or;
+    case GT_ROL:
+        return INS_rol;
+    case GT_ROR:
+        return INS_ror;
+    case GT_RSH:
+        return INS_sar;
+    case GT_RSZ:
+        return INS_shr;
+    case GT_SUB:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        return INS_sub;
+    case GT_XOR:
+        return INS_xor;
 #ifndef TARGET_64BIT
-        case GT_ADD_LO:
-            return INS_add;
-        case GT_ADD_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-            return INS_adc;
-        case GT_SUB_LO:
-            return INS_sub;
-        case GT_SUB_HI:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
-            return INS_sbb;
-        case GT_LSH_HI:
-            return INS_shld;
-        case GT_RSH_LO:
-            return INS_shrd;
+    case GT_ADD_LO:
+        return INS_add;
+    case GT_ADD_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+        return INS_adc;
+    case GT_SUB_LO:
+        return INS_sub;
+    case GT_SUB_HI:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
+        return INS_sbb;
+    case GT_LSH_HI:
+        return INS_shld;
+    case GT_RSH_LO:
+        return INS_shrd;
 #endif
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -926,23 +926,23 @@ void CodeGen::GenShift(GenTreeOp* shift)
 
     switch (shift->GetOper())
     {
-        case GT_LSH:
-            ins = INS_shl;
-            break;
-        case GT_RSH:
-            ins = INS_sar;
-            break;
-        case GT_RSZ:
-            ins = INS_shr;
-            break;
-        case GT_ROL:
-            ins = INS_rol;
-            break;
-        case GT_ROR:
-            ins = INS_ror;
-            break;
-        default:
-            unreached();
+    case GT_LSH:
+        ins = INS_shl;
+        break;
+    case GT_RSH:
+        ins = INS_sar;
+        break;
+    case GT_RSZ:
+        ins = INS_shr;
+        break;
+    case GT_ROL:
+        ins = INS_rol;
+        break;
+    case GT_ROR:
+        ins = INS_ror;
+        break;
+    default:
+        unreached();
     }
 
     Emitter& emit = *GetEmitter();
@@ -1195,23 +1195,23 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
 
     switch (node->GetIntrinsic())
     {
-        case NI_System_Math_Abs:
-            GenFloatAbs(node, src);
-            break;
-        case NI_System_Math_Ceiling:
-            GenFloatRound(node, src, 10);
-            break;
-        case NI_System_Math_Floor:
-            GenFloatRound(node, src, 9);
-            break;
-        case NI_System_Math_Round:
-            GenFloatRound(node, src, 4);
-            break;
-        case NI_System_Math_Sqrt:
-            GenFloatSqrt(node, src);
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Abs:
+        GenFloatAbs(node, src);
+        break;
+    case NI_System_Math_Ceiling:
+        GenFloatRound(node, src, 10);
+        break;
+    case NI_System_Math_Floor:
+        GenFloatRound(node, src, 9);
+        break;
+    case NI_System_Math_Round:
+        GenFloatRound(node, src, 4);
+        break;
+    case NI_System_Math_Sqrt:
+        GenFloatSqrt(node, src);
+        break;
+    default:
+        unreached();
     }
 
     DefReg(node);
@@ -2133,25 +2133,25 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
     switch (store->GetKind())
     {
 #ifdef TARGET_AMD64
-        case StructStoreKind::MemSet:
-            ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            GenHelperCall(CORINFO_HELP_MEMSET);
-            break;
-        case StructStoreKind::MemCpy:
-            ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            GenHelperCall(CORINFO_HELP_MEMCPY);
-            break;
+    case StructStoreKind::MemSet:
+        ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+        GenHelperCall(CORINFO_HELP_MEMSET);
+        break;
+    case StructStoreKind::MemCpy:
+        ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+        GenHelperCall(CORINFO_HELP_MEMCPY);
+        break;
 #endif
-        case StructStoreKind::RepStos:
-            ConsumeDynBlk(store, REG_RDI, REG_RAX, REG_RCX);
-            GetEmitter()->emitIns(INS_rep_stos, EA_1BYTE);
-            break;
-        case StructStoreKind::RepMovs:
-            ConsumeDynBlk(store, REG_RDI, REG_RSI, REG_RCX);
-            GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
-            break;
-        default:
-            unreached();
+    case StructStoreKind::RepStos:
+        ConsumeDynBlk(store, REG_RDI, REG_RAX, REG_RCX);
+        GetEmitter()->emitIns(INS_rep_stos, EA_1BYTE);
+        break;
+    case StructStoreKind::RepMovs:
+        ConsumeDynBlk(store, REG_RDI, REG_RSI, REG_RCX);
+        GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
+        break;
+    default:
+        unreached();
     }
 }
 
@@ -2237,39 +2237,39 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
     switch (kind)
     {
 #ifdef TARGET_AMD64
-        case StructStoreKind::MemSet:
-            GenStructStoreMemSet(store, layout);
-            break;
-        case StructStoreKind::MemCpy:
-            GenStructStoreMemCpy(store, layout);
-            break;
+    case StructStoreKind::MemSet:
+        GenStructStoreMemSet(store, layout);
+        break;
+    case StructStoreKind::MemCpy:
+        GenStructStoreMemCpy(store, layout);
+        break;
 #endif
-        case StructStoreKind::RepStos:
-            GenStructStoreRepStos(store, layout);
-            break;
-        case StructStoreKind::RepMovs:
-            GenStructStoreRepMovs(store, layout);
-            break;
-        case StructStoreKind::UnrollInit:
-            GenStructStoreUnrollInit(store, layout);
-            break;
-        case StructStoreKind::UnrollCopy:
-            GenStructStoreUnrollCopy(store, layout);
-            break;
-        case StructStoreKind::UnrollCopyWB:
-        case StructStoreKind::UnrollCopyWBRepMovs:
-            GenStructStoreUnrollCopyWB(store, layout);
-            break;
-        case StructStoreKind::UnrollRegs:
-            GenStructStoreUnrollRegs(store, layout);
-            break;
+    case StructStoreKind::RepStos:
+        GenStructStoreRepStos(store, layout);
+        break;
+    case StructStoreKind::RepMovs:
+        GenStructStoreRepMovs(store, layout);
+        break;
+    case StructStoreKind::UnrollInit:
+        GenStructStoreUnrollInit(store, layout);
+        break;
+    case StructStoreKind::UnrollCopy:
+        GenStructStoreUnrollCopy(store, layout);
+        break;
+    case StructStoreKind::UnrollCopyWB:
+    case StructStoreKind::UnrollCopyWBRepMovs:
+        GenStructStoreUnrollCopyWB(store, layout);
+        break;
+    case StructStoreKind::UnrollRegs:
+        GenStructStoreUnrollRegs(store, layout);
+        break;
 #ifdef UNIX_AMD64_ABI
-        case StructStoreKind::UnrollRegsWB:
-            GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
-            break;
+    case StructStoreKind::UnrollRegsWB:
+        GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
+        break;
 #endif
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -3755,24 +3755,24 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 
     switch (scale)
     {
-        case 1:
-        case 2:
-        case 4:
-        case 8:
-            tmpReg = indexReg;
-            break;
+    case 1:
+    case 2:
+    case 4:
+    case 8:
+        tmpReg = indexReg;
+        break;
 
-        default:
+    default:
 #ifdef TARGET_64BIT
-            // IMUL treats its immediate operand as signed so scale can't be larger than INT32_MAX.
-            // The VM doesn't allow such large array elements but let's be sure.
-            noway_assert(scale <= INT32_MAX);
+        // IMUL treats its immediate operand as signed so scale can't be larger than INT32_MAX.
+        // The VM doesn't allow such large array elements but let's be sure.
+        noway_assert(scale <= INT32_MAX);
 #else
-            tmpReg = node->GetSingleTempReg();
+        tmpReg = node->GetSingleTempReg();
 #endif
-            GetEmitter()->Ins_R_R_I(INS_imuli, EA_PTRSIZE, tmpReg, indexReg, static_cast<int32_t>(scale));
-            scale = 1;
-            break;
+        GetEmitter()->Ins_R_R_I(INS_imuli, EA_PTRSIZE, tmpReg, indexReg, static_cast<int32_t>(scale));
+        scale = 1;
+        break;
     }
 
     GetEmitter()->Ins_R_ARX(INS_lea, emitTypeSize(node->GetType()), dstReg, baseReg, tmpReg, scale,
@@ -4547,18 +4547,18 @@ void CodeGen::GenCall(GenTreeCall* call)
         // GC state vars have been updated before creating the label.
         switch (call->IsHelperCall())
         {
-            case CORINFO_HELP_MON_ENTER:
-            case CORINFO_HELP_MON_ENTER_STATIC:
-                noway_assert(syncStartEmitCookie == nullptr);
-                syncStartEmitCookie = GetEmitter()->DefineTempLabel();
-                break;
-            case CORINFO_HELP_MON_EXIT:
-            case CORINFO_HELP_MON_EXIT_STATIC:
-                noway_assert(syncEndEmitCookie == nullptr);
-                syncEndEmitCookie = GetEmitter()->DefineTempLabel();
-                break;
-            default:
-                break;
+        case CORINFO_HELP_MON_ENTER:
+        case CORINFO_HELP_MON_ENTER_STATIC:
+            noway_assert(syncStartEmitCookie == nullptr);
+            syncStartEmitCookie = GetEmitter()->DefineTempLabel();
+            break;
+        case CORINFO_HELP_MON_EXIT:
+        case CORINFO_HELP_MON_EXIT_STATIC:
+            noway_assert(syncEndEmitCookie == nullptr);
+            syncEndEmitCookie = GetEmitter()->DefineTempLabel();
+            break;
+        default:
+            break;
         }
     }
 #endif // !FEATURE_EH_FUNCLETS
@@ -5023,23 +5023,23 @@ void CodeGen::GenOvfConv(GenTreeUnOp* cast)
 
     switch (cast->GetType())
     {
-        case TYP_UBYTE:
-            minValue = 0;
-            maxValue = UINT8_MAX;
-            break;
-        case TYP_BYTE:
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
-            maxValue = INT8_MAX;
-            break;
-        case TYP_USHORT:
-            minValue = 0;
-            maxValue = UINT16_MAX;
-            break;
-        default:
-            assert(cast->TypeIs(TYP_SHORT));
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
-            maxValue = INT16_MAX;
-            break;
+    case TYP_UBYTE:
+        minValue = 0;
+        maxValue = UINT8_MAX;
+        break;
+    case TYP_BYTE:
+        minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+        maxValue = INT8_MAX;
+        break;
+    case TYP_USHORT:
+        minValue = 0;
+        maxValue = UINT16_MAX;
+        break;
+    default:
+        assert(cast->TypeIs(TYP_SHORT));
+        minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+        maxValue = INT16_MAX;
+        break;
     }
 
     GetEmitter()->Ins_R_I(INS_cmp, size, srcReg, maxValue);

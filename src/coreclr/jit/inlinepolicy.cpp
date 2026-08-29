@@ -175,22 +175,22 @@ void LegalPolicy::SetFailure(InlineObservation obs)
 
     switch (m_Decision)
     {
-        case InlineDecision::FAILURE:
-            // Repeated failure only ok if evaluating a prejit root
-            // (since we can't fail fast because we're not inlining)
-            // or if inlining and the observation is CALLSITE_TOO_MANY_LOCALS
-            // (since we can't fail fast from lvaAllocTemp).
-            assert(m_IsPrejitRoot || (obs == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
-            break;
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            m_Decision    = InlineDecision::FAILURE;
-            m_Observation = obs;
-            break;
-        default:
-            // SUCCESS, NEVER, or ??
-            assert(!"Unexpected m_Decision");
-            unreached();
+    case InlineDecision::FAILURE:
+        // Repeated failure only ok if evaluating a prejit root
+        // (since we can't fail fast because we're not inlining)
+        // or if inlining and the observation is CALLSITE_TOO_MANY_LOCALS
+        // (since we can't fail fast from lvaAllocTemp).
+        assert(m_IsPrejitRoot || (obs == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
+        break;
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        m_Decision    = InlineDecision::FAILURE;
+        m_Observation = obs;
+        break;
+    default:
+        // SUCCESS, NEVER, or ??
+        assert(!"Unexpected m_Decision");
+        unreached();
     }
 }
 
@@ -207,19 +207,19 @@ void LegalPolicy::SetNever(InlineObservation obs)
 
     switch (m_Decision)
     {
-        case InlineDecision::NEVER:
-            // Repeated never only ok if evaluating a prejit root
-            assert(m_IsPrejitRoot);
-            break;
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            m_Decision    = InlineDecision::NEVER;
-            m_Observation = obs;
-            break;
-        default:
-            // SUCCESS, FAILURE or ??
-            assert(!"Unexpected m_Decision");
-            unreached();
+    case InlineDecision::NEVER:
+        // Repeated never only ok if evaluating a prejit root
+        assert(m_IsPrejitRoot);
+        break;
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        m_Decision    = InlineDecision::NEVER;
+        m_Observation = obs;
+        break;
+    default:
+        // SUCCESS, FAILURE or ??
+        assert(!"Unexpected m_Decision");
+        unreached();
     }
 }
 
@@ -282,169 +282,169 @@ void DefaultPolicy::NoteBool(InlineObservation obs, bool value)
     {
         switch (obs)
         {
-            case InlineObservation::CALLEE_IS_FORCE_INLINE:
-                // We may make the force-inline observation more than
-                // once.  All observations should agree.
-                assert(!m_IsForceInlineKnown || (m_IsForceInline == value));
-                m_IsForceInline      = value;
-                m_IsForceInlineKnown = true;
-                break;
+        case InlineObservation::CALLEE_IS_FORCE_INLINE:
+            // We may make the force-inline observation more than
+            // once.  All observations should agree.
+            assert(!m_IsForceInlineKnown || (m_IsForceInline == value));
+            m_IsForceInline      = value;
+            m_IsForceInlineKnown = true;
+            break;
 
-            case InlineObservation::CALLEE_IS_INSTANCE_CTOR:
-                m_IsInstanceCtor = value;
-                break;
+        case InlineObservation::CALLEE_IS_INSTANCE_CTOR:
+            m_IsInstanceCtor = value;
+            break;
 
-            case InlineObservation::CALLEE_CLASS_PROMOTABLE:
-                m_IsFromPromotableValueClass = value;
-                break;
+        case InlineObservation::CALLEE_CLASS_PROMOTABLE:
+            m_IsFromPromotableValueClass = value;
+            break;
 
-            case InlineObservation::CALLSITE_IN_TRY_REGION:
-                m_CallsiteIsInTryRegion = value;
-                break;
+        case InlineObservation::CALLSITE_IN_TRY_REGION:
+            m_CallsiteIsInTryRegion = value;
+            break;
 
-            case InlineObservation::CALLEE_HAS_SIMD:
-                m_HasSimd = value;
-                break;
+        case InlineObservation::CALLEE_HAS_SIMD:
+            m_HasSimd = value;
+            break;
 
-            case InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER:
-                m_LooksLikeWrapperMethod = value;
-                break;
+        case InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER:
+            m_LooksLikeWrapperMethod = value;
+            break;
 
-            case InlineObservation::CALLEE_ARG_FEEDS_TEST:
-                m_ArgFeedsTest++;
-                break;
+        case InlineObservation::CALLEE_ARG_FEEDS_TEST:
+            m_ArgFeedsTest++;
+            break;
 
-            case InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST:
-                m_ArgFeedsConstantTest++;
-                break;
+        case InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST:
+            m_ArgFeedsConstantTest++;
+            break;
 
-            case InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK:
-                m_ArgFeedsRangeCheck++;
-                break;
+        case InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK:
+            m_ArgFeedsRangeCheck++;
+            break;
 
-            case InlineObservation::CALLEE_UNSUPPORTED_OPCODE:
-                propagate = true;
-                break;
+        case InlineObservation::CALLEE_UNSUPPORTED_OPCODE:
+            propagate = true;
+            break;
 
-            case InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST:
-                // We shouldn't see this for a prejit root since
-                // we don't know anything about callers.
-                assert(!m_IsPrejitRoot);
-                m_ConstantArgFeedsConstantTest++;
-                break;
+        case InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST:
+            // We shouldn't see this for a prejit root since
+            // we don't know anything about callers.
+            assert(!m_IsPrejitRoot);
+            m_ConstantArgFeedsConstantTest++;
+            break;
 
-            case InlineObservation::CALLEE_BEGIN_OPCODE_SCAN:
+        case InlineObservation::CALLEE_BEGIN_OPCODE_SCAN:
+        {
+            // Set up the state machine, if this inline is
+            // discretionary and is still a candidate.
+            if (InlDecisionIsCandidate(m_Decision) &&
+                (m_Observation == InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE))
             {
-                // Set up the state machine, if this inline is
-                // discretionary and is still a candidate.
-                if (InlDecisionIsCandidate(m_Decision) &&
-                    (m_Observation == InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE))
-                {
-                    // Better not have a state machine already.
-                    assert(m_StateMachine == nullptr);
-                    m_StateMachine = new (m_RootCompiler, CMK_Inlining) CodeSeqSM;
-                    m_StateMachine->Start(m_RootCompiler);
-                }
-                break;
+                // Better not have a state machine already.
+                assert(m_StateMachine == nullptr);
+                m_StateMachine = new (m_RootCompiler, CMK_Inlining) CodeSeqSM;
+                m_StateMachine->Start(m_RootCompiler);
+            }
+            break;
+        }
+
+        case InlineObservation::CALLEE_END_OPCODE_SCAN:
+        {
+            if (m_StateMachine != nullptr)
+            {
+                m_StateMachine->End();
             }
 
-            case InlineObservation::CALLEE_END_OPCODE_SCAN:
+            // If this function is mostly loads and stores, we
+            // should try harder to inline it.  You can't just use
+            // the percentage test because if the method has 8
+            // instructions and 6 are loads, it's only 75% loads.
+            // This allows for CALL, RET, and one more non-ld/st
+            // instruction.
+            if (((m_InstructionCount - m_LoadStoreCount) < 4) ||
+                (((double)m_LoadStoreCount / (double)m_InstructionCount) > .90))
             {
-                if (m_StateMachine != nullptr)
-                {
-                    m_StateMachine->End();
-                }
-
-                // If this function is mostly loads and stores, we
-                // should try harder to inline it.  You can't just use
-                // the percentage test because if the method has 8
-                // instructions and 6 are loads, it's only 75% loads.
-                // This allows for CALL, RET, and one more non-ld/st
-                // instruction.
-                if (((m_InstructionCount - m_LoadStoreCount) < 4) ||
-                    (((double)m_LoadStoreCount / (double)m_InstructionCount) > .90))
-                {
-                    m_MethodIsMostlyLoadStore = true;
-                }
-
-                // Budget check.
-                //
-                // Conceptually this should happen when we
-                // observe the candidate's IL size.
-                //
-                // However, we do this here to avoid potential
-                // inconsistency between the state of the budget
-                // during candidate scan and the state when the IL is
-                // being scanned.
-                //
-                // Consider the case where we're just below the budget
-                // during candidate scan, and we have three possible
-                // inlines, any two of which put us over budget. We
-                // allow them all to become candidates. We then move
-                // on to inlining and the first two get inlined and
-                // put us over budget. Now the third can't be inlined
-                // anymore, but we have a policy that when we replay
-                // the candidate IL size during the inlining pass it
-                // "reestablishes" candidacy rather than alters
-                // candidacy ... so instead we bail out here.
-                //
-                bool overBudget = this->BudgetCheck();
-
-                if (overBudget)
-                {
-                    SetFailure(InlineObservation::CALLSITE_OVER_BUDGET);
-                    return;
-                }
-                break;
+                m_MethodIsMostlyLoadStore = true;
             }
 
-            case InlineObservation::CALLSITE_IN_LOOP:
-                m_CallsiteIsInLoop = true;
-                break;
+            // Budget check.
+            //
+            // Conceptually this should happen when we
+            // observe the candidate's IL size.
+            //
+            // However, we do this here to avoid potential
+            // inconsistency between the state of the budget
+            // during candidate scan and the state when the IL is
+            // being scanned.
+            //
+            // Consider the case where we're just below the budget
+            // during candidate scan, and we have three possible
+            // inlines, any two of which put us over budget. We
+            // allow them all to become candidates. We then move
+            // on to inlining and the first two get inlined and
+            // put us over budget. Now the third can't be inlined
+            // anymore, but we have a policy that when we replay
+            // the candidate IL size during the inlining pass it
+            // "reestablishes" candidacy rather than alters
+            // candidacy ... so instead we bail out here.
+            //
+            bool overBudget = this->BudgetCheck();
 
-            case InlineObservation::CALLEE_DOES_NOT_RETURN:
-                m_IsNoReturn      = value;
-                m_IsNoReturnKnown = true;
-                break;
+            if (overBudget)
+            {
+                SetFailure(InlineObservation::CALLSITE_OVER_BUDGET);
+                return;
+            }
+            break;
+        }
 
-            case InlineObservation::CALLSITE_RARE_GC_STRUCT:
-                // If this is a discretionary or always inline candidate
-                // with a gc struct, we may change our mind about inlining
-                // if the call site is rare, to avoid costs associated with
-                // zeroing the GC struct up in the root prolog.
-                if (m_Observation == InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE)
-                {
-                    assert(m_CallsiteFrequency == InlineCallsiteFrequency::UNUSED);
-                    SetFailure(obs);
-                    return;
-                }
-                else if (m_Observation == InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE)
-                {
-                    assert(m_CallsiteFrequency == InlineCallsiteFrequency::RARE);
-                    SetFailure(obs);
-                    return;
-                }
-                break;
+        case InlineObservation::CALLSITE_IN_LOOP:
+            m_CallsiteIsInLoop = true;
+            break;
 
-            case InlineObservation::CALLEE_HAS_PINNED_LOCALS:
-                if (m_CallsiteIsInTryRegion)
-                {
-                    // Inlining a method with pinned locals in a try
-                    // region requires wrapping the inline body in a
-                    // try/finally to ensure unpinning. Bail instead.
-                    SetFailure(InlineObservation::CALLSITE_PIN_IN_TRY_REGION);
-                    return;
-                }
-                break;
+        case InlineObservation::CALLEE_DOES_NOT_RETURN:
+            m_IsNoReturn      = value;
+            m_IsNoReturnKnown = true;
+            break;
 
-            case InlineObservation::CALLEE_HAS_LOCALLOC:
-                // We see this during the IL prescan. Ignore for now, we will
-                // bail out, if necessary, during importation
-                break;
+        case InlineObservation::CALLSITE_RARE_GC_STRUCT:
+            // If this is a discretionary or always inline candidate
+            // with a gc struct, we may change our mind about inlining
+            // if the call site is rare, to avoid costs associated with
+            // zeroing the GC struct up in the root prolog.
+            if (m_Observation == InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE)
+            {
+                assert(m_CallsiteFrequency == InlineCallsiteFrequency::UNUSED);
+                SetFailure(obs);
+                return;
+            }
+            else if (m_Observation == InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE)
+            {
+                assert(m_CallsiteFrequency == InlineCallsiteFrequency::RARE);
+                SetFailure(obs);
+                return;
+            }
+            break;
 
-            default:
-                // Ignore the remainder for now
-                break;
+        case InlineObservation::CALLEE_HAS_PINNED_LOCALS:
+            if (m_CallsiteIsInTryRegion)
+            {
+                // Inlining a method with pinned locals in a try
+                // region requires wrapping the inline body in a
+                // try/finally to ensure unpinning. Bail instead.
+                SetFailure(InlineObservation::CALLSITE_PIN_IN_TRY_REGION);
+                return;
+            }
+            break;
+
+        case InlineObservation::CALLEE_HAS_LOCALLOC:
+            // We see this during the IL prescan. Ignore for now, we will
+            // bail out, if necessary, during importation
+            break;
+
+        default:
+            // Ignore the remainder for now
+            break;
         }
     }
 
@@ -512,141 +512,141 @@ void DefaultPolicy::NoteInt(InlineObservation obs, int value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_MAXSTACK:
+    case InlineObservation::CALLEE_MAXSTACK:
+    {
+        assert(m_IsForceInlineKnown);
+
+        unsigned calleeMaxStack = static_cast<unsigned>(value);
+
+        if (!m_IsForceInline && (calleeMaxStack > Importer::Stack::MinSize))
         {
-            assert(m_IsForceInlineKnown);
-
-            unsigned calleeMaxStack = static_cast<unsigned>(value);
-
-            if (!m_IsForceInline && (calleeMaxStack > Importer::Stack::MinSize))
-            {
-                SetNever(InlineObservation::CALLEE_MAXSTACK_TOO_BIG);
-            }
-
-            break;
+            SetNever(InlineObservation::CALLEE_MAXSTACK_TOO_BIG);
         }
 
-        case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
+        break;
+    }
+
+    case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
+    {
+        assert(m_IsForceInlineKnown);
+        assert(value != 0);
+        assert(m_IsNoReturnKnown);
+
+        //
+        // Let's be conservative for now and reject inlining of "no return" methods only
+        // if the callee contains a single basic block. This covers most of the use cases
+        // (typical throw helpers simply do "throw new X();" and so they have a single block)
+        // without affecting more exotic cases (loops that do actual work for example) where
+        // failure to inline could negatively impact code quality.
+        //
+
+        unsigned basicBlockCount = static_cast<unsigned>(value);
+
+        // CALLEE_IS_FORCE_INLINE overrides CALLEE_DOES_NOT_RETURN
+        if (!m_IsForceInline && m_IsNoReturn && (basicBlockCount == 1))
         {
-            assert(m_IsForceInlineKnown);
-            assert(value != 0);
-            assert(m_IsNoReturnKnown);
-
-            //
-            // Let's be conservative for now and reject inlining of "no return" methods only
-            // if the callee contains a single basic block. This covers most of the use cases
-            // (typical throw helpers simply do "throw new X();" and so they have a single block)
-            // without affecting more exotic cases (loops that do actual work for example) where
-            // failure to inline could negatively impact code quality.
-            //
-
-            unsigned basicBlockCount = static_cast<unsigned>(value);
-
-            // CALLEE_IS_FORCE_INLINE overrides CALLEE_DOES_NOT_RETURN
-            if (!m_IsForceInline && m_IsNoReturn && (basicBlockCount == 1))
-            {
-                SetNever(InlineObservation::CALLEE_DOES_NOT_RETURN);
-            }
-            else if (!m_IsForceInline && (basicBlockCount > MAX_BASIC_BLOCKS))
-            {
-                SetNever(InlineObservation::CALLEE_TOO_MANY_BASIC_BLOCKS);
-            }
-
-            break;
+            SetNever(InlineObservation::CALLEE_DOES_NOT_RETURN);
+        }
+        else if (!m_IsForceInline && (basicBlockCount > MAX_BASIC_BLOCKS))
+        {
+            SetNever(InlineObservation::CALLEE_TOO_MANY_BASIC_BLOCKS);
         }
 
-        case InlineObservation::CALLEE_IL_CODE_SIZE:
+        break;
+    }
+
+    case InlineObservation::CALLEE_IL_CODE_SIZE:
+    {
+        assert(m_IsForceInlineKnown);
+        assert(value != 0);
+        m_CodeSize = static_cast<unsigned>(value);
+
+        // Now that we know size and forceinline state,
+        // update candidacy.
+        if (m_IsForceInline)
         {
-            assert(m_IsForceInlineKnown);
-            assert(value != 0);
-            m_CodeSize = static_cast<unsigned>(value);
-
-            // Now that we know size and forceinline state,
-            // update candidacy.
-            if (m_IsForceInline)
-            {
-                // Candidate based on force inline
-                SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
-            }
-            else if (m_CodeSize <= InlineStrategy::ALWAYS_INLINE_SIZE)
-            {
-                // Candidate based on small size
-                SetCandidate(InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE);
-            }
-            else if (m_CodeSize <= m_RootCompiler->m_inlineStrategy->GetMaxInlineILSize())
-            {
-                // Candidate, pending profitability evaluation
-                SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
-            }
-            else
-            {
-                // Callee too big, not a candidate
-                SetNever(InlineObservation::CALLEE_TOO_MUCH_IL);
-            }
-
-            break;
+            // Candidate based on force inline
+            SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
+        }
+        else if (m_CodeSize <= InlineStrategy::ALWAYS_INLINE_SIZE)
+        {
+            // Candidate based on small size
+            SetCandidate(InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE);
+        }
+        else if (m_CodeSize <= m_RootCompiler->m_inlineStrategy->GetMaxInlineILSize())
+        {
+            // Candidate, pending profitability evaluation
+            SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
+        }
+        else
+        {
+            // Callee too big, not a candidate
+            SetNever(InlineObservation::CALLEE_TOO_MUCH_IL);
         }
 
-        case InlineObservation::CALLSITE_DEPTH:
+        break;
+    }
+
+    case InlineObservation::CALLSITE_DEPTH:
+    {
+        m_CallsiteDepth = static_cast<unsigned>(value);
+
+        if (m_CallsiteDepth > m_RootCompiler->m_inlineStrategy->GetMaxInlineDepth())
         {
-            m_CallsiteDepth = static_cast<unsigned>(value);
-
-            if (m_CallsiteDepth > m_RootCompiler->m_inlineStrategy->GetMaxInlineDepth())
-            {
-                SetFailure(InlineObservation::CALLSITE_IS_TOO_DEEP);
-            }
-
-            break;
+            SetFailure(InlineObservation::CALLSITE_IS_TOO_DEEP);
         }
 
-        case InlineObservation::CALLEE_OPCODE_NORMED:
-        case InlineObservation::CALLEE_OPCODE:
-        {
-            m_InstructionCount++;
-            OPCODE opcode = static_cast<OPCODE>(value);
+        break;
+    }
 
-            if (m_StateMachine != nullptr)
+    case InlineObservation::CALLEE_OPCODE_NORMED:
+    case InlineObservation::CALLEE_OPCODE:
+    {
+        m_InstructionCount++;
+        OPCODE opcode = static_cast<OPCODE>(value);
+
+        if (m_StateMachine != nullptr)
+        {
+            SM_OPCODE smOpcode = CodeSeqSM::MapToSMOpcode(opcode);
+            noway_assert(smOpcode < SM_COUNT);
+            noway_assert(smOpcode != SM_PREFIX_N);
+            if (obs == InlineObservation::CALLEE_OPCODE_NORMED)
             {
-                SM_OPCODE smOpcode = CodeSeqSM::MapToSMOpcode(opcode);
-                noway_assert(smOpcode < SM_COUNT);
-                noway_assert(smOpcode != SM_PREFIX_N);
-                if (obs == InlineObservation::CALLEE_OPCODE_NORMED)
+                if (smOpcode == SM_LDARGA_S)
                 {
-                    if (smOpcode == SM_LDARGA_S)
-                    {
-                        smOpcode = SM_LDARGA_S_NORMED;
-                    }
-                    else if (smOpcode == SM_LDLOCA_S)
-                    {
-                        smOpcode = SM_LDLOCA_S_NORMED;
-                    }
+                    smOpcode = SM_LDARGA_S_NORMED;
                 }
-
-                m_StateMachine->Run(smOpcode DEBUGARG(0));
+                else if (smOpcode == SM_LDLOCA_S)
+                {
+                    smOpcode = SM_LDLOCA_S_NORMED;
+                }
             }
 
-            // Look for opcodes that imply loads and stores.
-            // Logic here is as it is to match legacy behavior.
-            if ((opcode >= CEE_LDARG_0 && opcode <= CEE_STLOC_S) || (opcode >= CEE_LDARG && opcode <= CEE_STLOC) ||
-                (opcode >= CEE_LDNULL && opcode <= CEE_LDC_R8) || (opcode >= CEE_LDIND_I1 && opcode <= CEE_STIND_R8) ||
-                (opcode >= CEE_LDFLD && opcode <= CEE_STOBJ) || (opcode >= CEE_LDELEMA && opcode <= CEE_STELEM) ||
-                (opcode == CEE_POP))
-            {
-                m_LoadStoreCount++;
-            }
-
-            break;
+            m_StateMachine->Run(smOpcode DEBUGARG(0));
         }
 
-        case InlineObservation::CALLSITE_FREQUENCY:
-            assert(m_CallsiteFrequency == InlineCallsiteFrequency::UNUSED);
-            m_CallsiteFrequency = static_cast<InlineCallsiteFrequency>(value);
-            assert(m_CallsiteFrequency != InlineCallsiteFrequency::UNUSED);
-            break;
+        // Look for opcodes that imply loads and stores.
+        // Logic here is as it is to match legacy behavior.
+        if ((opcode >= CEE_LDARG_0 && opcode <= CEE_STLOC_S) || (opcode >= CEE_LDARG && opcode <= CEE_STLOC) ||
+            (opcode >= CEE_LDNULL && opcode <= CEE_LDC_R8) || (opcode >= CEE_LDIND_I1 && opcode <= CEE_STIND_R8) ||
+            (opcode >= CEE_LDFLD && opcode <= CEE_STOBJ) || (opcode >= CEE_LDELEMA && opcode <= CEE_STELEM) ||
+            (opcode == CEE_POP))
+        {
+            m_LoadStoreCount++;
+        }
 
-        default:
-            // Ignore all other information
-            break;
+        break;
+    }
+
+    case InlineObservation::CALLSITE_FREQUENCY:
+        assert(m_CallsiteFrequency == InlineCallsiteFrequency::UNUSED);
+        m_CallsiteFrequency = static_cast<InlineCallsiteFrequency>(value);
+        assert(m_CallsiteFrequency != InlineCallsiteFrequency::UNUSED);
+        break;
+
+    default:
+        // Ignore all other information
+        break;
     }
 }
 
@@ -738,30 +738,30 @@ double DefaultPolicy::DetermineMultiplier()
 
     switch (m_CallsiteFrequency)
     {
-        case InlineCallsiteFrequency::RARE:
-            // Note this one is not additive, it uses '=' instead of '+='
-            multiplier = 1.3;
-            JITDUMP("\nInline candidate callsite is rare.  Multiplier limited to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::BORING:
-            multiplier += 1.3;
-            JITDUMP("\nInline candidate callsite is boring.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::WARM:
-            multiplier += 2.0;
-            JITDUMP("\nInline candidate callsite is warm.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::LOOP:
-            multiplier += 3.0;
-            JITDUMP("\nInline candidate callsite is in a loop.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::HOT:
-            multiplier += 3.0;
-            JITDUMP("\nInline candidate callsite is hot.  Multiplier increased to %g.", multiplier);
-            break;
-        default:
-            assert(!"Unexpected callsite frequency");
-            break;
+    case InlineCallsiteFrequency::RARE:
+        // Note this one is not additive, it uses '=' instead of '+='
+        multiplier = 1.3;
+        JITDUMP("\nInline candidate callsite is rare.  Multiplier limited to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::BORING:
+        multiplier += 1.3;
+        JITDUMP("\nInline candidate callsite is boring.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::WARM:
+        multiplier += 2.0;
+        JITDUMP("\nInline candidate callsite is warm.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::LOOP:
+        multiplier += 3.0;
+        JITDUMP("\nInline candidate callsite is in a loop.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::HOT:
+        multiplier += 3.0;
+        JITDUMP("\nInline candidate callsite is hot.  Multiplier increased to %g.", multiplier);
+        break;
+    default:
+        assert(!"Unexpected callsite frequency");
+        break;
     }
 
 #ifdef DEBUG
@@ -1049,30 +1049,30 @@ void RandomPolicy::NoteInt(InlineObservation obs, int value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_IL_CODE_SIZE:
+    case InlineObservation::CALLEE_IL_CODE_SIZE:
+    {
+        assert(m_IsForceInlineKnown);
+        assert(value != 0);
+        m_CodeSize = static_cast<unsigned>(value);
+
+        if (m_IsForceInline)
         {
-            assert(m_IsForceInlineKnown);
-            assert(value != 0);
-            m_CodeSize = static_cast<unsigned>(value);
-
-            if (m_IsForceInline)
-            {
-                // Candidate based on force inline
-                SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
-            }
-            else
-            {
-                // Candidate, pending profitability evaluation
-                SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
-            }
-
-            break;
+            // Candidate based on force inline
+            SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
+        }
+        else
+        {
+            // Candidate, pending profitability evaluation
+            SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
         }
 
-        default:
-            // Defer to superclass for all other information
-            DiscretionaryPolicy::NoteInt(obs, value);
-            break;
+        break;
+    }
+
+    default:
+        // Defer to superclass for all other information
+        DiscretionaryPolicy::NoteInt(obs, value);
+        break;
     }
 }
 
@@ -1201,105 +1201,105 @@ void ExtendedDefaultPolicy::NoteBool(InlineObservation obs, bool value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_RETURNS_STRUCT:
-            m_ReturnsStructByValue = value;
-            break;
+    case InlineObservation::CALLEE_RETURNS_STRUCT:
+        m_ReturnsStructByValue = value;
+        break;
 
-        case InlineObservation::CALLEE_CLASS_VALUETYPE:
-            m_IsFromValueClass = value;
-            break;
+    case InlineObservation::CALLEE_CLASS_VALUETYPE:
+        m_IsFromValueClass = value;
+        break;
 
-        case InlineObservation::CALLSITE_NONGENERIC_CALLS_GENERIC:
-            m_NonGenericCallsGeneric = value;
-            break;
+    case InlineObservation::CALLSITE_NONGENERIC_CALLS_GENERIC:
+        m_NonGenericCallsGeneric = value;
+        break;
 
-        case InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS:
-            m_BinaryExprWithCns++;
-            break;
+    case InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS:
+        m_BinaryExprWithCns++;
+        break;
 
-        case InlineObservation::CALLEE_ARG_STRUCT:
-            m_ArgIsStructByValue++;
-            break;
+    case InlineObservation::CALLEE_ARG_STRUCT:
+        m_ArgIsStructByValue++;
+        break;
 
-        case InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS:
-            m_FldAccessOverArgStruct++;
-            break;
+    case InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS:
+        m_FldAccessOverArgStruct++;
+        break;
 
-        case InlineObservation::CALLEE_ARG_FEEDS_CAST:
-            m_ArgCasted++;
-            break;
+    case InlineObservation::CALLEE_ARG_FEEDS_CAST:
+        m_ArgCasted++;
+        break;
 
-        case InlineObservation::CALLEE_FOLDABLE_BOX:
-            m_FoldableBox++;
-            break;
+    case InlineObservation::CALLEE_FOLDABLE_BOX:
+        m_FoldableBox++;
+        break;
 
-        case InlineObservation::CALLEE_INTRINSIC:
-            m_Intrinsic++;
-            break;
+    case InlineObservation::CALLEE_INTRINSIC:
+        m_Intrinsic++;
+        break;
 
-        case InlineObservation::CALLEE_BACKWARD_JUMP:
-            m_BackwardJump++;
-            break;
+    case InlineObservation::CALLEE_BACKWARD_JUMP:
+        m_BackwardJump++;
+        break;
 
-        case InlineObservation::CALLEE_THROW_BLOCK:
-            m_ThrowBlock++;
-            break;
+    case InlineObservation::CALLEE_THROW_BLOCK:
+        m_ThrowBlock++;
+        break;
 
-        case InlineObservation::CALLSITE_ARG_EXACT_CLS:
-            m_ArgIsExactCls++;
-            break;
+    case InlineObservation::CALLSITE_ARG_EXACT_CLS:
+        m_ArgIsExactCls++;
+        break;
 
-        case InlineObservation::CALLSITE_ARG_BOXED:
-            m_ArgIsBoxedAtCallsite++;
-            break;
+    case InlineObservation::CALLSITE_ARG_BOXED:
+        m_ArgIsBoxedAtCallsite++;
+        break;
 
-        case InlineObservation::CALLSITE_ARG_CONST:
-            m_ArgIsConst++;
-            break;
+    case InlineObservation::CALLSITE_ARG_CONST:
+        m_ArgIsConst++;
+        break;
 
-        case InlineObservation::CALLSITE_ARG_EXACT_CLS_SIG_IS_NOT:
-            m_ArgIsExactClsSigIsNot++;
-            break;
+    case InlineObservation::CALLSITE_ARG_EXACT_CLS_SIG_IS_NOT:
+        m_ArgIsExactClsSigIsNot++;
+        break;
 
-        case InlineObservation::CALLSITE_FOLDABLE_INTRINSIC:
-            m_FoldableIntrinsic++;
-            break;
+    case InlineObservation::CALLSITE_FOLDABLE_INTRINSIC:
+        m_FoldableIntrinsic++;
+        break;
 
-        case InlineObservation::CALLSITE_FOLDABLE_EXPR:
-            m_FoldableExpr++;
-            break;
+    case InlineObservation::CALLSITE_FOLDABLE_EXPR:
+        m_FoldableExpr++;
+        break;
 
-        case InlineObservation::CALLSITE_FOLDABLE_EXPR_UN:
-            m_FoldableExprUn++;
-            break;
+    case InlineObservation::CALLSITE_FOLDABLE_EXPR_UN:
+        m_FoldableExprUn++;
+        break;
 
-        case InlineObservation::CALLSITE_FOLDABLE_BRANCH:
-            m_FoldableBranch++;
-            break;
+    case InlineObservation::CALLSITE_FOLDABLE_BRANCH:
+        m_FoldableBranch++;
+        break;
 
-        case InlineObservation::CALLSITE_FOLDABLE_SWITCH:
-            m_FoldableSwitch++;
-            break;
+    case InlineObservation::CALLSITE_FOLDABLE_SWITCH:
+        m_FoldableSwitch++;
+        break;
 
-        case InlineObservation::CALLEE_HAS_SWITCH:
-            m_Switch++;
-            break;
+    case InlineObservation::CALLEE_HAS_SWITCH:
+        m_Switch++;
+        break;
 
-        case InlineObservation::CALLSITE_DIV_BY_CNS:
-            m_DivByCns++;
-            break;
+    case InlineObservation::CALLSITE_DIV_BY_CNS:
+        m_DivByCns++;
+        break;
 
-        case InlineObservation::CALLSITE_HAS_PROFILE:
-            m_HasProfile = value;
-            break;
+    case InlineObservation::CALLSITE_HAS_PROFILE:
+        m_HasProfile = value;
+        break;
 
-        case InlineObservation::CALLSITE_IN_NORETURN_REGION:
-            m_IsCallsiteInNoReturnRegion = value;
-            break;
+    case InlineObservation::CALLSITE_IN_NORETURN_REGION:
+        m_IsCallsiteInNoReturnRegion = value;
+        break;
 
-        default:
-            DefaultPolicy::NoteBool(obs, value);
-            break;
+    default:
+        DefaultPolicy::NoteBool(obs, value);
+        break;
     }
 }
 
@@ -1314,67 +1314,67 @@ void ExtendedDefaultPolicy::NoteInt(InlineObservation obs, int value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_IL_CODE_SIZE:
-        {
-            assert(m_IsForceInlineKnown);
-            assert(value != 0);
-            m_CodeSize           = static_cast<unsigned>(value);
-            unsigned maxCodeSize = JitConfig.JitExtDefaultPolicyMaxIL();
+    case InlineObservation::CALLEE_IL_CODE_SIZE:
+    {
+        assert(m_IsForceInlineKnown);
+        assert(value != 0);
+        m_CodeSize           = static_cast<unsigned>(value);
+        unsigned maxCodeSize = JitConfig.JitExtDefaultPolicyMaxIL();
 
-            // TODO: Enable for PgoSource::Static as well if it's not the generic profile we bundle.
-            if (m_HasProfile && (m_RootCompiler->fgHaveTrustedProfileData()))
-            {
-                maxCodeSize = JitConfig.JitExtDefaultPolicyMaxILProf();
-            }
-
-            if (m_IsForceInline)
-            {
-                // Candidate based on force inline
-                SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
-            }
-            else if (m_CodeSize <= InlineStrategy::ALWAYS_INLINE_SIZE)
-            {
-                // Candidate based on small size
-                SetCandidate(InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE);
-            }
-            else if (m_CodeSize <= maxCodeSize)
-            {
-                // Candidate, pending profitability evaluation
-                SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
-            }
-            else
-            {
-                // Callee too big, not a candidate
-                SetNever(InlineObservation::CALLEE_TOO_MUCH_IL);
-            }
-            break;
-        }
-        case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
+        // TODO: Enable for PgoSource::Static as well if it's not the generic profile we bundle.
+        if (m_HasProfile && (m_RootCompiler->fgHaveTrustedProfileData()))
         {
-            if (!m_IsForceInline && m_IsNoReturn && (value == 1))
-            {
-                SetNever(InlineObservation::CALLEE_DOES_NOT_RETURN);
-            }
-            else if (!m_IsForceInline && !m_HasProfile)
-            {
-                unsigned bbLimit = JitConfig.JitExtDefaultPolicyMaxBB();
-                if (m_IsPrejitRoot)
-                {
-                    // We're not able to recognize arg-specific foldable branches
-                    // in prejit-root mode.
-                    bbLimit += 5 + m_Switch * 10;
-                }
-                bbLimit += m_FoldableBranch + m_FoldableSwitch * 10;
-                if ((unsigned)value > bbLimit)
-                {
-                    SetNever(InlineObservation::CALLEE_TOO_MANY_BASIC_BLOCKS);
-                }
-            }
-            break;
+            maxCodeSize = JitConfig.JitExtDefaultPolicyMaxILProf();
         }
-        default:
-            DefaultPolicy::NoteInt(obs, value);
-            break;
+
+        if (m_IsForceInline)
+        {
+            // Candidate based on force inline
+            SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
+        }
+        else if (m_CodeSize <= InlineStrategy::ALWAYS_INLINE_SIZE)
+        {
+            // Candidate based on small size
+            SetCandidate(InlineObservation::CALLEE_BELOW_ALWAYS_INLINE_SIZE);
+        }
+        else if (m_CodeSize <= maxCodeSize)
+        {
+            // Candidate, pending profitability evaluation
+            SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
+        }
+        else
+        {
+            // Callee too big, not a candidate
+            SetNever(InlineObservation::CALLEE_TOO_MUCH_IL);
+        }
+        break;
+    }
+    case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
+    {
+        if (!m_IsForceInline && m_IsNoReturn && (value == 1))
+        {
+            SetNever(InlineObservation::CALLEE_DOES_NOT_RETURN);
+        }
+        else if (!m_IsForceInline && !m_HasProfile)
+        {
+            unsigned bbLimit = JitConfig.JitExtDefaultPolicyMaxBB();
+            if (m_IsPrejitRoot)
+            {
+                // We're not able to recognize arg-specific foldable branches
+                // in prejit-root mode.
+                bbLimit += 5 + m_Switch * 10;
+            }
+            bbLimit += m_FoldableBranch + m_FoldableSwitch * 10;
+            if ((unsigned)value > bbLimit)
+            {
+                SetNever(InlineObservation::CALLEE_TOO_MANY_BASIC_BLOCKS);
+            }
+        }
+        break;
+    }
+    default:
+        DefaultPolicy::NoteInt(obs, value);
+        break;
     }
 }
 
@@ -1608,30 +1608,30 @@ double ExtendedDefaultPolicy::DetermineMultiplier()
 
     switch (m_CallsiteFrequency)
     {
-        case InlineCallsiteFrequency::RARE:
-            // Note this one is not additive, it uses '=' instead of '+='
-            multiplier = 1.3;
-            JITDUMP("\nInline candidate callsite is rare.  Multiplier limited to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::BORING:
-            multiplier += 1.3;
-            JITDUMP("\nInline candidate callsite is boring.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::WARM:
-            multiplier += 2.0;
-            JITDUMP("\nInline candidate callsite is warm.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::LOOP:
-            multiplier += 3.0;
-            JITDUMP("\nInline candidate callsite is in a loop.  Multiplier increased to %g.", multiplier);
-            break;
-        case InlineCallsiteFrequency::HOT:
-            multiplier += 3.0;
-            JITDUMP("\nInline candidate callsite is hot.  Multiplier increased to %g.", multiplier);
-            break;
-        default:
-            assert(!"Unexpected callsite frequency");
-            break;
+    case InlineCallsiteFrequency::RARE:
+        // Note this one is not additive, it uses '=' instead of '+='
+        multiplier = 1.3;
+        JITDUMP("\nInline candidate callsite is rare.  Multiplier limited to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::BORING:
+        multiplier += 1.3;
+        JITDUMP("\nInline candidate callsite is boring.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::WARM:
+        multiplier += 2.0;
+        JITDUMP("\nInline candidate callsite is warm.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::LOOP:
+        multiplier += 3.0;
+        JITDUMP("\nInline candidate callsite is in a loop.  Multiplier increased to %g.", multiplier);
+        break;
+    case InlineCallsiteFrequency::HOT:
+        multiplier += 3.0;
+        JITDUMP("\nInline candidate callsite is hot.  Multiplier increased to %g.", multiplier);
+        break;
+    default:
+        assert(!"Unexpected callsite frequency");
+        break;
     }
 
     if (m_FoldableSwitch > 0)
@@ -1845,38 +1845,38 @@ void DiscretionaryPolicy::NoteBool(InlineObservation obs, bool value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_IS_CLASS_CTOR:
-            m_IsClassCtor = value;
-            break;
+    case InlineObservation::CALLEE_IS_CLASS_CTOR:
+        m_IsClassCtor = value;
+        break;
 
-        case InlineObservation::CALLSITE_IS_SAME_THIS:
-            m_IsSameThis = value;
-            break;
+    case InlineObservation::CALLSITE_IS_SAME_THIS:
+        m_IsSameThis = value;
+        break;
 
-        case InlineObservation::CALLER_HAS_NEWARRAY:
-            m_CallerHasNewArray = value;
-            break;
+    case InlineObservation::CALLER_HAS_NEWARRAY:
+        m_CallerHasNewArray = value;
+        break;
 
-        case InlineObservation::CALLER_HAS_NEWOBJ:
-            m_CallerHasNewObj = value;
-            break;
+    case InlineObservation::CALLER_HAS_NEWOBJ:
+        m_CallerHasNewObj = value;
+        break;
 
-        case InlineObservation::CALLEE_HAS_GC_STRUCT:
-            m_CalleeHasGCStruct = value;
-            break;
+    case InlineObservation::CALLEE_HAS_GC_STRUCT:
+        m_CalleeHasGCStruct = value;
+        break;
 
-        case InlineObservation::CALLSITE_RARE_GC_STRUCT:
-            // This is redundant since this policy tracks call site
-            // hotness for all candidates. So ignore.
-            break;
+    case InlineObservation::CALLSITE_RARE_GC_STRUCT:
+        // This is redundant since this policy tracks call site
+        // hotness for all candidates. So ignore.
+        break;
 
-        case InlineObservation::CALLSITE_HAS_PROFILE:
-            m_HasProfile = value;
-            break;
+    case InlineObservation::CALLSITE_HAS_PROFILE:
+        m_HasProfile = value;
+        break;
 
-        default:
-            DefaultPolicy::NoteBool(obs, value);
-            break;
+    default:
+        DefaultPolicy::NoteBool(obs, value);
+        break;
     }
 }
 
@@ -1891,53 +1891,53 @@ void DiscretionaryPolicy::NoteInt(InlineObservation obs, int value)
 {
     switch (obs)
     {
-        case InlineObservation::CALLEE_IL_CODE_SIZE:
-            // Override how code size is handled
+    case InlineObservation::CALLEE_IL_CODE_SIZE:
+        // Override how code size is handled
+        {
+            assert(m_IsForceInlineKnown);
+            assert(value != 0);
+            m_CodeSize = static_cast<unsigned>(value);
+
+            if (m_IsForceInline)
             {
-                assert(m_IsForceInlineKnown);
-                assert(value != 0);
-                m_CodeSize = static_cast<unsigned>(value);
-
-                if (m_IsForceInline)
-                {
-                    // Candidate based on force inline
-                    SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
-                }
-                else
-                {
-                    // Candidate, pending profitability evaluation
-                    SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
-                }
-
-                break;
+                // Candidate based on force inline
+                SetCandidate(InlineObservation::CALLEE_IS_FORCE_INLINE);
+            }
+            else
+            {
+                // Candidate, pending profitability evaluation
+                SetCandidate(InlineObservation::CALLEE_IS_DISCRETIONARY_INLINE);
             }
 
-        case InlineObservation::CALLEE_OPCODE:
-        {
-            // This tries to do a rough binning of opcodes based
-            // on similarity of impact on codegen.
-            OPCODE opcode = static_cast<OPCODE>(value);
-            ComputeOpcodeBin(opcode);
-            DefaultPolicy::NoteInt(obs, value);
             break;
         }
 
-        case InlineObservation::CALLEE_MAXSTACK:
-            m_Maxstack = value;
-            break;
+    case InlineObservation::CALLEE_OPCODE:
+    {
+        // This tries to do a rough binning of opcodes based
+        // on similarity of impact on codegen.
+        OPCODE opcode = static_cast<OPCODE>(value);
+        ComputeOpcodeBin(opcode);
+        DefaultPolicy::NoteInt(obs, value);
+        break;
+    }
 
-        case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
-            m_BlockCount = value;
-            break;
+    case InlineObservation::CALLEE_MAXSTACK:
+        m_Maxstack = value;
+        break;
 
-        case InlineObservation::CALLSITE_WEIGHT:
-            m_CallSiteWeight = static_cast<unsigned>(value);
-            break;
+    case InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS:
+        m_BlockCount = value;
+        break;
 
-        default:
-            // Delegate remainder to the super class.
-            DefaultPolicy::NoteInt(obs, value);
-            break;
+    case InlineObservation::CALLSITE_WEIGHT:
+        m_CallSiteWeight = static_cast<unsigned>(value);
+        break;
+
+    default:
+        // Delegate remainder to the super class.
+        DefaultPolicy::NoteInt(obs, value);
+        break;
     }
 }
 
@@ -1967,254 +1967,254 @@ void DiscretionaryPolicy::ComputeOpcodeBin(OPCODE opcode)
 {
     switch (opcode)
     {
-        case CEE_LDARG_0:
-        case CEE_LDARG_1:
-        case CEE_LDARG_2:
-        case CEE_LDARG_3:
-        case CEE_LDARG_S:
-        case CEE_LDARG:
-        case CEE_STARG_S:
-        case CEE_STARG:
-            m_ArgAccessCount++;
-            break;
+    case CEE_LDARG_0:
+    case CEE_LDARG_1:
+    case CEE_LDARG_2:
+    case CEE_LDARG_3:
+    case CEE_LDARG_S:
+    case CEE_LDARG:
+    case CEE_STARG_S:
+    case CEE_STARG:
+        m_ArgAccessCount++;
+        break;
 
-        case CEE_LDLOC_0:
-        case CEE_LDLOC_1:
-        case CEE_LDLOC_2:
-        case CEE_LDLOC_3:
-        case CEE_LDLOC_S:
-        case CEE_STLOC_0:
-        case CEE_STLOC_1:
-        case CEE_STLOC_2:
-        case CEE_STLOC_3:
-        case CEE_STLOC_S:
-        case CEE_LDLOC:
-        case CEE_STLOC:
-            m_LocalAccessCount++;
-            break;
+    case CEE_LDLOC_0:
+    case CEE_LDLOC_1:
+    case CEE_LDLOC_2:
+    case CEE_LDLOC_3:
+    case CEE_LDLOC_S:
+    case CEE_STLOC_0:
+    case CEE_STLOC_1:
+    case CEE_STLOC_2:
+    case CEE_STLOC_3:
+    case CEE_STLOC_S:
+    case CEE_LDLOC:
+    case CEE_STLOC:
+        m_LocalAccessCount++;
+        break;
 
-        case CEE_LDNULL:
-        case CEE_LDC_I4_M1:
-        case CEE_LDC_I4_0:
-        case CEE_LDC_I4_1:
-        case CEE_LDC_I4_2:
-        case CEE_LDC_I4_3:
-        case CEE_LDC_I4_4:
-        case CEE_LDC_I4_5:
-        case CEE_LDC_I4_6:
-        case CEE_LDC_I4_7:
-        case CEE_LDC_I4_8:
-        case CEE_LDC_I4_S:
-            m_IntConstantCount++;
-            break;
+    case CEE_LDNULL:
+    case CEE_LDC_I4_M1:
+    case CEE_LDC_I4_0:
+    case CEE_LDC_I4_1:
+    case CEE_LDC_I4_2:
+    case CEE_LDC_I4_3:
+    case CEE_LDC_I4_4:
+    case CEE_LDC_I4_5:
+    case CEE_LDC_I4_6:
+    case CEE_LDC_I4_7:
+    case CEE_LDC_I4_8:
+    case CEE_LDC_I4_S:
+        m_IntConstantCount++;
+        break;
 
-        case CEE_LDC_R4:
-        case CEE_LDC_R8:
-            m_FloatConstantCount++;
-            break;
+    case CEE_LDC_R4:
+    case CEE_LDC_R8:
+        m_FloatConstantCount++;
+        break;
 
-        case CEE_LDIND_I1:
-        case CEE_LDIND_U1:
-        case CEE_LDIND_I2:
-        case CEE_LDIND_U2:
-        case CEE_LDIND_I4:
-        case CEE_LDIND_U4:
-        case CEE_LDIND_I8:
-        case CEE_LDIND_I:
-            m_IntLoadCount++;
-            break;
+    case CEE_LDIND_I1:
+    case CEE_LDIND_U1:
+    case CEE_LDIND_I2:
+    case CEE_LDIND_U2:
+    case CEE_LDIND_I4:
+    case CEE_LDIND_U4:
+    case CEE_LDIND_I8:
+    case CEE_LDIND_I:
+        m_IntLoadCount++;
+        break;
 
-        case CEE_LDIND_R4:
-        case CEE_LDIND_R8:
-            m_FloatLoadCount++;
-            break;
+    case CEE_LDIND_R4:
+    case CEE_LDIND_R8:
+        m_FloatLoadCount++;
+        break;
 
-        case CEE_STIND_I1:
-        case CEE_STIND_I2:
-        case CEE_STIND_I4:
-        case CEE_STIND_I8:
-        case CEE_STIND_I:
-            m_IntStoreCount++;
-            break;
+    case CEE_STIND_I1:
+    case CEE_STIND_I2:
+    case CEE_STIND_I4:
+    case CEE_STIND_I8:
+    case CEE_STIND_I:
+        m_IntStoreCount++;
+        break;
 
-        case CEE_STIND_R4:
-        case CEE_STIND_R8:
-            m_FloatStoreCount++;
-            break;
+    case CEE_STIND_R4:
+    case CEE_STIND_R8:
+        m_FloatStoreCount++;
+        break;
 
-        case CEE_SUB:
-        case CEE_AND:
-        case CEE_OR:
-        case CEE_XOR:
-        case CEE_SHL:
-        case CEE_SHR:
-        case CEE_SHR_UN:
-        case CEE_NEG:
-        case CEE_NOT:
-        case CEE_CONV_I1:
-        case CEE_CONV_I2:
-        case CEE_CONV_I4:
-        case CEE_CONV_I8:
-        case CEE_CONV_U4:
-        case CEE_CONV_U8:
-        case CEE_CONV_U2:
-        case CEE_CONV_U1:
-        case CEE_CONV_I:
-        case CEE_CONV_U:
-            m_SimpleMathCount++;
-            break;
+    case CEE_SUB:
+    case CEE_AND:
+    case CEE_OR:
+    case CEE_XOR:
+    case CEE_SHL:
+    case CEE_SHR:
+    case CEE_SHR_UN:
+    case CEE_NEG:
+    case CEE_NOT:
+    case CEE_CONV_I1:
+    case CEE_CONV_I2:
+    case CEE_CONV_I4:
+    case CEE_CONV_I8:
+    case CEE_CONV_U4:
+    case CEE_CONV_U8:
+    case CEE_CONV_U2:
+    case CEE_CONV_U1:
+    case CEE_CONV_I:
+    case CEE_CONV_U:
+        m_SimpleMathCount++;
+        break;
 
-        case CEE_MUL:
-        case CEE_DIV:
-        case CEE_DIV_UN:
-        case CEE_REM:
-        case CEE_REM_UN:
-        case CEE_CONV_R4:
-        case CEE_CONV_R8:
-        case CEE_CONV_R_UN:
-            m_ComplexMathCount++;
-            break;
+    case CEE_MUL:
+    case CEE_DIV:
+    case CEE_DIV_UN:
+    case CEE_REM:
+    case CEE_REM_UN:
+    case CEE_CONV_R4:
+    case CEE_CONV_R8:
+    case CEE_CONV_R_UN:
+        m_ComplexMathCount++;
+        break;
 
-        case CEE_CONV_OVF_I1_UN:
-        case CEE_CONV_OVF_I2_UN:
-        case CEE_CONV_OVF_I4_UN:
-        case CEE_CONV_OVF_I8_UN:
-        case CEE_CONV_OVF_U1_UN:
-        case CEE_CONV_OVF_U2_UN:
-        case CEE_CONV_OVF_U4_UN:
-        case CEE_CONV_OVF_U8_UN:
-        case CEE_CONV_OVF_I_UN:
-        case CEE_CONV_OVF_U_UN:
-        case CEE_CONV_OVF_I1:
-        case CEE_CONV_OVF_U1:
-        case CEE_CONV_OVF_I2:
-        case CEE_CONV_OVF_U2:
-        case CEE_CONV_OVF_I4:
-        case CEE_CONV_OVF_U4:
-        case CEE_CONV_OVF_I8:
-        case CEE_CONV_OVF_U8:
-        case CEE_ADD_OVF:
-        case CEE_ADD_OVF_UN:
-        case CEE_MUL_OVF:
-        case CEE_MUL_OVF_UN:
-        case CEE_SUB_OVF:
-        case CEE_SUB_OVF_UN:
-        case CEE_CKFINITE:
-            m_OverflowMathCount++;
-            break;
+    case CEE_CONV_OVF_I1_UN:
+    case CEE_CONV_OVF_I2_UN:
+    case CEE_CONV_OVF_I4_UN:
+    case CEE_CONV_OVF_I8_UN:
+    case CEE_CONV_OVF_U1_UN:
+    case CEE_CONV_OVF_U2_UN:
+    case CEE_CONV_OVF_U4_UN:
+    case CEE_CONV_OVF_U8_UN:
+    case CEE_CONV_OVF_I_UN:
+    case CEE_CONV_OVF_U_UN:
+    case CEE_CONV_OVF_I1:
+    case CEE_CONV_OVF_U1:
+    case CEE_CONV_OVF_I2:
+    case CEE_CONV_OVF_U2:
+    case CEE_CONV_OVF_I4:
+    case CEE_CONV_OVF_U4:
+    case CEE_CONV_OVF_I8:
+    case CEE_CONV_OVF_U8:
+    case CEE_ADD_OVF:
+    case CEE_ADD_OVF_UN:
+    case CEE_MUL_OVF:
+    case CEE_MUL_OVF_UN:
+    case CEE_SUB_OVF:
+    case CEE_SUB_OVF_UN:
+    case CEE_CKFINITE:
+        m_OverflowMathCount++;
+        break;
 
-        case CEE_LDELEM_I1:
-        case CEE_LDELEM_U1:
-        case CEE_LDELEM_I2:
-        case CEE_LDELEM_U2:
-        case CEE_LDELEM_I4:
-        case CEE_LDELEM_U4:
-        case CEE_LDELEM_I8:
-        case CEE_LDELEM_I:
-            m_IntArrayLoadCount++;
-            break;
+    case CEE_LDELEM_I1:
+    case CEE_LDELEM_U1:
+    case CEE_LDELEM_I2:
+    case CEE_LDELEM_U2:
+    case CEE_LDELEM_I4:
+    case CEE_LDELEM_U4:
+    case CEE_LDELEM_I8:
+    case CEE_LDELEM_I:
+        m_IntArrayLoadCount++;
+        break;
 
-        case CEE_LDELEM_R4:
-        case CEE_LDELEM_R8:
-            m_FloatArrayLoadCount++;
-            break;
+    case CEE_LDELEM_R4:
+    case CEE_LDELEM_R8:
+        m_FloatArrayLoadCount++;
+        break;
 
-        case CEE_LDELEM_REF:
-            m_RefArrayLoadCount++;
-            break;
+    case CEE_LDELEM_REF:
+        m_RefArrayLoadCount++;
+        break;
 
-        case CEE_LDELEM:
-            m_StructArrayLoadCount++;
-            break;
+    case CEE_LDELEM:
+        m_StructArrayLoadCount++;
+        break;
 
-        case CEE_STELEM_I:
-        case CEE_STELEM_I1:
-        case CEE_STELEM_I2:
-        case CEE_STELEM_I4:
-        case CEE_STELEM_I8:
-            m_IntArrayStoreCount++;
-            break;
+    case CEE_STELEM_I:
+    case CEE_STELEM_I1:
+    case CEE_STELEM_I2:
+    case CEE_STELEM_I4:
+    case CEE_STELEM_I8:
+        m_IntArrayStoreCount++;
+        break;
 
-        case CEE_STELEM_R4:
-        case CEE_STELEM_R8:
-            m_FloatArrayStoreCount++;
-            break;
+    case CEE_STELEM_R4:
+    case CEE_STELEM_R8:
+        m_FloatArrayStoreCount++;
+        break;
 
-        case CEE_STELEM_REF:
-            m_RefArrayStoreCount++;
-            break;
+    case CEE_STELEM_REF:
+        m_RefArrayStoreCount++;
+        break;
 
-        case CEE_STELEM:
-            m_StructArrayStoreCount++;
-            break;
+    case CEE_STELEM:
+        m_StructArrayStoreCount++;
+        break;
 
-        case CEE_CPOBJ:
-        case CEE_LDOBJ:
-        case CEE_CPBLK:
-        case CEE_INITBLK:
-        case CEE_STOBJ:
-            m_StructOperationCount++;
-            break;
+    case CEE_CPOBJ:
+    case CEE_LDOBJ:
+    case CEE_CPBLK:
+    case CEE_INITBLK:
+    case CEE_STOBJ:
+        m_StructOperationCount++;
+        break;
 
-        case CEE_CASTCLASS:
-        case CEE_ISINST:
-        case CEE_UNBOX:
-        case CEE_BOX:
-        case CEE_UNBOX_ANY:
-        case CEE_LDFTN:
-        case CEE_LDVIRTFTN:
-        case CEE_SIZEOF:
-            m_ObjectModelCount++;
-            break;
+    case CEE_CASTCLASS:
+    case CEE_ISINST:
+    case CEE_UNBOX:
+    case CEE_BOX:
+    case CEE_UNBOX_ANY:
+    case CEE_LDFTN:
+    case CEE_LDVIRTFTN:
+    case CEE_SIZEOF:
+        m_ObjectModelCount++;
+        break;
 
-        case CEE_LDFLD:
-        case CEE_LDLEN:
-        case CEE_REFANYTYPE:
-        case CEE_REFANYVAL:
-            m_FieldLoadCount++;
-            break;
+    case CEE_LDFLD:
+    case CEE_LDLEN:
+    case CEE_REFANYTYPE:
+    case CEE_REFANYVAL:
+        m_FieldLoadCount++;
+        break;
 
-        case CEE_STFLD:
-            m_FieldStoreCount++;
-            break;
+    case CEE_STFLD:
+        m_FieldStoreCount++;
+        break;
 
-        case CEE_LDSFLD:
-            m_StaticFieldLoadCount++;
-            break;
+    case CEE_LDSFLD:
+        m_StaticFieldLoadCount++;
+        break;
 
-        case CEE_STSFLD:
-            m_StaticFieldStoreCount++;
-            break;
+    case CEE_STSFLD:
+        m_StaticFieldStoreCount++;
+        break;
 
-        case CEE_LDELEMA:
-        case CEE_LDSFLDA:
-        case CEE_LDFLDA:
-        case CEE_LDSTR:
-        case CEE_LDARGA:
-        case CEE_LDLOCA:
-            m_LoadAddressCount++;
-            break;
+    case CEE_LDELEMA:
+    case CEE_LDSFLDA:
+    case CEE_LDFLDA:
+    case CEE_LDSTR:
+    case CEE_LDARGA:
+    case CEE_LDLOCA:
+        m_LoadAddressCount++;
+        break;
 
-        case CEE_CALL:
-        case CEE_CALLI:
-        case CEE_CALLVIRT:
-        case CEE_NEWOBJ:
-        case CEE_NEWARR:
-        case CEE_JMP:
-            m_CallCount++;
-            break;
+    case CEE_CALL:
+    case CEE_CALLI:
+    case CEE_CALLVIRT:
+    case CEE_NEWOBJ:
+    case CEE_NEWARR:
+    case CEE_JMP:
+        m_CallCount++;
+        break;
 
-        case CEE_THROW:
-        case CEE_RETHROW:
-            m_ThrowCount++;
-            break;
+    case CEE_THROW:
+    case CEE_RETHROW:
+        m_ThrowCount++;
+        break;
 
-        case CEE_RET:
-            m_ReturnCount++;
-            break;
+    case CEE_RET:
+        m_ReturnCount++;
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 
@@ -2229,12 +2229,12 @@ bool DiscretionaryPolicy::PropagateNeverToRuntime() const
     //
     switch (m_Observation)
     {
-        case InlineObservation::CALLEE_NOT_PROFITABLE_INLINE:
-        case InlineObservation::CALLEE_DOES_NOT_RETURN:
-            return false;
+    case InlineObservation::CALLEE_NOT_PROFITABLE_INLINE:
+    case InlineObservation::CALLEE_DOES_NOT_RETURN:
+        return false;
 
-        default:
-            return true;
+    default:
+        return true;
     }
 }
 
@@ -2777,22 +2777,22 @@ void ModelPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
 
         switch (m_CallsiteFrequency)
         {
-            case InlineCallsiteFrequency::RARE:
-                callSiteWeight = 0.1;
-                break;
-            case InlineCallsiteFrequency::BORING:
-                callSiteWeight = 1.0;
-                break;
-            case InlineCallsiteFrequency::WARM:
-                callSiteWeight = 1.5;
-                break;
-            case InlineCallsiteFrequency::LOOP:
-            case InlineCallsiteFrequency::HOT:
-                callSiteWeight = 3.0;
-                break;
-            default:
-                assert(false);
-                break;
+        case InlineCallsiteFrequency::RARE:
+            callSiteWeight = 0.1;
+            break;
+        case InlineCallsiteFrequency::BORING:
+            callSiteWeight = 1.0;
+            break;
+        case InlineCallsiteFrequency::WARM:
+            callSiteWeight = 1.5;
+            break;
+        case InlineCallsiteFrequency::LOOP:
+        case InlineCallsiteFrequency::HOT:
+            callSiteWeight = 3.0;
+            break;
+        default:
+            assert(false);
+            break;
         }
 
         // Determine the estimated number of instructions saved per

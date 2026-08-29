@@ -332,22 +332,22 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
     {
         GenTree* ops[2];
 
-        case 0:
-            assert(varTypeIsVec(signature.retType));
-            return NewVecNode(signature.retType, hwIntrinsic, eltType, size);
+    case 0:
+        assert(varTypeIsVec(signature.retType));
+        return NewVecNode(signature.retType, hwIntrinsic, eltType, size);
 
-        case 1:
-            assert(signature.retType == signature.paramType[0]);
-            ops[0] = PopVec(signature.paramType[0]);
-            return NewVecNode(signature.retType, hwIntrinsic, eltType, size, ops[0]);
+    case 1:
+        assert(signature.retType == signature.paramType[0]);
+        ops[0] = PopVec(signature.paramType[0]);
+        return NewVecNode(signature.retType, hwIntrinsic, eltType, size, ops[0]);
 
-        default:
-            assert(signature.paramCount == 2);
-            assert(signature.retType == signature.paramType[0]);
-            assert(signature.paramLayout[0] == signature.paramLayout[1]);
-            ops[1] = PopVec(signature.paramType[1]);
-            ops[0] = PopVec(signature.paramType[0]);
-            return NewVecNode(signature.retType, hwIntrinsic, eltType, size, ops[0], ops[1]);
+    default:
+        assert(signature.paramCount == 2);
+        assert(signature.retType == signature.paramType[0]);
+        assert(signature.paramLayout[0] == signature.paramLayout[1]);
+        ops[1] = PopVec(signature.paramType[1]);
+        ops[0] = PopVec(signature.paramType[0]);
+        return NewVecNode(signature.retType, hwIntrinsic, eltType, size, ops[0], ops[1]);
     }
 }
 
@@ -361,96 +361,96 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
 
     switch (intrinsic)
     {
-        case NI_Vector2_get_One:
-        case NI_Vector3_get_One:
-        case NI_Vector4_get_One:
-        case NI_VectorT128_get_One:
+    case NI_Vector2_get_One:
+    case NI_Vector3_get_One:
+    case NI_Vector4_get_One:
+    case NI_VectorT128_get_One:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_get_One:
+    case NI_VectorT256_get_One:
 #endif
-            return impVector234TOne(sig);
-        case NI_VectorT128_get_Count:
+        return impVector234TOne(sig);
+    case NI_VectorT128_get_Count:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_get_Count:
+    case NI_VectorT256_get_Count:
 #endif
-            return impVectorTCount(sig, layout);
-        case NI_VectorT128_FromArray:
+        return impVectorTCount(sig, layout);
+    case NI_VectorT128_FromArray:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_FromArray:
+    case NI_VectorT256_FromArray:
 #endif
+        return impVectorTFromArray(sig, layout, isNewObj);
+    case NI_VectorT128_CreateBroadcast:
+#ifdef TARGET_XARCH
+    case NI_VectorT256_CreateBroadcast:
+#endif
+        if (sig.paramType[0] == TYP_REF)
+        {
             return impVectorTFromArray(sig, layout, isNewObj);
-        case NI_VectorT128_CreateBroadcast:
+        }
+        FALLTHROUGH;
+    case NI_Vector2_CtorSplat:
+    case NI_Vector3_CtorSplat:
+    case NI_Vector4_CtorSplat:
+        return impVector234TCtorSplat(sig, layout, isNewObj);
+    case NI_Vector2_CtorPack:
+    case NI_Vector3_CtorPack:
+    case NI_Vector4_CtorPack:
+        return impVector234CtorPack(sig, layout, isNewObj);
+    case NI_Vector3_CtorExtend1:
+    case NI_Vector4_CtorExtend1:
+    case NI_Vector4_CtorExtend2:
+        return impVector34CtorExtend(sig, layout, isNewObj);
+    case NI_Vector2_CopyTo:
+    case NI_Vector2_CopyToAt:
+    case NI_Vector3_CopyTo:
+    case NI_Vector3_CopyToAt:
+    case NI_Vector4_CopyTo:
+    case NI_Vector4_CopyToAt:
+    case NI_VectorT128_CopyTo:
+    case NI_VectorT128_CopyToAt:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_CreateBroadcast:
+    case NI_VectorT256_CopyTo:
+    case NI_VectorT256_CopyToAt:
 #endif
-            if (sig.paramType[0] == TYP_REF)
-            {
-                return impVectorTFromArray(sig, layout, isNewObj);
-            }
-            FALLTHROUGH;
-        case NI_Vector2_CtorSplat:
-        case NI_Vector3_CtorSplat:
-        case NI_Vector4_CtorSplat:
-            return impVector234TCtorSplat(sig, layout, isNewObj);
-        case NI_Vector2_CtorPack:
-        case NI_Vector3_CtorPack:
-        case NI_Vector4_CtorPack:
-            return impVector234CtorPack(sig, layout, isNewObj);
-        case NI_Vector3_CtorExtend1:
-        case NI_Vector4_CtorExtend1:
-        case NI_Vector4_CtorExtend2:
-            return impVector34CtorExtend(sig, layout, isNewObj);
-        case NI_Vector2_CopyTo:
-        case NI_Vector2_CopyToAt:
-        case NI_Vector3_CopyTo:
-        case NI_Vector3_CopyToAt:
-        case NI_Vector4_CopyTo:
-        case NI_Vector4_CopyToAt:
-        case NI_VectorT128_CopyTo:
-        case NI_VectorT128_CopyToAt:
+        return impVector234TCopyTo(sig, layout);
+    case NI_VectorT128_get_Item:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_CopyTo:
-        case NI_VectorT256_CopyToAt:
+    case NI_VectorT256_get_Item:
 #endif
-            return impVector234TCopyTo(sig, layout);
-        case NI_VectorT128_get_Item:
+        return impVectorTGetItem(sig, layout);
+    case NI_Vector2_Equals:
+    case NI_Vector3_Equals:
+    case NI_Vector4_Equals:
+    case NI_VectorT128_EqualsInstance:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_get_Item:
+    case NI_VectorT256_EqualsInstance:
 #endif
-            return impVectorTGetItem(sig, layout);
-        case NI_Vector2_Equals:
-        case NI_Vector3_Equals:
-        case NI_Vector4_Equals:
-        case NI_VectorT128_EqualsInstance:
+        return impVector234TInstanceEquals(sig);
+    case NI_VectorT128_op_Multiply:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_EqualsInstance:
+    case NI_VectorT256_op_Multiply:
 #endif
-            return impVector234TInstanceEquals(sig);
-        case NI_VectorT128_op_Multiply:
+        return impVectorTMultiply(sig);
+    case NI_VectorT128_Widen:
+        return impVectorT128Widen(sig);
 #ifdef TARGET_XARCH
-        case NI_VectorT256_op_Multiply:
+    case NI_VectorT256_Widen:
+        return impVectorT256Widen(sig);
+    case NI_VectorT128_ConvertToInt64:
+        return impVectorT128ConvertDoubleToInt64(sig);
+    case NI_VectorT256_ConvertToInt64:
+        return impVectorT256ConvertDoubleToInt64(sig);
+    case NI_VectorT128_Sum:
+        return impVectorT128Sum(sig);
+    case NI_VectorT256_Sum:
+        return impVectorT256Sum(sig);
+    case NI_VectorT128_Dot:
+        return impVectorT128Dot(sig);
+    case NI_VectorT256_Dot:
+        return impVectorT256Dot(sig);
 #endif
-            return impVectorTMultiply(sig);
-        case NI_VectorT128_Widen:
-            return impVectorT128Widen(sig);
-#ifdef TARGET_XARCH
-        case NI_VectorT256_Widen:
-            return impVectorT256Widen(sig);
-        case NI_VectorT128_ConvertToInt64:
-            return impVectorT128ConvertDoubleToInt64(sig);
-        case NI_VectorT256_ConvertToInt64:
-            return impVectorT256ConvertDoubleToInt64(sig);
-        case NI_VectorT128_Sum:
-            return impVectorT128Sum(sig);
-        case NI_VectorT256_Sum:
-            return impVectorT256Sum(sig);
-        case NI_VectorT128_Dot:
-            return impVectorT128Dot(sig);
-        case NI_VectorT256_Dot:
-            return impVectorT256Dot(sig);
-#endif
-        default:
-            break;
+    default:
+        break;
     }
 
     // Intrinsics that have only SIMD parameters and are always supported.
@@ -467,122 +467,122 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
 
     switch (intrinsic)
     {
-        case NI_VectorT128_op_Explicit:
-        case NI_VectorT128_As:
+    case NI_VectorT128_op_Explicit:
+    case NI_VectorT128_As:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_op_Explicit:
-        case NI_VectorT256_As:
+    case NI_VectorT256_op_Explicit:
+    case NI_VectorT256_As:
 #endif
-            assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == sig.retType);
-            return ops[0];
-        case NI_Vector2_op_Equality:
-        case NI_Vector3_op_Equality:
-        case NI_Vector4_op_Equality:
-        case NI_VectorT128_op_Equality:
+        assert(sig.paramCount == 1);
+        assert(sig.paramType[0] == sig.retType);
+        return ops[0];
+    case NI_Vector2_op_Equality:
+    case NI_Vector3_op_Equality:
+    case NI_Vector4_op_Equality:
+    case NI_VectorT128_op_Equality:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_op_Equality:
+    case NI_VectorT256_op_Equality:
 #endif
-            return impVector234TEquals(sig, ops[0], ops[1]);
-        case NI_Vector2_op_Inequality:
-        case NI_Vector3_op_Inequality:
-        case NI_Vector4_op_Inequality:
-        case NI_VectorT128_op_Inequality:
+        return impVector234TEquals(sig, ops[0], ops[1]);
+    case NI_Vector2_op_Inequality:
+    case NI_Vector3_op_Inequality:
+    case NI_Vector4_op_Inequality:
+    case NI_VectorT128_op_Inequality:
 #ifdef TARGET_XARCH
-        case NI_VectorT256_op_Inequality:
+    case NI_VectorT256_op_Inequality:
 #endif
-            return impVector234TEquals(sig, ops[0], ops[1], true);
-        case NI_Vector2_Dot:
-        case NI_Vector3_Dot:
-        case NI_Vector4_Dot:
-            return impVector234Dot(sig, ops[0], ops[1]);
-        case NI_VectorT128_ConditionalSelect:
-            return impVectorT128ConditionalSelect(sig, ops[0], ops[1], ops[2]);
-        case NI_VectorT128_Max:
-            return impVectorT128MinMax(sig, ops[0], ops[1], true);
-        case NI_VectorT128_Min:
-            return impVectorT128MinMax(sig, ops[0], ops[1], false);
-        case NI_VectorT128_Narrow:
-            return impVectorT128Narrow(sig, ops[0], ops[1]);
+        return impVector234TEquals(sig, ops[0], ops[1], true);
+    case NI_Vector2_Dot:
+    case NI_Vector3_Dot:
+    case NI_Vector4_Dot:
+        return impVector234Dot(sig, ops[0], ops[1]);
+    case NI_VectorT128_ConditionalSelect:
+        return impVectorT128ConditionalSelect(sig, ops[0], ops[1], ops[2]);
+    case NI_VectorT128_Max:
+        return impVectorT128MinMax(sig, ops[0], ops[1], true);
+    case NI_VectorT128_Min:
+        return impVectorT128MinMax(sig, ops[0], ops[1], false);
+    case NI_VectorT128_Narrow:
+        return impVectorT128Narrow(sig, ops[0], ops[1]);
 
 #ifdef TARGET_ARM64
-        case NI_VectorT128_Abs:
-            assert(sig.paramCount == 1);
-            assert(varTypeIsUnsigned(sig.retLayout->GetElementType()));
-            return ops[0];
-        case NI_VectorT128_Sum:
-            return impVectorT128Sum(sig, ops[0]);
-        case NI_VectorT128_Dot:
-            return impVectorT128Dot(sig, ops[0], ops[1]);
+    case NI_VectorT128_Abs:
+        assert(sig.paramCount == 1);
+        assert(varTypeIsUnsigned(sig.retLayout->GetElementType()));
+        return ops[0];
+    case NI_VectorT128_Sum:
+        return impVectorT128Sum(sig, ops[0]);
+    case NI_VectorT128_Dot:
+        return impVectorT128Dot(sig, ops[0], ops[1]);
 #endif // TARGET_ARM64
 
 #ifdef TARGET_XARCH
-        case NI_Vector2_Abs:
-        case NI_Vector3_Abs:
-        case NI_Vector4_Abs:
-        case NI_VectorT128_Abs:
-            return impVector234T128Abs(sig, ops[0]);
-        case NI_VectorT256_Abs:
-            return impVectorT256Abs(sig, ops[0]);
-        case NI_VectorT128_AndNot:
-        case NI_VectorT256_AndNot:
-            return impVectorTAndNot(sig, ops[0], ops[1]);
-        case NI_VectorT256_ConvertToInt32:
-            return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, ops[0]);
-        case NI_VectorT128_ConvertToSingle:
-            return impVectorT128ConvertUInt32ToSingle(sig, ops[0]);
-        case NI_VectorT256_ConvertToSingle:
-            assert(sig.paramCount == 1);
-            assert((sig.retType == TYP_SIMD32) && (sig.retType == sig.paramType[0]));
-            if (sig.paramLayout[0]->GetElementType() == TYP_INT)
-            {
-                assert(sig.retLayout->GetElementType() == TYP_FLOAT);
-                return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, ops[0]);
-            }
-            return impVectorT256ConvertUInt32ToSingle(sig, ops[0]);
-        case NI_VectorT128_ConvertToDouble:
-            assert(sig.paramCount == 1);
-            assert((sig.retType == TYP_SIMD16) && (sig.retType == sig.paramType[0]));
-            if (sig.paramLayout[0]->GetElementType() == TYP_ULONG)
-            {
-                return impVectorT128ConvertUInt64ToDouble(sig, ops[0]);
-            }
-            return impVectorT128ConvertInt64ToDouble(sig, ops[0]);
-        case NI_VectorT256_ConvertToDouble:
-            assert(sig.paramCount == 1);
-            assert((sig.retType == TYP_SIMD32) && (sig.retType == sig.paramType[0]));
-            if (sig.paramLayout[0]->GetElementType() == TYP_ULONG)
-            {
-                return impVectorT256ConvertUInt64ToDouble(sig, ops[0]);
-            }
-            return impVectorT256ConvertInt64ToDouble(sig, ops[0]);
-        case NI_VectorT128_Equals:
-            return impVectorT128LongEquals(sig, ops[0], ops[1]);
-        case NI_VectorT128_GreaterThan:
-        case NI_VectorT128_GreaterThanOrEqual:
-        case NI_VectorT128_LessThan:
-        case NI_VectorT128_LessThanOrEqual:
-            return impVectorT128Compare(sig, intrinsic, ops[0], ops[1]);
-        case NI_VectorT256_GreaterThan:
-        case NI_VectorT256_LessThan:
-            assert(sig.paramCount == 2);
-            assert(varTypeIsUnsigned(sig.paramLayout[0]->GetElementType()));
-            FALLTHROUGH;
-        case NI_VectorT256_GreaterThanOrEqual:
-        case NI_VectorT256_LessThanOrEqual:
-            return impVectorT256Compare(sig, intrinsic, ops[0], ops[1]);
-        case NI_VectorT256_Max:
-            return impVectorT256MinMax(sig, ops[0], ops[1], true);
-        case NI_VectorT256_Min:
-            return impVectorT256MinMax(sig, ops[0], ops[1], false);
-        case NI_VectorT256_Narrow:
-            return impVectorT256Narrow(sig, ops[0], ops[1]);
-        case NI_VectorT256_ConditionalSelect:
-            return impVectorT256ConditionalSelect(sig, ops[0], ops[1], ops[2]);
+    case NI_Vector2_Abs:
+    case NI_Vector3_Abs:
+    case NI_Vector4_Abs:
+    case NI_VectorT128_Abs:
+        return impVector234T128Abs(sig, ops[0]);
+    case NI_VectorT256_Abs:
+        return impVectorT256Abs(sig, ops[0]);
+    case NI_VectorT128_AndNot:
+    case NI_VectorT256_AndNot:
+        return impVectorTAndNot(sig, ops[0], ops[1]);
+    case NI_VectorT256_ConvertToInt32:
+        return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, ops[0]);
+    case NI_VectorT128_ConvertToSingle:
+        return impVectorT128ConvertUInt32ToSingle(sig, ops[0]);
+    case NI_VectorT256_ConvertToSingle:
+        assert(sig.paramCount == 1);
+        assert((sig.retType == TYP_SIMD32) && (sig.retType == sig.paramType[0]));
+        if (sig.paramLayout[0]->GetElementType() == TYP_INT)
+        {
+            assert(sig.retLayout->GetElementType() == TYP_FLOAT);
+            return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, ops[0]);
+        }
+        return impVectorT256ConvertUInt32ToSingle(sig, ops[0]);
+    case NI_VectorT128_ConvertToDouble:
+        assert(sig.paramCount == 1);
+        assert((sig.retType == TYP_SIMD16) && (sig.retType == sig.paramType[0]));
+        if (sig.paramLayout[0]->GetElementType() == TYP_ULONG)
+        {
+            return impVectorT128ConvertUInt64ToDouble(sig, ops[0]);
+        }
+        return impVectorT128ConvertInt64ToDouble(sig, ops[0]);
+    case NI_VectorT256_ConvertToDouble:
+        assert(sig.paramCount == 1);
+        assert((sig.retType == TYP_SIMD32) && (sig.retType == sig.paramType[0]));
+        if (sig.paramLayout[0]->GetElementType() == TYP_ULONG)
+        {
+            return impVectorT256ConvertUInt64ToDouble(sig, ops[0]);
+        }
+        return impVectorT256ConvertInt64ToDouble(sig, ops[0]);
+    case NI_VectorT128_Equals:
+        return impVectorT128LongEquals(sig, ops[0], ops[1]);
+    case NI_VectorT128_GreaterThan:
+    case NI_VectorT128_GreaterThanOrEqual:
+    case NI_VectorT128_LessThan:
+    case NI_VectorT128_LessThanOrEqual:
+        return impVectorT128Compare(sig, intrinsic, ops[0], ops[1]);
+    case NI_VectorT256_GreaterThan:
+    case NI_VectorT256_LessThan:
+        assert(sig.paramCount == 2);
+        assert(varTypeIsUnsigned(sig.paramLayout[0]->GetElementType()));
+        FALLTHROUGH;
+    case NI_VectorT256_GreaterThanOrEqual:
+    case NI_VectorT256_LessThanOrEqual:
+        return impVectorT256Compare(sig, intrinsic, ops[0], ops[1]);
+    case NI_VectorT256_Max:
+        return impVectorT256MinMax(sig, ops[0], ops[1], true);
+    case NI_VectorT256_Min:
+        return impVectorT256MinMax(sig, ops[0], ops[1], false);
+    case NI_VectorT256_Narrow:
+        return impVectorT256Narrow(sig, ops[0], ops[1]);
+    case NI_VectorT256_ConditionalSelect:
+        return impVectorT256ConditionalSelect(sig, ops[0], ops[1], ops[2]);
 #endif // TARGET_XARCH
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -697,16 +697,16 @@ GenTree* Importer::impVector234CtorPack(const HWIntrinsicSignature& sig, ClassLa
         switch (argCount)
         {
 #ifdef TARGET_XARCH
-            case 2:
-                args[2] = comp->gtNewDconNode(0, TYP_FLOAT);
-                FALLTHROUGH;
+        case 2:
+            args[2] = comp->gtNewDconNode(0, TYP_FLOAT);
+            FALLTHROUGH;
 #endif
-            case 3:
-                args[3]  = comp->gtNewDconNode(0, TYP_FLOAT);
-                argCount = 4;
-                break;
-            default:
-                break;
+        case 3:
+            args[3]  = comp->gtNewDconNode(0, TYP_FLOAT);
+            argCount = 4;
+            break;
+        default:
+            break;
         }
 
         create = NewVecNode(vecType, NI_VEC_PACK, TYP_FLOAT, argCount, args);
@@ -1903,30 +1903,30 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
 
     switch (eltType)
     {
-        case TYP_FLOAT:
-            op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, op1, op2);
-            break;
-        case TYP_DOUBLE:
-            op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_DOUBLE, op1, op2);
-            break;
-        case TYP_LONG:
-            op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
-            eltType = TYP_LONG;
-            break;
-        case TYP_INT:
-            op1     = NewVecNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, op1, op2);
-            eltType = TYP_INT;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            op1     = NewVecNode(TYP_SIMD16, NI_SSE2_MultiplyAddAdjacent, TYP_INT, op1, op2);
-            eltType = TYP_INT;
-            break;
-        default:
-            assert(varTypeIsByte(eltType));
-            op1     = impVectorTMultiplyAddAdjacentByte(sig, op1, op2);
-            eltType = TYP_INT;
-            break;
+    case TYP_FLOAT:
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, op1, op2);
+        break;
+    case TYP_DOUBLE:
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_DOUBLE, op1, op2);
+        break;
+    case TYP_LONG:
+        op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
+        eltType = TYP_LONG;
+        break;
+    case TYP_INT:
+        op1     = NewVecNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, op1, op2);
+        eltType = TYP_INT;
+        break;
+    case TYP_SHORT:
+    case TYP_USHORT:
+        op1     = NewVecNode(TYP_SIMD16, NI_SSE2_MultiplyAddAdjacent, TYP_INT, op1, op2);
+        eltType = TYP_INT;
+        break;
+    default:
+        assert(varTypeIsByte(eltType));
+        op1     = impVectorTMultiplyAddAdjacentByte(sig, op1, op2);
+        eltType = TYP_INT;
+        break;
     }
 
     op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, op1);
@@ -1953,27 +1953,27 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
 
     switch (eltType)
     {
-        case TYP_DOUBLE:
-            op1 = NewVecNode(TYP_SIMD32, NI_AVX_Multiply, TYP_DOUBLE, op1, op2);
-            break;
-        case TYP_LONG:
-            op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
-            eltType = TYP_LONG;
-            break;
-        case TYP_INT:
-            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyLow, TYP_INT, op1, op2);
-            eltType = TYP_INT;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyAddAdjacent, TYP_INT, op1, op2);
-            eltType = TYP_INT;
-            break;
-        default:
-            assert(varTypeIsByte(eltType));
-            op1     = impVectorTMultiplyAddAdjacentByte(sig, op1, op2);
-            eltType = TYP_INT;
-            break;
+    case TYP_DOUBLE:
+        op1 = NewVecNode(TYP_SIMD32, NI_AVX_Multiply, TYP_DOUBLE, op1, op2);
+        break;
+    case TYP_LONG:
+        op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
+        eltType = TYP_LONG;
+        break;
+    case TYP_INT:
+        op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyLow, TYP_INT, op1, op2);
+        eltType = TYP_INT;
+        break;
+    case TYP_SHORT:
+    case TYP_USHORT:
+        op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyAddAdjacent, TYP_INT, op1, op2);
+        eltType = TYP_INT;
+        break;
+    default:
+        assert(varTypeIsByte(eltType));
+        op1     = impVectorTMultiplyAddAdjacentByte(sig, op1, op2);
+        eltType = TYP_INT;
+        break;
     }
 
     op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, 32, op1);
@@ -2309,18 +2309,18 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 
         switch (eltType)
         {
-            case TYP_BYTE:
-            case TYP_UBYTE:
-                intrinsic = NI_SSE41_ConvertToVector128Int16;
-                break;
-            case TYP_SHORT:
-            case TYP_USHORT:
-                intrinsic = NI_SSE41_ConvertToVector128Int32;
-                break;
-            default:
-                assert((eltType == TYP_INT) || (eltType == TYP_UINT));
-                intrinsic = NI_SSE41_ConvertToVector128Int64;
-                break;
+        case TYP_BYTE:
+        case TYP_UBYTE:
+            intrinsic = NI_SSE41_ConvertToVector128Int16;
+            break;
+        case TYP_SHORT:
+        case TYP_USHORT:
+            intrinsic = NI_SSE41_ConvertToVector128Int32;
+            break;
+        default:
+            assert((eltType == TYP_INT) || (eltType == TYP_UINT));
+            intrinsic = NI_SSE41_ConvertToVector128Int64;
+            break;
         }
 
         GenTree* uses[2];
@@ -2379,26 +2379,26 @@ GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
 
     switch (eltType)
     {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-            widenIntrinsic   = NI_AVX2_ConvertToVector256Int16;
-            extractIntrinsic = NI_AVX2_ExtractVector128;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            widenIntrinsic   = NI_AVX2_ConvertToVector256Int32;
-            extractIntrinsic = NI_AVX2_ExtractVector128;
-            break;
-        case TYP_INT:
-        case TYP_UINT:
-            widenIntrinsic   = NI_AVX2_ConvertToVector256Int64;
-            extractIntrinsic = NI_AVX2_ExtractVector128;
-            break;
-        default:
-            assert(eltType == TYP_FLOAT);
-            widenIntrinsic   = NI_AVX_ConvertToVector256Double;
-            extractIntrinsic = NI_AVX_ExtractVector128;
-            break;
+    case TYP_BYTE:
+    case TYP_UBYTE:
+        widenIntrinsic   = NI_AVX2_ConvertToVector256Int16;
+        extractIntrinsic = NI_AVX2_ExtractVector128;
+        break;
+    case TYP_SHORT:
+    case TYP_USHORT:
+        widenIntrinsic   = NI_AVX2_ConvertToVector256Int32;
+        extractIntrinsic = NI_AVX2_ExtractVector128;
+        break;
+    case TYP_INT:
+    case TYP_UINT:
+        widenIntrinsic   = NI_AVX2_ConvertToVector256Int64;
+        extractIntrinsic = NI_AVX2_ExtractVector128;
+        break;
+    default:
+        assert(eltType == TYP_FLOAT);
+        widenIntrinsic   = NI_AVX_ConvertToVector256Double;
+        extractIntrinsic = NI_AVX_ExtractVector128;
+        break;
     }
 
     lo = NewVecNode(TYP_SIMD32, widenIntrinsic, eltType, uses[0]);
@@ -2464,20 +2464,20 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
     switch (eltType)
     {
-        case TYP_FLOAT:
-            intrinsic = isAVX ? NI_AVX_Multiply : NI_SSE_Multiply;
-            break;
-        case TYP_DOUBLE:
-            intrinsic = isAVX ? NI_AVX_Multiply : NI_SSE2_Multiply;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
-            break;
-        default:
-            assert(eltType == TYP_INT);
-            intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
-            break;
+    case TYP_FLOAT:
+        intrinsic = isAVX ? NI_AVX_Multiply : NI_SSE_Multiply;
+        break;
+    case TYP_DOUBLE:
+        intrinsic = isAVX ? NI_AVX_Multiply : NI_SSE2_Multiply;
+        break;
+    case TYP_SHORT:
+    case TYP_USHORT:
+        intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
+        break;
+    default:
+        assert(eltType == TYP_INT);
+        intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
+        break;
     }
 
     if ((intrinsic != NI_SSE41_MultiplyLow) || comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
@@ -2607,24 +2607,24 @@ var_types Importer::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
 
     switch (eltType)
     {
-        case TYP_UBYTE:
-            constVal = comp->gtNewIconNode(0x80808080);
-            eltType  = TYP_BYTE;
-            break;
-        case TYP_USHORT:
-            constVal = comp->gtNewIconNode(0x80008000);
-            eltType  = TYP_SHORT;
-            break;
-        case TYP_UINT:
-            constVal = comp->gtNewIconNode(0x80000000);
-            eltType  = TYP_INT;
-            break;
-        case TYP_ULONG:
-            constVal = comp->gtNewLconNode(0x8000000000000000);
-            eltType  = TYP_LONG;
-            break;
-        default:
-            unreached();
+    case TYP_UBYTE:
+        constVal = comp->gtNewIconNode(0x80808080);
+        eltType  = TYP_BYTE;
+        break;
+    case TYP_USHORT:
+        constVal = comp->gtNewIconNode(0x80008000);
+        eltType  = TYP_SHORT;
+        break;
+    case TYP_UINT:
+        constVal = comp->gtNewIconNode(0x80000000);
+        eltType  = TYP_INT;
+        break;
+    case TYP_ULONG:
+        constVal = comp->gtNewLconNode(0x8000000000000000);
+        eltType  = TYP_LONG;
+        break;
+    default:
+        unreached();
     }
 
     var_types type = layout->GetVectorType();
@@ -2762,19 +2762,19 @@ GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
 
     switch (intrinsic)
     {
-        case NI_VectorT128_GreaterThanOrEqual:
-            orEqual     = true;
-            greaterThan = false;
-            break;
-        case NI_VectorT128_LessThanOrEqual:
-            orEqual = true;
-            break;
-        case NI_VectorT128_LessThan:
-            greaterThan = false;
-            break;
-        default:
-            assert(intrinsic == NI_VectorT128_GreaterThan);
-            break;
+    case NI_VectorT128_GreaterThanOrEqual:
+        orEqual     = true;
+        greaterThan = false;
+        break;
+    case NI_VectorT128_LessThanOrEqual:
+        orEqual = true;
+        break;
+    case NI_VectorT128_LessThan:
+        greaterThan = false;
+        break;
+    default:
+        assert(intrinsic == NI_VectorT128_GreaterThan);
+        break;
     }
 
     GenTree* gt;
@@ -2839,18 +2839,18 @@ GenTree* Importer::impVectorT256Compare(const HWIntrinsicSignature& sig,
 
     switch (intrinsic)
     {
-        case NI_VectorT256_GreaterThanOrEqual:
-            orEqual = true;
-            FALLTHROUGH;
-        case NI_VectorT256_LessThan:
-            intrinsic = NI_AVX2_CompareLessThan;
-            break;
-        case NI_VectorT256_LessThanOrEqual:
-            orEqual = true;
-            FALLTHROUGH;
-        default:
-            intrinsic = NI_AVX2_CompareGreaterThan;
-            break;
+    case NI_VectorT256_GreaterThanOrEqual:
+        orEqual = true;
+        FALLTHROUGH;
+    case NI_VectorT256_LessThan:
+        intrinsic = NI_AVX2_CompareLessThan;
+        break;
+    case NI_VectorT256_LessThanOrEqual:
+        orEqual = true;
+        FALLTHROUGH;
+    default:
+        intrinsic = NI_AVX2_CompareGreaterThan;
+        break;
     }
 
     GenTree* gt = NewVecNode(TYP_SIMD32, intrinsic, eltType, op1, op2);
@@ -2958,12 +2958,12 @@ bool SIMDCoalescingBuffer::AreContiguousLoads(GenTree* l1, GenTree* l2)
 
     switch (l1->GetOper())
     {
-        case GT_IND_LOAD:
-            return AreContiguosIndirs(l1->AsIndLoad(), l2->AsIndLoad());
-        case GT_LCL_LOAD_FLD:
-            return AreContiguosLocalFields(l1->AsLclLoadFld(), l2->AsLclLoadFld());
-        default:
-            return false;
+    case GT_IND_LOAD:
+        return AreContiguosIndirs(l1->AsIndLoad(), l2->AsIndLoad());
+    case GT_LCL_LOAD_FLD:
+        return AreContiguosLocalFields(l1->AsLclLoadFld(), l2->AsLclLoadFld());
+    default:
+        return false;
     }
 }
 
@@ -3052,12 +3052,12 @@ bool SIMDCoalescingBuffer::AreContiguousStores(GenTree* s1, GenTree* s2)
 
     switch (s1->GetOper())
     {
-        case GT_IND_STORE:
-            return AreContiguosIndirs(s1->AsIndStore(), s2->AsIndStore());
-        case GT_LCL_STORE_FLD:
-            return AreContiguosLocalFields(s1->AsLclStoreFld(), s2->AsLclStoreFld());
-        default:
-            return false;
+    case GT_IND_STORE:
+        return AreContiguosIndirs(s1->AsIndStore(), s2->AsIndStore());
+    case GT_LCL_STORE_FLD:
+        return AreContiguosLocalFields(s1->AsLclStoreFld(), s2->AsLclStoreFld());
+    default:
+        return false;
     }
 }
 
@@ -3438,16 +3438,16 @@ void SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 
     switch (m_index)
     {
-        case 2:
-            type = TYP_SIMD8;
-            break;
-        case 3:
-            type = TYP_SIMD12;
-            break;
-        default:
-            assert(m_index == 4);
-            type = TYP_SIMD16;
-            break;
+    case 2:
+        type = TYP_SIMD8;
+        break;
+    case 3:
+        type = TYP_SIMD12;
+        break;
+    default:
+        assert(m_index == 4);
+        type = TYP_SIMD16;
+        break;
     }
 
 #ifdef DEBUG

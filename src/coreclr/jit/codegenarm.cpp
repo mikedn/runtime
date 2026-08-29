@@ -253,14 +253,14 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
 
     switch (node->GetIntrinsic())
     {
-        case NI_System_Math_Abs:
-            ins = INS_vabs;
-            break;
-        case NI_System_Math_Sqrt:
-            ins = INS_vsqrt;
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Abs:
+        ins = INS_vabs;
+        break;
+    case NI_System_Math_Sqrt:
+        ins = INS_vsqrt;
+        break;
+    default:
+        unreached();
     }
 
     GetEmitter()->emitIns_R_R(ins, emitTypeSize(node->GetType()), dstReg, srcReg);
@@ -409,32 +409,32 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
 {
     switch (oper)
     {
-        case GT_ADD:
-        case GT_ADD_LO:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-            return INS_add;
-        case GT_SUB:
-        case GT_SUB_LO:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            return INS_sub;
-        case GT_AND:
-            return INS_and;
-        case GT_OR:
-            return INS_orr;
-        case GT_XOR:
-            return INS_eor;
-        case GT_ADD_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-            return INS_adc;
-        case GT_SUB_HI:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
-            return INS_sbc;
-        default:
-            unreached();
+    case GT_ADD:
+    case GT_ADD_LO:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+        return INS_add;
+    case GT_SUB:
+    case GT_SUB_LO:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        return INS_sub;
+    case GT_AND:
+        return INS_and;
+    case GT_OR:
+        return INS_orr;
+    case GT_XOR:
+        return INS_eor;
+    case GT_ADD_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+        return INS_adc;
+    case GT_SUB_HI:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
+        return INS_sbc;
+    default:
+        unreached();
     }
 }
 
@@ -1154,18 +1154,18 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
 
         switch (regSize)
         {
-            case 1:
-                loadIns  = INS_ldrb;
-                storeIns = INS_strb;
-                break;
-            case 2:
-                loadIns  = INS_ldrh;
-                storeIns = INS_strh;
-                break;
-            default:
-                assert(regSize == REGSIZE_BYTES);
-                attr = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
-                break;
+        case 1:
+            loadIns  = INS_ldrb;
+            storeIns = INS_strb;
+            break;
+        case 2:
+            loadIns  = INS_ldrh;
+            storeIns = INS_strh;
+            break;
+        default:
+            assert(regSize == REGSIZE_BYTES);
+            attr = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
+            break;
         }
 
         if (srcLclNum != BAD_VAR_NUM)
@@ -2376,12 +2376,12 @@ regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP modif
     // significant negative side-effects (more memory bus traffic).
     switch (frameSize)
     {
-        case REGSIZE_BYTES:
-            return RBM_R3;
-        case 2 * REGSIZE_BYTES:
-            return RBM_R2 | RBM_R3;
-        default:
-            return RBM_NONE;
+    case REGSIZE_BYTES:
+        return RBM_R3;
+    case 2 * REGSIZE_BYTES:
+        return RBM_R2 | RBM_R3;
+    default:
+        return RBM_NONE;
     }
 }
 

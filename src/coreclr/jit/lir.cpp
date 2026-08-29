@@ -1438,17 +1438,17 @@ void LIR::InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range)
 #if DEBUG
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
-                assert(insertionPoint->OperIsConditionalJump());
-                break;
-            case BBJ_SWITCH:
-                assert(insertionPoint->OperIs(GT_SWITCH, GT_SWITCH_TABLE));
-                break;
-            case BBJ_RETURN:
-                assert(insertionPoint->OperIs(GT_RETURN, GT_JMP, GT_CALL));
-                break;
-            default:
-                unreached();
+        case BBJ_COND:
+            assert(insertionPoint->OperIsConditionalJump());
+            break;
+        case BBJ_SWITCH:
+            assert(insertionPoint->OperIs(GT_SWITCH, GT_SWITCH_TABLE));
+            break;
+        case BBJ_RETURN:
+            assert(insertionPoint->OperIs(GT_RETURN, GT_JMP, GT_CALL));
+            break;
+        default:
+            unreached();
         }
 #endif
     }
@@ -1465,47 +1465,47 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 
     switch (call->GetHelperFunc())
     {
-        case CORINFO_HELP_RNGCHKFAIL:
-        case CORINFO_HELP_THROWDIVZERO:
-        case CORINFO_HELP_OVERFLOW:
-        case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
-        case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
-            argRegs      = nullptr;
-            argRegsCount = 0;
-            break;
-        case CORINFO_HELP_LLSH:
-        case CORINFO_HELP_LRSH:
-        case CORINFO_HELP_LRSZ:
+    case CORINFO_HELP_RNGCHKFAIL:
+    case CORINFO_HELP_THROWDIVZERO:
+    case CORINFO_HELP_OVERFLOW:
+    case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
+    case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
+        argRegs      = nullptr;
+        argRegsCount = 0;
+        break;
+    case CORINFO_HELP_LLSH:
+    case CORINFO_HELP_LRSH:
+    case CORINFO_HELP_LRSZ:
 #ifdef TARGET_X86
-            argRegs = longShiftHelperArgRegs;
+        argRegs = longShiftHelperArgRegs;
 #else
-            argRegs      = intArgRegs;
+        argRegs      = intArgRegs;
 #endif
-            argRegsCount = 3;
-            break;
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+        argRegsCount = 3;
+        break;
+    case CORINFO_HELP_INIT_PINVOKE_FRAME:
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-            argRegs      = initPInvokeFrameArgRegs;
-            argRegsCount = 1;
+        argRegs      = initPInvokeFrameArgRegs;
+        argRegsCount = 1;
 #else
-            argRegs      = intArgRegs;
-            argRegsCount = 2;
+        argRegs      = intArgRegs;
+        argRegsCount = 2;
 #endif
-            break;
-        case CORINFO_HELP_JIT_PINVOKE_BEGIN:
-            argRegs = intArgRegs;
+        break;
+    case CORINFO_HELP_JIT_PINVOKE_BEGIN:
+        argRegs = intArgRegs;
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
-            argRegsCount = 2;
+        argRegsCount = 2;
 #else
-            argRegsCount = 1;
+        argRegsCount = 1;
 #endif
-            break;
-        case CORINFO_HELP_JIT_PINVOKE_END:
-            argRegs      = intArgRegs;
-            argRegsCount = 1;
-            break;
-        default:
-            unreached();
+        break;
+    case CORINFO_HELP_JIT_PINVOKE_END:
+        argRegs      = intArgRegs;
+        argRegsCount = 1;
+        break;
+    default:
+        unreached();
     }
 
     unsigned argCount = 0;

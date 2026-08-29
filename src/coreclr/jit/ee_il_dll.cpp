@@ -929,23 +929,23 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
 
             switch (type)
             {
-                case TYP_REF:
-                case TYP_STRUCT:
-                    // For some SIMD struct types we can get a nullptr back from getArgClass on Linux/X64
-                    argClass = vm->getArgClass(&sig, argLst);
+            case TYP_REF:
+            case TYP_STRUCT:
+                // For some SIMD struct types we can get a nullptr back from getArgClass on Linux/X64
+                argClass = vm->getArgClass(&sig, argLst);
 
-                    if (argClass != nullptr)
+                if (argClass != nullptr)
+                {
+                    if (const char* clsName = eeGetClassName(argClass))
                     {
-                        if (const char* clsName = eeGetClassName(argClass))
-                        {
-                            argNames[i] = clsName;
-                            break;
-                        }
+                        argNames[i] = clsName;
+                        break;
                     }
-                    FALLTHROUGH;
-                default:
-                    argNames[i] = varTypeName(type);
-                    break;
+                }
+                FALLTHROUGH;
+            default:
+                argNames[i] = varTypeName(type);
+                break;
             }
 
             sigLength += strlen(argNames[i]);
@@ -964,20 +964,20 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
         {
             switch (retType)
             {
-                case TYP_REF:
-                case TYP_STRUCT:
-                    if (CORINFO_CLASS_HANDLE retClass = sig.retTypeClass)
+            case TYP_REF:
+            case TYP_STRUCT:
+                if (CORINFO_CLASS_HANDLE retClass = sig.retTypeClass)
+                {
+                    if (const char* clsName = eeGetClassName(retClass))
                     {
-                        if (const char* clsName = eeGetClassName(retClass))
-                        {
-                            returnType = clsName;
-                            break;
-                        }
+                        returnType = clsName;
+                        break;
                     }
-                    FALLTHROUGH;
-                default:
-                    returnType = varTypeName(retType);
-                    break;
+                }
+                FALLTHROUGH;
+            default:
+                returnType = varTypeName(retType);
+                break;
             }
 
             sigLength += strlen(returnType) + 1; // don't forget the delimiter ':'

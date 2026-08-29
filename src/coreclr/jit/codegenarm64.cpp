@@ -36,34 +36,34 @@ bool CodeGen::genInstrWithConstant(
 
     switch (ins)
     {
-        case INS_add:
-        case INS_sub:
-            if (imm < 0)
-            {
-                imm = -imm;
-                ins = (ins == INS_add) ? INS_sub : INS_add;
-            }
-            immFitsInIns = Arm64Imm::IsAddImm(imm, size);
-            break;
+    case INS_add:
+    case INS_sub:
+        if (imm < 0)
+        {
+            imm = -imm;
+            ins = (ins == INS_add) ? INS_sub : INS_add;
+        }
+        immFitsInIns = Arm64Imm::IsAddImm(imm, size);
+        break;
 
-        case INS_strb:
-        case INS_strh:
-        case INS_str:
-            // reg1 is a source register for store instructions
-            assert(tmpReg != reg1); // regTmp can not match any source register
-            FALLTHROUGH;
-        case INS_ldrsb:
-        case INS_ldrsh:
-        case INS_ldrsw:
-        case INS_ldrb:
-        case INS_ldrh:
-        case INS_ldr:
-            immFitsInIns = Arm64Imm::IsLdStImm(imm, size);
-            break;
+    case INS_strb:
+    case INS_strh:
+    case INS_str:
+        // reg1 is a source register for store instructions
+        assert(tmpReg != reg1); // regTmp can not match any source register
+        FALLTHROUGH;
+    case INS_ldrsb:
+    case INS_ldrsh:
+    case INS_ldrsw:
+    case INS_ldrb:
+    case INS_ldrh:
+    case INS_ldr:
+        immFitsInIns = Arm64Imm::IsLdStImm(imm, size);
+        break;
 
-        default:
-            assert(!"Unexpected instruction in genInstrWithConstant");
-            break;
+    default:
+        assert(!"Unexpected instruction in genInstrWithConstant");
+        break;
     }
 
     if (immFitsInIns)
@@ -1702,24 +1702,24 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
 {
     switch (oper)
     {
-        case GT_ADD:
-            return INS_add;
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-            return INS_adds;
-        case GT_SUB:
-            return INS_sub;
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            return INS_subs;
-        case GT_AND:
-            return INS_and;
-        case GT_OR:
-            return INS_orr;
-        case GT_XOR:
-            return INS_eor;
-        default:
-            unreached();
+    case GT_ADD:
+        return INS_add;
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+        return INS_adds;
+    case GT_SUB:
+        return INS_sub;
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        return INS_subs;
+    case GT_AND:
+        return INS_and;
+    case GT_OR:
+        return INS_orr;
+    case GT_XOR:
+        return INS_eor;
+    default:
+        unreached();
     }
 }
 
@@ -2531,27 +2531,27 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
 
         switch (regSize)
         {
-            case 1:
-                loadIns  = INS_ldrb;
-                storeIns = INS_strb;
-                attr     = EA_4BYTE;
-                break;
-            case 2:
-                loadIns  = INS_ldrh;
-                storeIns = INS_strh;
-                attr     = EA_4BYTE;
-                break;
-            case 4:
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = EA_4BYTE;
-                break;
-            default:
-                assert(regSize == REGSIZE_BYTES);
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
-                break;
+        case 1:
+            loadIns  = INS_ldrb;
+            storeIns = INS_strb;
+            attr     = EA_4BYTE;
+            break;
+        case 2:
+            loadIns  = INS_ldrh;
+            storeIns = INS_strh;
+            attr     = EA_4BYTE;
+            break;
+        case 4:
+            loadIns  = INS_ldr;
+            storeIns = INS_str;
+            attr     = EA_4BYTE;
+            break;
+        default:
+            assert(regSize == REGSIZE_BYTES);
+            loadIns  = INS_ldr;
+            storeIns = INS_str;
+            attr     = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
+            break;
         }
 
         if (srcLclNum != BAD_VAR_NUM)
@@ -2752,23 +2752,23 @@ void CodeGen::GenInterlocked(GenTreeOp* node)
 
         switch (node->GetOper())
         {
-            case GT_XORR:
-                ins = INS_ldsetal;
-                break;
-            case GT_XAND:
-                reg1 = node->GetSingleTempReg();
-                GetEmitter()->emitIns_R_R(INS_mvn, size, reg1, valueReg);
-                ins = INS_ldclral;
-                break;
-            case GT_XCHG:
-                reg2 = destReg;
-                ins  = INS_swpal;
-                break;
-            case GT_XADD:
-                ins = INS_ldaddal;
-                break;
-            default:
-                unreached();
+        case GT_XORR:
+            ins = INS_ldsetal;
+            break;
+        case GT_XAND:
+            reg1 = node->GetSingleTempReg();
+            GetEmitter()->emitIns_R_R(INS_mvn, size, reg1, valueReg);
+            ins = INS_ldclral;
+            break;
+        case GT_XCHG:
+            reg2 = destReg;
+            ins  = INS_swpal;
+            break;
+        case GT_XADD:
+            ins = INS_ldaddal;
+            break;
+        default:
+            unreached();
         }
 
         GetEmitter()->emitIns_R_R_R(ins, size, reg1, reg2, addrReg);
@@ -8543,62 +8543,62 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
 
         switch (ins)
         {
-            case INS_mul:
-                // Special case - INS_mul with a single operand is treated as ADD ..., x1, x1, LSL #imm
-                GetEmitter()->emitIns_R_R_R_I(INS_add, attr, dstReg, srcReg1, srcReg1, imm, INS_OPTS_LSL);
-                break;
+        case INS_mul:
+            // Special case - INS_mul with a single operand is treated as ADD ..., x1, x1, LSL #imm
+            GetEmitter()->emitIns_R_R_R_I(INS_add, attr, dstReg, srcReg1, srcReg1, imm, INS_OPTS_LSL);
+            break;
 
-            case INS_fmul:
-                // Special case - INS_fmul with a single operand is treated as FADD ..., s0, s0
-                GetEmitter()->emitIns_R_R_R(INS_fadd, attr, dstReg, srcReg1, srcReg1);
-                break;
+        case INS_fmul:
+            // Special case - INS_fmul with a single operand is treated as FADD ..., s0, s0
+            GetEmitter()->emitIns_R_R_R(INS_fadd, attr, dstReg, srcReg1, srcReg1);
+            break;
 
-            case INS_add:
-            case INS_sub:
-            case INS_asr:
-            case INS_lsr:
-            case INS_lsl:
-            case INS_ror:
-                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm);
-                break;
+        case INS_add:
+        case INS_sub:
+        case INS_asr:
+        case INS_lsr:
+        case INS_lsl:
+        case INS_ror:
+            GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm);
+            break;
 
-            case INS_cmp:
-            case INS_cmn:
-                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
-                break;
+        case INS_cmp:
+        case INS_cmn:
+            GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
+            break;
 
-            case INS_and:
-            case INS_orr:
-            case INS_eor:
-                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
-                break;
+        case INS_and:
+        case INS_orr:
+        case INS_eor:
+            GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
+            break;
 
-            case INS_tst:
-                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
-                break;
+        case INS_tst:
+            GetEmitter()->emitIns_R_I(ins, attr, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
+            break;
 
-            case INS_mvn:
-            case INS_neg:
-                if (opt != INS_OPTS_NONE)
-                {
-                    GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm, opt);
-                }
-                else
-                {
-                    GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
-                }
-                break;
+        case INS_mvn:
+        case INS_neg:
+            if (opt != INS_OPTS_NONE)
+            {
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm, opt);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
+            }
+            break;
 
-            case INS_sbfiz:
-            case INS_ubfiz:
-            case INS_sbfx:
-            case INS_ubfx:
-                GetEmitter()->emitIns_R_R_I_I(ins, attr, dstReg, srcReg1, imm >> 6, imm & 63);
-                break;
+        case INS_sbfiz:
+        case INS_ubfiz:
+        case INS_sbfx:
+        case INS_ubfx:
+            GetEmitter()->emitIns_R_R_I_I(ins, attr, dstReg, srcReg1, imm >> 6, imm & 63);
+            break;
 
-            default:
-                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1, opt);
-                break;
+        default:
+            GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1, opt);
+            break;
         }
     }
     else if (instr->GetNumOps() == 2)
@@ -8608,40 +8608,40 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
 
         switch (ins)
         {
-            case INS_add:
-            case INS_sub:
-            case INS_and:
-            case INS_bic:
-            case INS_orr:
-            case INS_orn:
-            case INS_eor:
-            case INS_eon:
-                if (opt != INS_OPTS_NONE)
-                {
-                    GetEmitter()->emitIns_R_R_R_I(ins, attr, dstReg, srcReg1, srcReg2, imm, opt);
-                }
-                else
-                {
-                    GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
-                }
-                break;
-
-            case INS_cmp:
-            case INS_cmn:
-            case INS_tst:
-                if (opt != INS_OPTS_NONE)
-                {
-                    GetEmitter()->emitIns_R_R_I(ins, attr, srcReg1, srcReg2, imm, opt);
-                }
-                else
-                {
-                    GetEmitter()->emitIns_R_R(ins, attr, srcReg1, srcReg2);
-                }
-                break;
-
-            default:
+        case INS_add:
+        case INS_sub:
+        case INS_and:
+        case INS_bic:
+        case INS_orr:
+        case INS_orn:
+        case INS_eor:
+        case INS_eon:
+            if (opt != INS_OPTS_NONE)
+            {
+                GetEmitter()->emitIns_R_R_R_I(ins, attr, dstReg, srcReg1, srcReg2, imm, opt);
+            }
+            else
+            {
                 GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
-                break;
+            }
+            break;
+
+        case INS_cmp:
+        case INS_cmn:
+        case INS_tst:
+            if (opt != INS_OPTS_NONE)
+            {
+                GetEmitter()->emitIns_R_R_I(ins, attr, srcReg1, srcReg2, imm, opt);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_R(ins, attr, srcReg1, srcReg2);
+            }
+            break;
+
+        default:
+            GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
+            break;
         }
     }
     else

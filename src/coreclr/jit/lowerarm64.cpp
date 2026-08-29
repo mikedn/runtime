@@ -53,16 +53,16 @@ insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
     {
         switch (instr->GetIns())
         {
-            case INS_lsl:
-                return INS_OPTS_LSL;
-            case INS_lsr:
-                return INS_OPTS_LSR;
-            case INS_asr:
-                return INS_OPTS_ASR;
-            case INS_ror:
-                return INS_OPTS_ROR;
-            default:
-                break;
+        case INS_lsl:
+            return INS_OPTS_LSL;
+        case INS_lsr:
+            return INS_OPTS_LSR;
+        case INS_asr:
+            return INS_OPTS_ASR;
+        case INS_ror:
+            return INS_OPTS_ROR;
+        default:
+            break;
         }
     }
 
@@ -351,15 +351,15 @@ void Lowering::LowerLogical(GenTreeOp* logical)
 
             switch (logical->GetOper())
             {
-                case GT_AND:
-                    ins = INS_and;
-                    break;
-                case GT_OR:
-                    ins = INS_orr;
-                    break;
-                default:
-                    ins = INS_eor;
-                    break;
+            case GT_AND:
+                ins = INS_and;
+                break;
+            case GT_OR:
+                ins = INS_orr;
+                break;
+            default:
+                ins = INS_eor;
+                break;
             }
 
             GenTreeInstr* instr = MakeInstr(logical, ins, size, op1);
@@ -424,15 +424,15 @@ void Lowering::LowerLogical(GenTreeOp* logical)
 
     switch (logical->GetOper())
     {
-        case GT_AND:
-            ins = mvn == nullptr ? INS_and : INS_bic;
-            break;
-        case GT_OR:
-            ins = mvn == nullptr ? INS_orr : INS_orn;
-            break;
-        default:
-            ins = mvn == nullptr ? INS_eor : INS_eon;
-            break;
+    case GT_AND:
+        ins = mvn == nullptr ? INS_and : INS_bic;
+        break;
+    case GT_OR:
+        ins = mvn == nullptr ? INS_orr : INS_orn;
+        break;
+    default:
+        ins = mvn == nullptr ? INS_eor : INS_eon;
+        break;
     }
 
     GenTreeInstr* instr = MakeInstr(logical, ins, size, op1, op2);
@@ -499,20 +499,20 @@ void Lowering::LowerShiftVariable(GenTreeOp* shift)
 
     switch (shift->GetOper())
     {
-        case GT_LSH:
-            // Use "v" instructions for convenience - when attempting to use shifted register forms
-            // one needs to check for LSL/LSR/ASR instructions and assume they're immediate shifts.
-            ins = INS_lslv;
-            break;
-        case GT_RSH:
-            ins = INS_asrv;
-            break;
-        case GT_ROR:
-            ins = INS_rorv;
-            break;
-        default:
-            ins = INS_lsrv;
-            break;
+    case GT_LSH:
+        // Use "v" instructions for convenience - when attempting to use shifted register forms
+        // one needs to check for LSL/LSR/ASR instructions and assume they're immediate shifts.
+        ins = INS_lslv;
+        break;
+    case GT_RSH:
+        ins = INS_asrv;
+        break;
+    case GT_ROR:
+        ins = INS_rorv;
+        break;
+    default:
+        ins = INS_lsrv;
+        break;
     }
 
     MakeInstr(shift, ins, size, op1, op2);
@@ -579,18 +579,18 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
     switch (shift->GetOper())
     {
-        case GT_LSH:
-            ins = INS_lsl;
-            break;
-        case GT_RSH:
-            ins = INS_asr;
-            break;
-        case GT_ROR:
-            ins = INS_ror;
-            break;
-        default:
-            ins = INS_lsr;
-            break;
+    case GT_LSH:
+        ins = INS_lsl;
+        break;
+    case GT_RSH:
+        ins = INS_asr;
+        break;
+    case GT_ROR:
+        ins = INS_ror;
+        break;
+    default:
+        ins = INS_lsr;
+        break;
     }
 
     GenTreeInstr* instr = MakeInstr(shift, ins, size, op1);
@@ -938,14 +938,14 @@ static insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     {
         switch (instr->GetIns())
         {
-            case INS_lsl:
-                return INS_OPTS_LSL;
-            case INS_lsr:
-                return INS_OPTS_LSR;
-            case INS_asr:
-                return INS_OPTS_ASR;
-            default:
-                break;
+        case INS_lsl:
+            return INS_OPTS_LSL;
+        case INS_lsr:
+            return INS_OPTS_LSR;
+        case INS_asr:
+            return INS_OPTS_ASR;
+        default:
+            break;
         }
     }
 
@@ -958,16 +958,16 @@ static insOpts GetEquivalentExtendOption(GenTree* node)
     {
         switch (node->GetType())
         {
-            case TYP_UBYTE:
-                return INS_OPTS_UXTB;
-            case TYP_BYTE:
-                return INS_OPTS_SXTB;
-            case TYP_USHORT:
-                return INS_OPTS_UXTH;
-            case TYP_SHORT:
-                return INS_OPTS_SXTH;
-            default:
-                break;
+        case TYP_UBYTE:
+            return INS_OPTS_UXTB;
+        case TYP_BYTE:
+            return INS_OPTS_SXTB;
+        case TYP_USHORT:
+            return INS_OPTS_UXTH;
+        case TYP_SHORT:
+            return INS_OPTS_SXTH;
+        default:
+            break;
         }
     }
     else if (node->OperIs(GT_SXT))
@@ -988,14 +988,14 @@ static instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emi
     {
         switch (instr->GetIns())
         {
-            case INS_mul:
-                return (ins == INS_add) ? INS_madd : INS_msub;
-            case INS_smull:
-                return (ins == INS_add) ? INS_smaddl : INS_smsubl;
-            case INS_umull:
-                return (ins == INS_add) ? INS_umaddl : INS_umsubl;
-            default:
-                break;
+        case INS_mul:
+            return (ins == INS_add) ? INS_madd : INS_msub;
+        case INS_smull:
+            return (ins == INS_add) ? INS_smaddl : INS_smsubl;
+        case INS_umull:
+            return (ins == INS_add) ? INS_umaddl : INS_umsubl;
+        default:
+            break;
         }
     }
 
@@ -1713,21 +1713,21 @@ instruction GetEquivalentCompareOrTestInstruction(GenTreeInstr* instr)
 {
     switch (instr->GetIns())
     {
-        case INS_add:
-            return INS_cmn;
-        case INS_sub:
-            return INS_cmp;
-        case INS_and:
-            return INS_tst;
+    case INS_add:
+        return INS_cmn;
+    case INS_sub:
+        return INS_cmp;
+    case INS_and:
+        return INS_tst;
 
-        // TODO-MIKE-CQ: There's no "test" like equivalent for bic and the emitter doesn't seem to support ZR as
-        // destination register.
+    // TODO-MIKE-CQ: There's no "test" like equivalent for bic and the emitter doesn't seem to support ZR as
+    // destination register.
 
-        // case INS_bic:
-        //  return INS_bics;
+    // case INS_bic:
+    //  return INS_bics;
 
-        default:
-            return INS_none;
+    default:
+        return INS_none;
     }
 }
 
@@ -2125,23 +2125,23 @@ void Lowering::LowerIntrinsic(GenTreeIntrinsic* intrinsic)
 
     switch (intrinsic->GetIntrinsic())
     {
-        case NI_System_Math_Abs:
-            ins = INS_fabs;
-            break;
-        case NI_System_Math_Sqrt:
-            ins = INS_fsqrt;
-            break;
-        case NI_System_Math_Ceiling:
-            ins = INS_frintp;
-            break;
-        case NI_System_Math_Floor:
-            ins = INS_frintm;
-            break;
-        case NI_System_Math_Round:
-            ins = INS_frintn;
-            break;
-        default:
-            unreached();
+    case NI_System_Math_Abs:
+        ins = INS_fabs;
+        break;
+    case NI_System_Math_Sqrt:
+        ins = INS_fsqrt;
+        break;
+    case NI_System_Math_Ceiling:
+        ins = INS_frintp;
+        break;
+    case NI_System_Math_Floor:
+        ins = INS_frintm;
+        break;
+    case NI_System_Math_Round:
+        ins = INS_frintn;
+        break;
+    default:
+        unreached();
     }
 
     MakeInstr(intrinsic, ins, size, op1);
@@ -2166,41 +2166,41 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 
     switch (instr->GetOper())
     {
-        case GT_CMPXCHG:
-        case GT_XADD:
-            if (comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-            {
-                return false;
-            }
-            FALLTHROUGH;
-        case GT_ADD:
-        case GT_SUB:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_BOUNDS_CHECK:
-            return Arm64Imm::IsAddImm(value, size);
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-            return Arm64Imm::IsAluImm(value, size);
-        case GT_JCMP:
-            assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
-            return true;
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-            return value == 0;
-        default:
+    case GT_CMPXCHG:
+    case GT_XADD:
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+        {
             return false;
+        }
+        FALLTHROUGH;
+    case GT_ADD:
+    case GT_SUB:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_BOUNDS_CHECK:
+        return Arm64Imm::IsAddImm(value, size);
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    case GT_TEST_EQ:
+    case GT_TEST_NE:
+        return Arm64Imm::IsAluImm(value, size);
+    case GT_JCMP:
+        assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
+        return true;
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+        return value == 0;
+    default:
+        return false;
     }
 }
 

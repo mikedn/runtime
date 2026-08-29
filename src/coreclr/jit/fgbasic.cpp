@@ -291,45 +291,45 @@ void Compiler::fgReplaceJumpTarget(BasicBlock* block, BasicBlock* newTarget, Bas
 
     switch (block->bbJumpKind)
     {
-        case BBJ_CALLFINALLY:
-        case BBJ_COND:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_EHFILTERRET:
-        case BBJ_LEAVE: // This function will be called before import, so we still have BBJ_LEAVE
+    case BBJ_CALLFINALLY:
+    case BBJ_COND:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_EHFILTERRET:
+    case BBJ_LEAVE: // This function will be called before import, so we still have BBJ_LEAVE
 
-            if (block->bbJumpDest == oldTarget)
+        if (block->bbJumpDest == oldTarget)
+        {
+            block->bbJumpDest = newTarget;
+        }
+        break;
+
+    case BBJ_NONE:
+    case BBJ_EHFINALLYRET:
+    case BBJ_THROW:
+    case BBJ_RETURN:
+        break;
+
+    case BBJ_SWITCH:
+        unsigned jumpCnt;
+        jumpCnt = block->bbJumpSwt->bbsCount;
+        BasicBlock** jumpTab;
+        jumpTab = block->bbJumpSwt->bbsDstTab;
+
+        for (unsigned i = 0; i < jumpCnt; i++)
+        {
+            if (jumpTab[i] == oldTarget)
             {
-                block->bbJumpDest = newTarget;
+                jumpTab[i] = newTarget;
+                break;
             }
-            break;
+        }
+        break;
 
-        case BBJ_NONE:
-        case BBJ_EHFINALLYRET:
-        case BBJ_THROW:
-        case BBJ_RETURN:
-            break;
-
-        case BBJ_SWITCH:
-            unsigned jumpCnt;
-            jumpCnt = block->bbJumpSwt->bbsCount;
-            BasicBlock** jumpTab;
-            jumpTab = block->bbJumpSwt->bbsDstTab;
-
-            for (unsigned i = 0; i < jumpCnt; i++)
-            {
-                if (jumpTab[i] == oldTarget)
-                {
-                    jumpTab[i] = newTarget;
-                    break;
-                }
-            }
-            break;
-
-        default:
-            assert(!"Block doesn't have a valid bbJumpKind!!!!");
-            unreached();
-            break;
+    default:
+        assert(!"Block doesn't have a valid bbJumpKind!!!!");
+        unreached();
+        break;
     }
 }
 
@@ -608,43 +608,43 @@ bool Compiler::impILConsumesAddr(const uint8_t* codeAddr)
 
     switch (opcode)
     {
-        // case CEE_LDFLDA: We're taking this one out as if you have a sequence
-        // like
-        //
-        //          ldloca.0
-        //          ldflda whatever
-        //
-        // of a primitivelike struct, you end up after morphing with addr of a local
-        // that's not marked as addrtaken, which is wrong. Also ldflda is usually used
-        // for structs that contain other structs, which isnt a case we handle very
-        // well now for other reasons.
+    // case CEE_LDFLDA: We're taking this one out as if you have a sequence
+    // like
+    //
+    //          ldloca.0
+    //          ldflda whatever
+    //
+    // of a primitivelike struct, you end up after morphing with addr of a local
+    // that's not marked as addrtaken, which is wrong. Also ldflda is usually used
+    // for structs that contain other structs, which isnt a case we handle very
+    // well now for other reasons.
 
-        case CEE_LDFLD:
+    case CEE_LDFLD:
+    {
+        // We won't collapse small fields. This is probably not the right place to have this
+        // check, but we're only using the function for this purpose, and is easy to factor
+        // out if we need to do so.
+
+        CORINFO_RESOLVED_TOKEN resolvedToken;
+        impResolveToken(codeAddr + 1, &resolvedToken, CORINFO_TOKENKIND_Field);
+
+        var_types lclTyp = CorTypeToVarType(info.compCompHnd->getFieldType(resolvedToken.hField));
+
+        // Preserve 'small' int types
+        if (!varTypeIsSmall(lclTyp))
         {
-            // We won't collapse small fields. This is probably not the right place to have this
-            // check, but we're only using the function for this purpose, and is easy to factor
-            // out if we need to do so.
-
-            CORINFO_RESOLVED_TOKEN resolvedToken;
-            impResolveToken(codeAddr + 1, &resolvedToken, CORINFO_TOKENKIND_Field);
-
-            var_types lclTyp = CorTypeToVarType(info.compCompHnd->getFieldType(resolvedToken.hField));
-
-            // Preserve 'small' int types
-            if (!varTypeIsSmall(lclTyp))
-            {
-                lclTyp = varActualType(lclTyp);
-            }
-
-            if (varTypeIsSmall(lclTyp))
-            {
-                return false;
-            }
-
-            return true;
+            lclTyp = varActualType(lclTyp);
         }
-        default:
-            break;
+
+        if (varTypeIsSmall(lclTyp))
+        {
+            return false;
+        }
+
+        return true;
+    }
+    default:
+        break;
     }
 
     return false;
@@ -761,1014 +761,1009 @@ ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
         {
             unsigned varNum;
 
-            case CEE_PREFIX1:
-                if (codeAddr >= codeEnd)
-                {
-                    goto TOO_FAR;
-                }
-
-                opcode = static_cast<OPCODE>(256 + *codeAddr++);
-
-                if (opcode >= CEE_COUNT)
-                {
-                    BADCODE3("Illegal opcode", ": %02X", (int)opcode);
-                }
-
-                goto DECODE_OPCODE;
-
-            case CEE_PREFIX2:
-            case CEE_PREFIX3:
-            case CEE_PREFIX4:
-            case CEE_PREFIX5:
-            case CEE_PREFIX6:
-            case CEE_PREFIX7:
-            case CEE_PREFIXREF:
-                BADCODE3("Illegal opcode", ": %02X", opcode);
-
-            case CEE_LDNULL:
-            case CEE_LDC_I4_M1:
-            case CEE_LDC_I4_0:
-            case CEE_LDC_I4_1:
-            case CEE_LDC_I4_2:
-            case CEE_LDC_I4_3:
-            case CEE_LDC_I4_4:
-            case CEE_LDC_I4_5:
-            case CEE_LDC_I4_6:
-            case CEE_LDC_I4_7:
-            case CEE_LDC_I4_8:
-            case CEE_LDC_I4_S:
-            case CEE_LDC_I4:
-            case CEE_LDC_I8:
-            case CEE_LDC_R4:
-            case CEE_LDC_R8:
-                if (inlineResult != nullptr)
-                {
-                    pushedStack.PushConstant();
-                    handled = true;
-                }
-                break;
-
-            case CEE_SIZEOF:
-            case CEE_LDTOKEN:
-            case CEE_LDSTR:
-                if (preciseScan)
-                {
-                    pushedStack.PushConstant();
-                    handled = true;
-                }
-                break;
-
-            case CEE_DUP:
-                if (preciseScan)
-                {
-                    pushedStack.Push(pushedStack.Top());
-                    handled = true;
-                }
-                break;
-
-            case CEE_THROW:
-                if (inlineResult != nullptr)
-                {
-                    inlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
-                }
-                break;
-
-            case CEE_BOX:
-                if (inlineResult != nullptr)
-                {
-                    unsigned patternSize;
-                    if (impBoxPatternMatch(codeAddr + sz, codeEnd, &patternSize) != BoxPattern::None)
-                    {
-                        inlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-
-                        if (preciseScan)
-                        {
-                            codeAddr += patternSize;
-                        }
-                    }
-                }
-                break;
-
-            case CEE_CASTCLASS:
-            case CEE_ISINST:
-                if (inlineResult != nullptr)
-                {
-                    FgStack::FgSlot slot = pushedStack.Top();
-                    if (FgStack::IsConstantOrConstArg(slot, inlineInfo) || FgStack::IsExactArgument(slot, inlineInfo))
-                    {
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
-                        handled = true; // and keep argument in the pushedStack
-                    }
-                    else if (FgStack::IsArgument(slot))
-                    {
-                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
-                        handled = true; // and keep argument in the pushedStack
-                    }
-                }
-                break;
-
-            case CEE_CALL:
-            case CEE_CALLVIRT:
+        case CEE_PREFIX1:
+            if (codeAddr >= codeEnd)
             {
-                // There has to be code after the call, otherwise the inlinee is unverifiable.
-                if (inlineInfo != nullptr)
+                goto TOO_FAR;
+            }
+
+            opcode = static_cast<OPCODE>(256 + *codeAddr++);
+
+            if (opcode >= CEE_COUNT)
+            {
+                BADCODE3("Illegal opcode", ": %02X", (int)opcode);
+            }
+
+            goto DECODE_OPCODE;
+
+        case CEE_PREFIX2:
+        case CEE_PREFIX3:
+        case CEE_PREFIX4:
+        case CEE_PREFIX5:
+        case CEE_PREFIX6:
+        case CEE_PREFIX7:
+        case CEE_PREFIXREF:
+            BADCODE3("Illegal opcode", ": %02X", opcode);
+
+        case CEE_LDNULL:
+        case CEE_LDC_I4_M1:
+        case CEE_LDC_I4_0:
+        case CEE_LDC_I4_1:
+        case CEE_LDC_I4_2:
+        case CEE_LDC_I4_3:
+        case CEE_LDC_I4_4:
+        case CEE_LDC_I4_5:
+        case CEE_LDC_I4_6:
+        case CEE_LDC_I4_7:
+        case CEE_LDC_I4_8:
+        case CEE_LDC_I4_S:
+        case CEE_LDC_I4:
+        case CEE_LDC_I8:
+        case CEE_LDC_R4:
+        case CEE_LDC_R8:
+            if (inlineResult != nullptr)
+            {
+                pushedStack.PushConstant();
+                handled = true;
+            }
+            break;
+
+        case CEE_SIZEOF:
+        case CEE_LDTOKEN:
+        case CEE_LDSTR:
+            if (preciseScan)
+            {
+                pushedStack.PushConstant();
+                handled = true;
+            }
+            break;
+
+        case CEE_DUP:
+            if (preciseScan)
+            {
+                pushedStack.Push(pushedStack.Top());
+                handled = true;
+            }
+            break;
+
+        case CEE_THROW:
+            if (inlineResult != nullptr)
+            {
+                inlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
+            }
+            break;
+
+        case CEE_BOX:
+            if (inlineResult != nullptr)
+            {
+                unsigned patternSize;
+                if (impBoxPatternMatch(codeAddr + sz, codeEnd, &patternSize) != BoxPattern::None)
                 {
-                    noway_assert(codeAddr < codeEnd - sz);
-                }
+                    inlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
 
-                if (inlineResult == nullptr)
-                {
-                    break;
-                }
-
-                bool isJitIntrinsic = false;
-
-                if (resolveTokens)
-                {
-                    CORINFO_RESOLVED_TOKEN resolvedToken;
-                    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-
-                    if (info.compCompHnd->isJitIntrinsic(resolvedToken.hMethod))
+                    if (preciseScan)
                     {
-                        isJitIntrinsic    = true;
-                        NamedIntrinsic ni = lookupNamedIntrinsic(resolvedToken.hMethod);
-
-                        bool foldableIntrinsc = false;
-
-                        if (IsMathIntrinsic(ni))
-                        {
-                            // Most Math(F) intrinsics have single arguments
-                            foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
-                        }
-                        else
-                        {
-                            switch (ni)
-                            {
-                                // These are most likely foldable without arguments
-                                case NI_System_Collections_Generic_Comparer_get_Default:
-                                case NI_System_Collections_Generic_EqualityComparer_get_Default:
-                                case NI_System_Enum_HasFlag:
-                                case NI_System_GC_KeepAlive:
-                                    pushedStack.PushUnknown();
-                                    foldableIntrinsc = true;
-                                    break;
-
-                                case NI_System_Span_get_Item:
-                                case NI_System_ReadOnlySpan_get_Item:
-                                    if (FgStack::IsArgument(pushedStack.Top(0)) ||
-                                        FgStack::IsArgument(pushedStack.Top(1)))
-                                    {
-                                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                                    }
-                                    break;
-
-                                // These are foldable if the first argument is a constant
-                                case NI_System_Type_get_IsValueType:
-                                case NI_System_Type_GetTypeFromHandle:
-                                case NI_System_String_get_Length:
-                                case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
-                                case NI_System_Numerics_BitOperations_PopCount:
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                                case NI_Vector128_Create:
-                                case NI_Vector256_Create:
-#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                                case NI_Vector64_Create:
-                                case NI_Vector128_Create:
-#endif
-                                    // Top() in order to keep it as is in case of foldableIntrinsc
-                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
-                                    {
-                                        foldableIntrinsc = true;
-                                    }
-                                    break;
-
-                                // These are foldable if two arguments are constants
-                                case NI_System_Type_op_Equality:
-                                case NI_System_Type_op_Inequality:
-                                case NI_System_String_get_Chars:
-                                case NI_System_Type_IsAssignableTo:
-                                case NI_System_Type_IsAssignableFrom:
-                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
-                                        FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
-                                    {
-                                        foldableIntrinsc = true;
-                                        pushedStack.PushConstant();
-                                    }
-                                    break;
-
-                                case NI_IsSupported_True:
-                                case NI_IsSupported_False:
-                                    foldableIntrinsc = true;
-                                    pushedStack.PushConstant();
-                                    break;
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                                case NI_Vector128_get_Count:
-                                case NI_Vector256_get_Count:
-                                    foldableIntrinsc = true;
-                                    pushedStack.PushConstant();
-                                    // TODO: check if it's a loop condition - we unroll such loops.
-                                    break;
-                                case NI_Vector256_get_Zero:
-                                case NI_Vector256_get_AllBitsSet:
-                                    foldableIntrinsc = true;
-                                    pushedStack.PushUnknown();
-                                    break;
-#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                                case NI_Vector64_get_Count:
-                                case NI_Vector128_get_Count:
-                                    foldableIntrinsc = true;
-                                    pushedStack.PushConstant();
-                                    break;
-                                case NI_Vector128_get_Zero:
-                                case NI_Vector128_get_AllBitsSet:
-                                    foldableIntrinsc = true;
-                                    pushedStack.PushUnknown();
-                                    break;
-#endif
-                                default:
-                                    break;
-                            }
-                        }
-
-                        if (foldableIntrinsc)
-                        {
-                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
-                            handled = true;
-                        }
-                        else if (ni != NI_Illegal)
-                        {
-                            // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
-                            // except Math where only a few intrinsics won't end up as normal calls
-                            if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
-                            {
-                                inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
-                            }
-                        }
+                        codeAddr += patternSize;
                     }
-                }
-
-                if (!isJitIntrinsic && !handled && FgStack::IsArgument(pushedStack.Top()))
-                {
-                    // Optimistically assume that "call(arg)" returns something arg-dependent.
-                    // However, we don't know how many args it expects and its return type.
-                    handled = true;
-                }
-
-                if ((codeAddr < codeEnd - sz) && (static_cast<OPCODE>(codeAddr[sz]) == CEE_RET))
-                {
-                    // If the method has a call followed by a ret, assume that
-                    // it is a wrapper method.
-                    inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
             }
             break;
 
-            case CEE_LDIND_I1:
-            case CEE_LDIND_U1:
-            case CEE_LDIND_I2:
-            case CEE_LDIND_U2:
-            case CEE_LDIND_I4:
-            case CEE_LDIND_U4:
-            case CEE_LDIND_I8:
-            case CEE_LDIND_I:
-            case CEE_LDIND_R4:
-            case CEE_LDIND_R8:
-            case CEE_LDIND_REF:
-                if (FgStack::IsArgument(pushedStack.Top()))
+        case CEE_CASTCLASS:
+        case CEE_ISINST:
+            if (inlineResult != nullptr)
+            {
+                FgStack::FgSlot slot = pushedStack.Top();
+                if (FgStack::IsConstantOrConstArg(slot, inlineInfo) || FgStack::IsExactArgument(slot, inlineInfo))
                 {
-                    handled = true;
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                    handled = true; // and keep argument in the pushedStack
                 }
+                else if (FgStack::IsArgument(slot))
+                {
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
+                    handled = true; // and keep argument in the pushedStack
+                }
+            }
+            break;
+
+        case CEE_CALL:
+        case CEE_CALLVIRT:
+        {
+            // There has to be code after the call, otherwise the inlinee is unverifiable.
+            if (inlineInfo != nullptr)
+            {
+                noway_assert(codeAddr < codeEnd - sz);
+            }
+
+            if (inlineResult == nullptr)
+            {
                 break;
+            }
 
-            case CEE_CONV_I:
-            case CEE_CONV_U:
-            case CEE_CONV_I1:
-            case CEE_CONV_I2:
-            case CEE_CONV_I4:
-            case CEE_CONV_I8:
-            case CEE_CONV_R4:
-            case CEE_CONV_R8:
-            case CEE_CONV_U4:
-            case CEE_CONV_U8:
-            case CEE_CONV_U2:
-            case CEE_CONV_U1:
-            case CEE_CONV_R_UN:
-            case CEE_CONV_OVF_I:
-            case CEE_CONV_OVF_U:
-            case CEE_CONV_OVF_I1:
-            case CEE_CONV_OVF_U1:
-            case CEE_CONV_OVF_I2:
-            case CEE_CONV_OVF_U2:
-            case CEE_CONV_OVF_I4:
-            case CEE_CONV_OVF_U4:
-            case CEE_CONV_OVF_I8:
-            case CEE_CONV_OVF_U8:
-            case CEE_CONV_OVF_I_UN:
-            case CEE_CONV_OVF_U_UN:
-            case CEE_CONV_OVF_I1_UN:
-            case CEE_CONV_OVF_I2_UN:
-            case CEE_CONV_OVF_I4_UN:
-            case CEE_CONV_OVF_I8_UN:
-            case CEE_CONV_OVF_U1_UN:
-            case CEE_CONV_OVF_U2_UN:
-            case CEE_CONV_OVF_U4_UN:
-            case CEE_CONV_OVF_U8_UN:
-            case CEE_NOT:
-            case CEE_NEG:
-                if (inlineResult != nullptr)
+            bool isJitIntrinsic = false;
+
+            if (resolveTokens)
+            {
+                CORINFO_RESOLVED_TOKEN resolvedToken;
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+
+                if (info.compCompHnd->isJitIntrinsic(resolvedToken.hMethod))
                 {
-                    FgStack::FgSlot arg = pushedStack.Top();
-                    if (FgStack::IsConstArgument(arg, inlineInfo))
+                    isJitIntrinsic    = true;
+                    NamedIntrinsic ni = lookupNamedIntrinsic(resolvedToken.hMethod);
+
+                    bool foldableIntrinsc = false;
+
+                    if (IsMathIntrinsic(ni))
                     {
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
-                        handled = true;
+                        // Most Math(F) intrinsics have single arguments
+                        foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
                     }
-                    else if (FgStack::IsArgument(arg) || FgStack::IsConstant(arg))
+                    else
                     {
-                        handled = true;
-                    }
-                }
-                break;
-
-            case CEE_ADD:
-            case CEE_SUB:
-            case CEE_MUL:
-            case CEE_DIV:
-            case CEE_DIV_UN:
-            case CEE_REM:
-            case CEE_REM_UN:
-            case CEE_AND:
-            case CEE_OR:
-            case CEE_XOR:
-            case CEE_SHL:
-            case CEE_SHR:
-            case CEE_SHR_UN:
-            case CEE_ADD_OVF:
-            case CEE_ADD_OVF_UN:
-            case CEE_MUL_OVF:
-            case CEE_MUL_OVF_UN:
-            case CEE_SUB_OVF:
-            case CEE_SUB_OVF_UN:
-            case CEE_CEQ:
-            case CEE_CGT:
-            case CEE_CGT_UN:
-            case CEE_CLT:
-            case CEE_CLT_UN:
-                if (inlineResult == nullptr)
-                {
-                    break;
-                }
-
-                if (!preciseScan)
-                {
-                    switch (opcode)
-                    {
-                        case CEE_CEQ:
-                        case CEE_CGT:
-                        case CEE_CGT_UN:
-                        case CEE_CLT:
-                        case CEE_CLT_UN:
-                            fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                        switch (ni)
+                        {
+                        // These are most likely foldable without arguments
+                        case NI_System_Collections_Generic_Comparer_get_Default:
+                        case NI_System_Collections_Generic_EqualityComparer_get_Default:
+                        case NI_System_Enum_HasFlag:
+                        case NI_System_GC_KeepAlive:
+                            pushedStack.PushUnknown();
+                            foldableIntrinsc = true;
                             break;
+
+                        case NI_System_Span_get_Item:
+                        case NI_System_ReadOnlySpan_get_Item:
+                            if (FgStack::IsArgument(pushedStack.Top(0)) || FgStack::IsArgument(pushedStack.Top(1)))
+                            {
+                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                            }
+                            break;
+
+                        // These are foldable if the first argument is a constant
+                        case NI_System_Type_get_IsValueType:
+                        case NI_System_Type_GetTypeFromHandle:
+                        case NI_System_String_get_Length:
+                        case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
+                        case NI_System_Numerics_BitOperations_PopCount:
+#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
+                        case NI_Vector128_Create:
+                        case NI_Vector256_Create:
+#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
+                        case NI_Vector64_Create:
+                        case NI_Vector128_Create:
+#endif
+                            // Top() in order to keep it as is in case of foldableIntrinsc
+                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                            {
+                                foldableIntrinsc = true;
+                            }
+                            break;
+
+                        // These are foldable if two arguments are constants
+                        case NI_System_Type_op_Equality:
+                        case NI_System_Type_op_Inequality:
+                        case NI_System_String_get_Chars:
+                        case NI_System_Type_IsAssignableTo:
+                        case NI_System_Type_IsAssignableFrom:
+                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
+                                FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
+                            {
+                                foldableIntrinsc = true;
+                                pushedStack.PushConstant();
+                            }
+                            break;
+
+                        case NI_IsSupported_True:
+                        case NI_IsSupported_False:
+                            foldableIntrinsc = true;
+                            pushedStack.PushConstant();
+                            break;
+#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
+                        case NI_Vector128_get_Count:
+                        case NI_Vector256_get_Count:
+                            foldableIntrinsc = true;
+                            pushedStack.PushConstant();
+                            // TODO: check if it's a loop condition - we unroll such loops.
+                            break;
+                        case NI_Vector256_get_Zero:
+                        case NI_Vector256_get_AllBitsSet:
+                            foldableIntrinsc = true;
+                            pushedStack.PushUnknown();
+                            break;
+#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
+                        case NI_Vector64_get_Count:
+                        case NI_Vector128_get_Count:
+                            foldableIntrinsc = true;
+                            pushedStack.PushConstant();
+                            break;
+                        case NI_Vector128_get_Zero:
+                        case NI_Vector128_get_AllBitsSet:
+                            foldableIntrinsc = true;
+                            pushedStack.PushUnknown();
+                            break;
+#endif
                         default:
                             break;
+                        }
+                    }
+
+                    if (foldableIntrinsc)
+                    {
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
+                        handled = true;
+                    }
+                    else if (ni != NI_Illegal)
+                    {
+                        // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
+                        // except Math where only a few intrinsics won't end up as normal calls
+                        if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
+                        }
                     }
                 }
-                else
-                {
-                    FgStack::FgSlot arg0 = pushedStack.Top(1);
-                    FgStack::FgSlot arg1 = pushedStack.Top(0);
+            }
 
-                    // Const op ConstArg -> ConstArg
-                    if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, inlineInfo))
-                    {
-                        // keep stack unchanged
-                        handled = true;
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
-                    }
-                    // ConstArg op Const    -> ConstArg
-                    // ConstArg op ConstArg -> ConstArg
-                    else if (FgStack::IsConstArgument(arg0, inlineInfo) &&
-                             FgStack::IsConstantOrConstArg(arg1, inlineInfo))
-                    {
-                        if (FgStack::IsConstant(arg1))
-                        {
-                            pushedStack.Push(arg0);
-                        }
-                        handled = true;
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
-                    }
-                    // Const op Const -> Const
-                    else if (FgStack::IsConstant(arg0) && FgStack::IsConstant(arg1))
-                    {
-                        // both are constants, but we're mostly interested in cases where a const arg leads to
-                        // a foldable expression.
-                        handled = true;
-                    }
-                    // Arg op ConstArg
-                    // Arg op Const
-                    else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, inlineInfo))
-                    {
-                        // "Arg op CNS" --> keep arg0 in the stack for the next ops
-                        pushedStack.Push(arg0);
-                        handled = true;
-                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
-                    }
-                    // ConstArg op Arg
-                    // Const    op Arg
-                    else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, inlineInfo))
-                    {
-                        // "CNS op ARG" --> keep arg1 in the stack for the next ops
-                        handled = true;
-                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
-                    }
-                    // X / ConstArg
-                    // X % ConstArg
-                    if (FgStack::IsConstArgument(arg1, inlineInfo))
-                    {
-                        if ((opcode == CEE_DIV) || (opcode == CEE_DIV_UN) || (opcode == CEE_REM) ||
-                            (opcode == CEE_REM_UN))
-                        {
-                            inlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
-                        }
-                        pushedStack.Push(arg0);
-                        handled = true;
-                    }
-                }
-                break;
-
-            case CEE_LEAVE:
-            case CEE_LEAVE_S:
-            case CEE_BR:
-            case CEE_BR_S:
-            case CEE_BRFALSE:
-            case CEE_BRFALSE_S:
-            case CEE_BRTRUE:
-            case CEE_BRTRUE_S:
-            case CEE_BEQ:
-            case CEE_BEQ_S:
-            case CEE_BGE:
-            case CEE_BGE_S:
-            case CEE_BGE_UN:
-            case CEE_BGE_UN_S:
-            case CEE_BGT:
-            case CEE_BGT_S:
-            case CEE_BGT_UN:
-            case CEE_BGT_UN_S:
-            case CEE_BLE:
-            case CEE_BLE_S:
-            case CEE_BLE_UN:
-            case CEE_BLE_UN_S:
-            case CEE_BLT:
-            case CEE_BLT_S:
-            case CEE_BLT_UN:
-            case CEE_BLT_UN_S:
-            case CEE_BNE_UN:
-            case CEE_BNE_UN_S:
+            if (!isJitIntrinsic && !handled && FgStack::IsArgument(pushedStack.Top()))
             {
-                if (codeAddr > codeEnd - sz)
+                // Optimistically assume that "call(arg)" returns something arg-dependent.
+                // However, we don't know how many args it expects and its return type.
+                handled = true;
+            }
+
+            if ((codeAddr < codeEnd - sz) && (static_cast<OPCODE>(codeAddr[sz]) == CEE_RET))
+            {
+                // If the method has a call followed by a ret, assume that
+                // it is a wrapper method.
+                inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
+            }
+        }
+        break;
+
+        case CEE_LDIND_I1:
+        case CEE_LDIND_U1:
+        case CEE_LDIND_I2:
+        case CEE_LDIND_U2:
+        case CEE_LDIND_I4:
+        case CEE_LDIND_U4:
+        case CEE_LDIND_I8:
+        case CEE_LDIND_I:
+        case CEE_LDIND_R4:
+        case CEE_LDIND_R8:
+        case CEE_LDIND_REF:
+            if (FgStack::IsArgument(pushedStack.Top()))
+            {
+                handled = true;
+            }
+            break;
+
+        case CEE_CONV_I:
+        case CEE_CONV_U:
+        case CEE_CONV_I1:
+        case CEE_CONV_I2:
+        case CEE_CONV_I4:
+        case CEE_CONV_I8:
+        case CEE_CONV_R4:
+        case CEE_CONV_R8:
+        case CEE_CONV_U4:
+        case CEE_CONV_U8:
+        case CEE_CONV_U2:
+        case CEE_CONV_U1:
+        case CEE_CONV_R_UN:
+        case CEE_CONV_OVF_I:
+        case CEE_CONV_OVF_U:
+        case CEE_CONV_OVF_I1:
+        case CEE_CONV_OVF_U1:
+        case CEE_CONV_OVF_I2:
+        case CEE_CONV_OVF_U2:
+        case CEE_CONV_OVF_I4:
+        case CEE_CONV_OVF_U4:
+        case CEE_CONV_OVF_I8:
+        case CEE_CONV_OVF_U8:
+        case CEE_CONV_OVF_I_UN:
+        case CEE_CONV_OVF_U_UN:
+        case CEE_CONV_OVF_I1_UN:
+        case CEE_CONV_OVF_I2_UN:
+        case CEE_CONV_OVF_I4_UN:
+        case CEE_CONV_OVF_I8_UN:
+        case CEE_CONV_OVF_U1_UN:
+        case CEE_CONV_OVF_U2_UN:
+        case CEE_CONV_OVF_U4_UN:
+        case CEE_CONV_OVF_U8_UN:
+        case CEE_NOT:
+        case CEE_NEG:
+            if (inlineResult != nullptr)
+            {
+                FgStack::FgSlot arg = pushedStack.Top();
+                if (FgStack::IsConstArgument(arg, inlineInfo))
                 {
-                    goto TOO_FAR;
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                    handled = true;
                 }
-
-                int distance = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
-
-                if ((inlineInfo != nullptr) && (distance == 0) &&
-                    (opcode == CEE_LEAVE || opcode == CEE_LEAVE_S || opcode == CEE_BR || opcode == CEE_BR_S))
+                else if (FgStack::IsArgument(arg) || FgStack::IsConstant(arg))
                 {
-                    break;
+                    handled = true;
                 }
+            }
+            break;
 
-                unsigned targetOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + distance;
+        case CEE_ADD:
+        case CEE_SUB:
+        case CEE_MUL:
+        case CEE_DIV:
+        case CEE_DIV_UN:
+        case CEE_REM:
+        case CEE_REM_UN:
+        case CEE_AND:
+        case CEE_OR:
+        case CEE_XOR:
+        case CEE_SHL:
+        case CEE_SHR:
+        case CEE_SHR_UN:
+        case CEE_ADD_OVF:
+        case CEE_ADD_OVF_UN:
+        case CEE_MUL_OVF:
+        case CEE_MUL_OVF_UN:
+        case CEE_SUB_OVF:
+        case CEE_SUB_OVF_UN:
+        case CEE_CEQ:
+        case CEE_CGT:
+        case CEE_CGT_UN:
+        case CEE_CLT:
+        case CEE_CLT_UN:
+            if (inlineResult == nullptr)
+            {
+                break;
+            }
 
-                if (targetOffset >= codeSize)
-                {
-                    BADCODE3("code jumps to outer space", " at offset %04X",
-                             static_cast<unsigned>(codeAddr - codeBegin));
-                }
-
-                if (jumpTargets == nullptr)
-                {
-                    jumpTargets = ILLabelSetOps::MakeEmpty(this);
-                }
-
-                ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
-
-                if (inlineResult == nullptr)
-                {
-                    break;
-                }
-
-                if (distance < 0)
-                {
-                    inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
-                }
-
-                if (!preciseScan)
-                {
-                    if ((opcode != CEE_BR_S) && (opcode != CEE_BR))
-                    {
-                        fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
-                    }
-
-                    break;
-                }
-
+            if (!preciseScan)
+            {
                 switch (opcode)
                 {
-                    case CEE_BEQ:
-                    case CEE_BGE:
-                    case CEE_BGT:
-                    case CEE_BLE:
-                    case CEE_BLT:
-                    case CEE_BNE_UN:
-                    case CEE_BGE_UN:
-                    case CEE_BGT_UN:
-                    case CEE_BLE_UN:
-                    case CEE_BLT_UN:
-                    case CEE_BEQ_S:
-                    case CEE_BGE_S:
-                    case CEE_BGT_S:
-                    case CEE_BLE_S:
-                    case CEE_BLT_S:
-                    case CEE_BNE_UN_S:
-                    case CEE_BGE_UN_S:
-                    case CEE_BGT_UN_S:
-                    case CEE_BLE_UN_S:
-                    case CEE_BLT_UN_S:
-                    {
-                        FgStack::FgSlot op1 = pushedStack.Top(1);
-                        FgStack::FgSlot op2 = pushedStack.Top(0);
-
-                        if (FgStack::IsConstantOrConstArg(op1, inlineInfo) &&
-                            FgStack::IsConstantOrConstArg(op2, inlineInfo))
-                        {
-                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                        }
-                        if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
-                        {
-                            inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
-                        }
-
-                        if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
-                            (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
-                        {
-                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                        }
-                        else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
-                                 (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
-                        {
-                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                        }
-                        else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
-                        {
-                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
-                        }
-                        else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
-                        {
-                            inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
-                        }
-                        break;
-                    }
-
-                    case CEE_BRFALSE_S:
-                    case CEE_BRTRUE_S:
-                    case CEE_BRFALSE:
-                    case CEE_BRTRUE:
-                        if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
-                        {
-                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                        }
-                        else if (FgStack::IsArgument(pushedStack.Top()))
-                        {
-                            // E.g. brtrue is basically "if (X == 0)"
-                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                        }
-                        break;
-
-                    default:
-                        break;
+                case CEE_CEQ:
+                case CEE_CGT:
+                case CEE_CGT_UN:
+                case CEE_CLT:
+                case CEE_CLT_UN:
+                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                    break;
+                default:
+                    break;
                 }
             }
-            break;
-
-            case CEE_SWITCH:
+            else
             {
-                if (inlineResult != nullptr)
+                FgStack::FgSlot arg0 = pushedStack.Top(1);
+                FgStack::FgSlot arg1 = pushedStack.Top(0);
+
+                // Const op ConstArg -> ConstArg
+                if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, inlineInfo))
                 {
-                    inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
-                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                    // keep stack unchanged
+                    handled = true;
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                }
+                // ConstArg op Const    -> ConstArg
+                // ConstArg op ConstArg -> ConstArg
+                else if (FgStack::IsConstArgument(arg0, inlineInfo) && FgStack::IsConstantOrConstArg(arg1, inlineInfo))
+                {
+                    if (FgStack::IsConstant(arg1))
                     {
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
+                        pushedStack.Push(arg0);
                     }
-
-                    // Fail fast, if we're inlining and can't handle this.
-                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
+                    handled = true;
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                }
+                // Const op Const -> Const
+                else if (FgStack::IsConstant(arg0) && FgStack::IsConstant(arg1))
+                {
+                    // both are constants, but we're mostly interested in cases where a const arg leads to
+                    // a foldable expression.
+                    handled = true;
+                }
+                // Arg op ConstArg
+                // Arg op Const
+                else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, inlineInfo))
+                {
+                    // "Arg op CNS" --> keep arg0 in the stack for the next ops
+                    pushedStack.Push(arg0);
+                    handled = true;
+                    inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                }
+                // ConstArg op Arg
+                // Const    op Arg
+                else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, inlineInfo))
+                {
+                    // "CNS op ARG" --> keep arg1 in the stack for the next ops
+                    handled = true;
+                    inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                }
+                // X / ConstArg
+                // X % ConstArg
+                if (FgStack::IsConstArgument(arg1, inlineInfo))
+                {
+                    if ((opcode == CEE_DIV) || (opcode == CEE_DIV_UN) || (opcode == CEE_REM) || (opcode == CEE_REM_UN))
                     {
-                        return nullptr;
+                        inlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
                     }
+                    pushedStack.Push(arg0);
+                    handled = true;
                 }
-
-                if (codeAddr > codeEnd - 4)
-                {
-                    goto TOO_FAR;
-                }
-
-                unsigned targetCount = getU4LittleEndian(codeAddr);
-                codeAddr += 4;
-
-                if (targetCount > codeSize / 4)
-                {
-                    goto TOO_FAR;
-                }
-
-                unsigned fallThroughOffset = static_cast<unsigned>(codeAddr - codeBegin) + targetCount * 4;
-
-                if (fallThroughOffset >= codeSize)
-                {
-                    goto TOO_FAR;
-                }
-
-                if (jumpTargets == nullptr)
-                {
-                    jumpTargets = ILLabelSetOps::MakeEmpty(this);
-                }
-
-                ILLabelSetOps::AddElemD(this, jumpTargets, fallThroughOffset);
-
-                for (unsigned i = 0; i < targetCount; i++)
-                {
-                    unsigned targetOffset = fallThroughOffset + getI4LittleEndian(codeAddr);
-                    codeAddr += 4;
-
-                    if (targetOffset >= codeSize)
-                    {
-                        BADCODE3("jump target out of range", " at offset %04X",
-                                 static_cast<unsigned>(codeAddr - codeBegin));
-                    }
-
-                    ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
-                }
-
-                // We've advanced past all the bytes in this instruction
-                sz = 0;
             }
             break;
 
-            case CEE_LDFLDA:
-            case CEE_LDFLD:
-            case CEE_STFLD:
-                if (FgStack::IsArgument(pushedStack.Top()))
-                {
-                    inlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
-                    handled = true; // keep argument on top of the stack
-                }
-                break;
+        case CEE_LEAVE:
+        case CEE_LEAVE_S:
+        case CEE_BR:
+        case CEE_BR_S:
+        case CEE_BRFALSE:
+        case CEE_BRFALSE_S:
+        case CEE_BRTRUE:
+        case CEE_BRTRUE_S:
+        case CEE_BEQ:
+        case CEE_BEQ_S:
+        case CEE_BGE:
+        case CEE_BGE_S:
+        case CEE_BGE_UN:
+        case CEE_BGE_UN_S:
+        case CEE_BGT:
+        case CEE_BGT_S:
+        case CEE_BGT_UN:
+        case CEE_BGT_UN_S:
+        case CEE_BLE:
+        case CEE_BLE_S:
+        case CEE_BLE_UN:
+        case CEE_BLE_UN_S:
+        case CEE_BLT:
+        case CEE_BLT_S:
+        case CEE_BLT_UN:
+        case CEE_BLT_UN_S:
+        case CEE_BNE_UN:
+        case CEE_BNE_UN_S:
+        {
+            if (codeAddr > codeEnd - sz)
+            {
+                goto TOO_FAR;
+            }
 
-            case CEE_LDELEM_I1:
-            case CEE_LDELEM_U1:
-            case CEE_LDELEM_I2:
-            case CEE_LDELEM_U2:
-            case CEE_LDELEM_I4:
-            case CEE_LDELEM_U4:
-            case CEE_LDELEM_I8:
-            case CEE_LDELEM_I:
-            case CEE_LDELEM_R4:
-            case CEE_LDELEM_R8:
-            case CEE_LDELEM_REF:
-            case CEE_STELEM_I:
-            case CEE_STELEM_I1:
-            case CEE_STELEM_I2:
-            case CEE_STELEM_I4:
-            case CEE_STELEM_I8:
-            case CEE_STELEM_R4:
-            case CEE_STELEM_R8:
-            case CEE_STELEM_REF:
-            case CEE_LDELEM:
-            case CEE_STELEM:
-                if (preciseScan && (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1))))
+            int distance = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
+
+            if ((inlineInfo != nullptr) && (distance == 0) &&
+                (opcode == CEE_LEAVE || opcode == CEE_LEAVE_S || opcode == CEE_BR || opcode == CEE_BR_S))
+            {
+                break;
+            }
+
+            unsigned targetOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + distance;
+
+            if (targetOffset >= codeSize)
+            {
+                BADCODE3("code jumps to outer space", " at offset %04X", static_cast<unsigned>(codeAddr - codeBegin));
+            }
+
+            if (jumpTargets == nullptr)
+            {
+                jumpTargets = ILLabelSetOps::MakeEmpty(this);
+            }
+
+            ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
+
+            if (inlineResult == nullptr)
+            {
+                break;
+            }
+
+            if (distance < 0)
+            {
+                inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
+            }
+
+            if (!preciseScan)
+            {
+                if ((opcode != CEE_BR_S) && (opcode != CEE_BR))
+                {
+                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                }
+
+                break;
+            }
+
+            switch (opcode)
+            {
+            case CEE_BEQ:
+            case CEE_BGE:
+            case CEE_BGT:
+            case CEE_BLE:
+            case CEE_BLT:
+            case CEE_BNE_UN:
+            case CEE_BGE_UN:
+            case CEE_BGT_UN:
+            case CEE_BLE_UN:
+            case CEE_BLT_UN:
+            case CEE_BEQ_S:
+            case CEE_BGE_S:
+            case CEE_BGT_S:
+            case CEE_BLE_S:
+            case CEE_BLT_S:
+            case CEE_BNE_UN_S:
+            case CEE_BGE_UN_S:
+            case CEE_BGT_UN_S:
+            case CEE_BLE_UN_S:
+            case CEE_BLT_UN_S:
+            {
+                FgStack::FgSlot op1 = pushedStack.Top(1);
+                FgStack::FgSlot op2 = pushedStack.Top(0);
+
+                if (FgStack::IsConstantOrConstArg(op1, inlineInfo) && FgStack::IsConstantOrConstArg(op2, inlineInfo))
+                {
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                }
+                if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
+                {
+                    inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                }
+
+                if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
+                    (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
                 {
                     inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                 }
-                break;
-
-            case CEE_TAILCALL:
-                if (inlineInfo != nullptr)
+                else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
+                         (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
                 {
-                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
-                    // can be dispatched as tail calls from the caller.
-                    inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
-                    return nullptr;
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
                 }
-                FALLTHROUGH;
-            case CEE_UNALIGNED:
-            case CEE_CONSTRAINED:
-            case CEE_READONLY:
-            case CEE_VOLATILE:
-                if (codeAddr + sz >= codeEnd)
+                else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
                 {
-                    BADCODE("prefix not followed by opcode");
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
                 }
-
-                handled = true;
-                goto OBSERVE_OPCODE;
-
-            case CEE_STARG:
-            case CEE_STARG_S:
-                if (codeAddr > codeEnd - sz)
+                else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
                 {
-                    goto TOO_FAR;
-                }
-
-                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
-
-                if (inlineInfo != nullptr)
-                {
-                    inlineInfo->NoteParamStore(varNum);
-                }
-                else
-                {
-                    // account for possible hidden param
-                    varNum = lvaMapILArgNumToLclNum(varNum);
-
-                    // This check is only intended to prevent an AV.  Bad varNum values will later
-                    // be handled properly by the verifier.
-                    if (varNum < lvaCount)
-                    {
-                        // In non-inline cases, note written-to arguments.
-                        lvaGetDesc(varNum)->lvHasILStoreOp = 1;
-                    }
-                }
-
-                lclRefCount++;
-                break;
-
-            case CEE_STLOC_0:
-            case CEE_STLOC_1:
-            case CEE_STLOC_2:
-            case CEE_STLOC_3:
-                varNum = opcode - CEE_STLOC_0;
-                goto STLOC;
-
-            case CEE_STLOC:
-                if (codeAddr > codeEnd - 2)
-                {
-                    goto TOO_FAR;
-                }
-
-                varNum = getU2LittleEndian(codeAddr);
-                goto STLOC;
-
-            case CEE_STLOC_S:
-                if (codeAddr > codeEnd - 1)
-                {
-                    goto TOO_FAR;
-                }
-
-                varNum = *codeAddr;
-
-            STLOC:
-                if (inlineInfo != nullptr)
-                {
-                    inlineInfo->NoteLocalStore(varNum);
-                }
-                else
-                {
-                    varNum += info.GetParamCount();
-
-                    // This check is only intended to prevent invalid memory access. Bad varNum values
-                    // will later be handled properly by the importer.
-                    if (varNum < lvaCount)
-                    {
-                        LclVarDsc* lcl = lvaGetDesc(varNum);
-
-                        // In non-inline cases, note written-to locals.
-                        if (lcl->lvHasILStoreOp)
-                        {
-                            lcl->lvHasMultipleILStoreOp = 1;
-                        }
-                        else
-                        {
-                            lcl->lvHasILStoreOp = 1;
-                        }
-                    }
-                }
-
-                lclRefCount++;
-                break;
-
-            case CEE_LDLOC_0:
-            case CEE_LDLOC_1:
-            case CEE_LDLOC_2:
-            case CEE_LDLOC_3:
-                // TODO-MIKE-Review: Why only LDLOC_0-3?
-                if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
-                {
-                    // Fold stloc + ldloc
-                    pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
-                    handled = true;
-                }
-                FALLTHROUGH;
-            case CEE_LDLOC:
-            case CEE_LDLOC_S:
-                lclRefCount++;
-                break;
-
-            case CEE_LDARGA:
-            case CEE_LDLOCA:
-                if (codeAddr > codeEnd - 2)
-                {
-                    goto TOO_FAR;
-                }
-
-                varNum = getU2LittleEndian(codeAddr);
-                goto LDLOCA;
-
-            case CEE_LDARGA_S:
-            case CEE_LDLOCA_S:
-                if (codeAddr > codeEnd - 1)
-                {
-                    goto TOO_FAR;
-                }
-
-                varNum = *codeAddr;
-
-            LDLOCA:
-                if (inlineInfo != nullptr)
-                {
-                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
-                    {
-                        inlineInfo->NoteAddressTakenLocal(varNum);
-                        typeIsNormed = inlineInfo->IsNormedTypeLocal(varNum);
-                    }
-                    else
-                    {
-                        inlineInfo->NoteAddressTakenParam(varNum);
-                        typeIsNormed = inlineInfo->IsNormedTypeParam(varNum);
-
-                        pushedStack.PushArgument(varNum);
-                        handled = true;
-                    }
-                }
-                else
-                {
-                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
-                    {
-                        if (varNum >= info.GetILLocCount())
-                        {
-                            BADCODE("bad local number");
-                        }
-
-                        varNum += info.GetParamCount();
-                    }
-                    else
-                    {
-                        if (varNum >= info.GetILArgCount())
-                        {
-                            BADCODE("bad argument number");
-                        }
-
-                        varNum = lvaMapILArgNumToLclNum(varNum);
-                    }
-
-                    LclVarDsc* lcl = lvaGetDesc(varNum);
-
-                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsStruct();
-
-                    // Determine if the next instruction will consume
-                    // the address. If so we won't mark this var as
-                    // address taken.
-                    //
-                    // We will put structs on the stack and changing
-                    // the addrTaken of a local requires an extra pass
-                    // in the morpher so we won't apply this
-                    // optimization to structs.
-                    //
-                    // Debug code spills for every IL instruction, and
-                    // therefore it will split statements, so we will
-                    // need the address.  Note that this optimization
-                    // is based in that we know what trees we will
-                    // generate for this ldfld, and we require that we
-                    // won't need the address of this local at all
-
-                    const bool notStruct    = !varTypeIsStruct(lcl->GetType());
-                    const bool notLastInstr = (codeAddr < codeEnd - sz);
-                    const bool notDebugCode = !opts.compDbgCode;
-
-                    if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
-                    {
-                        // We can skip the addrtaken, as next IL instruction consumes
-                        // the address.
-                    }
-                    else
-                    {
-                        lcl->lvHasLdAddrOp = true;
-
-                        if (!info.compIsStatic && (varNum == 0))
-                        {
-                            // Addr taken on "this" pointer is significant,
-                            // go ahead to mark it as permanently addr-exposed here.
-                            // This may be conservative, but probably not very.
-                            lvaSetAddressExposed(lcl);
-                        }
-                    }
-                }
-
-                lclRefCount++;
-                break;
-
-            case CEE_RET:
-                retBlocks++;
-                break;
-
-            case CEE_JMP:
-                retBlocks++;
-
-#if !defined(TARGET_X86) && !defined(TARGET_ARM)
-                if (inlineInfo == nullptr)
-                {
-                    // We transform this into a set of ldarg's + tail call and
-                    // thus may push more onto the stack than originally thought.
-                    // This doesn't interfere with verification because CEE_JMP
-                    // is never verifiable, and there's nothing unsafe you can
-                    // do with a an IL stack overflow if the JIT is expecting it.
-                    info.compMaxStack = Max(info.compMaxStack, info.GetILArgCount());
-                    break;
-                }
-#endif
-                FALLTHROUGH;
-            case CEE_MKREFANY:
-            case CEE_RETHROW:
-                if (inlineResult != nullptr)
-                {
-                    // Arguably this should be NoteFatal, but the legacy behavior is
-                    // to ignore this for the prejit root.
-                    inlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
-
-                    // Fail fast if we're inlining...
-                    if (inlineInfo != nullptr)
-                    {
-                        assert(inlineResult->IsFailure());
-                        return nullptr;
-                    }
+                    inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                 }
                 break;
+            }
 
-            case CEE_LOCALLOC:
-                // We now allow localloc callees to become candidates in some cases.
-                if (inlineResult != nullptr)
+            case CEE_BRFALSE_S:
+            case CEE_BRTRUE_S:
+            case CEE_BRFALSE:
+            case CEE_BRTRUE:
+                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                 {
-                    inlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
-
-                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
-                    {
-                        return nullptr;
-                    }
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
                 }
-                break;
-
-            case CEE_LDARG_0:
-            case CEE_LDARG_1:
-            case CEE_LDARG_2:
-            case CEE_LDARG_3:
-                varNum = opcode - CEE_LDARG_0;
-                goto LDARG;
-
-            case CEE_LDARG:
-                if (codeAddr > codeEnd - 2)
+                else if (FgStack::IsArgument(pushedStack.Top()))
                 {
-                    goto TOO_FAR;
-                }
-
-                varNum = getU2LittleEndian(codeAddr);
-                goto LDARG;
-
-            case CEE_LDARG_S:
-                if (codeAddr > codeEnd - 1)
-                {
-                    goto TOO_FAR;
-                }
-
-                varNum = *codeAddr;
-
-            LDARG:
-                if (inlineResult != nullptr)
-                {
-                    pushedStack.PushArgument(varNum);
-                    handled = true;
-                }
-                break;
-
-            case CEE_LDLEN:
-                if (inlineResult != nullptr)
-                {
-                    pushedStack.PushArrayLen();
-                    handled = true;
+                    // E.g. brtrue is basically "if (X == 0)"
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
                 }
                 break;
 
             default:
                 break;
+            }
+        }
+        break;
+
+        case CEE_SWITCH:
+        {
+            if (inlineResult != nullptr)
+            {
+                inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
+                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                {
+                    inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
+                }
+
+                // Fail fast, if we're inlining and can't handle this.
+                if ((inlineInfo != nullptr) && inlineResult->IsFailure())
+                {
+                    return nullptr;
+                }
+            }
+
+            if (codeAddr > codeEnd - 4)
+            {
+                goto TOO_FAR;
+            }
+
+            unsigned targetCount = getU4LittleEndian(codeAddr);
+            codeAddr += 4;
+
+            if (targetCount > codeSize / 4)
+            {
+                goto TOO_FAR;
+            }
+
+            unsigned fallThroughOffset = static_cast<unsigned>(codeAddr - codeBegin) + targetCount * 4;
+
+            if (fallThroughOffset >= codeSize)
+            {
+                goto TOO_FAR;
+            }
+
+            if (jumpTargets == nullptr)
+            {
+                jumpTargets = ILLabelSetOps::MakeEmpty(this);
+            }
+
+            ILLabelSetOps::AddElemD(this, jumpTargets, fallThroughOffset);
+
+            for (unsigned i = 0; i < targetCount; i++)
+            {
+                unsigned targetOffset = fallThroughOffset + getI4LittleEndian(codeAddr);
+                codeAddr += 4;
+
+                if (targetOffset >= codeSize)
+                {
+                    BADCODE3("jump target out of range", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
+                }
+
+                ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
+            }
+
+            // We've advanced past all the bytes in this instruction
+            sz = 0;
+        }
+        break;
+
+        case CEE_LDFLDA:
+        case CEE_LDFLD:
+        case CEE_STFLD:
+            if (FgStack::IsArgument(pushedStack.Top()))
+            {
+                inlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
+                handled = true; // keep argument on top of the stack
+            }
+            break;
+
+        case CEE_LDELEM_I1:
+        case CEE_LDELEM_U1:
+        case CEE_LDELEM_I2:
+        case CEE_LDELEM_U2:
+        case CEE_LDELEM_I4:
+        case CEE_LDELEM_U4:
+        case CEE_LDELEM_I8:
+        case CEE_LDELEM_I:
+        case CEE_LDELEM_R4:
+        case CEE_LDELEM_R8:
+        case CEE_LDELEM_REF:
+        case CEE_STELEM_I:
+        case CEE_STELEM_I1:
+        case CEE_STELEM_I2:
+        case CEE_STELEM_I4:
+        case CEE_STELEM_I8:
+        case CEE_STELEM_R4:
+        case CEE_STELEM_R8:
+        case CEE_STELEM_REF:
+        case CEE_LDELEM:
+        case CEE_STELEM:
+            if (preciseScan && (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1))))
+            {
+                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+            }
+            break;
+
+        case CEE_TAILCALL:
+            if (inlineInfo != nullptr)
+            {
+                // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
+                // can be dispatched as tail calls from the caller.
+                inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
+                return nullptr;
+            }
+            FALLTHROUGH;
+        case CEE_UNALIGNED:
+        case CEE_CONSTRAINED:
+        case CEE_READONLY:
+        case CEE_VOLATILE:
+            if (codeAddr + sz >= codeEnd)
+            {
+                BADCODE("prefix not followed by opcode");
+            }
+
+            handled = true;
+            goto OBSERVE_OPCODE;
+
+        case CEE_STARG:
+        case CEE_STARG_S:
+            if (codeAddr > codeEnd - sz)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
+
+            if (inlineInfo != nullptr)
+            {
+                inlineInfo->NoteParamStore(varNum);
+            }
+            else
+            {
+                // account for possible hidden param
+                varNum = lvaMapILArgNumToLclNum(varNum);
+
+                // This check is only intended to prevent an AV.  Bad varNum values will later
+                // be handled properly by the verifier.
+                if (varNum < lvaCount)
+                {
+                    // In non-inline cases, note written-to arguments.
+                    lvaGetDesc(varNum)->lvHasILStoreOp = 1;
+                }
+            }
+
+            lclRefCount++;
+            break;
+
+        case CEE_STLOC_0:
+        case CEE_STLOC_1:
+        case CEE_STLOC_2:
+        case CEE_STLOC_3:
+            varNum = opcode - CEE_STLOC_0;
+            goto STLOC;
+
+        case CEE_STLOC:
+            if (codeAddr > codeEnd - 2)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = getU2LittleEndian(codeAddr);
+            goto STLOC;
+
+        case CEE_STLOC_S:
+            if (codeAddr > codeEnd - 1)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = *codeAddr;
+
+        STLOC:
+            if (inlineInfo != nullptr)
+            {
+                inlineInfo->NoteLocalStore(varNum);
+            }
+            else
+            {
+                varNum += info.GetParamCount();
+
+                // This check is only intended to prevent invalid memory access. Bad varNum values
+                // will later be handled properly by the importer.
+                if (varNum < lvaCount)
+                {
+                    LclVarDsc* lcl = lvaGetDesc(varNum);
+
+                    // In non-inline cases, note written-to locals.
+                    if (lcl->lvHasILStoreOp)
+                    {
+                        lcl->lvHasMultipleILStoreOp = 1;
+                    }
+                    else
+                    {
+                        lcl->lvHasILStoreOp = 1;
+                    }
+                }
+            }
+
+            lclRefCount++;
+            break;
+
+        case CEE_LDLOC_0:
+        case CEE_LDLOC_1:
+        case CEE_LDLOC_2:
+        case CEE_LDLOC_3:
+            // TODO-MIKE-Review: Why only LDLOC_0-3?
+            if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
+            {
+                // Fold stloc + ldloc
+                pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
+                handled = true;
+            }
+            FALLTHROUGH;
+        case CEE_LDLOC:
+        case CEE_LDLOC_S:
+            lclRefCount++;
+            break;
+
+        case CEE_LDARGA:
+        case CEE_LDLOCA:
+            if (codeAddr > codeEnd - 2)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = getU2LittleEndian(codeAddr);
+            goto LDLOCA;
+
+        case CEE_LDARGA_S:
+        case CEE_LDLOCA_S:
+            if (codeAddr > codeEnd - 1)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = *codeAddr;
+
+        LDLOCA:
+            if (inlineInfo != nullptr)
+            {
+                if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
+                {
+                    inlineInfo->NoteAddressTakenLocal(varNum);
+                    typeIsNormed = inlineInfo->IsNormedTypeLocal(varNum);
+                }
+                else
+                {
+                    inlineInfo->NoteAddressTakenParam(varNum);
+                    typeIsNormed = inlineInfo->IsNormedTypeParam(varNum);
+
+                    pushedStack.PushArgument(varNum);
+                    handled = true;
+                }
+            }
+            else
+            {
+                if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
+                {
+                    if (varNum >= info.GetILLocCount())
+                    {
+                        BADCODE("bad local number");
+                    }
+
+                    varNum += info.GetParamCount();
+                }
+                else
+                {
+                    if (varNum >= info.GetILArgCount())
+                    {
+                        BADCODE("bad argument number");
+                    }
+
+                    varNum = lvaMapILArgNumToLclNum(varNum);
+                }
+
+                LclVarDsc* lcl = lvaGetDesc(varNum);
+
+                typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsStruct();
+
+                // Determine if the next instruction will consume
+                // the address. If so we won't mark this var as
+                // address taken.
+                //
+                // We will put structs on the stack and changing
+                // the addrTaken of a local requires an extra pass
+                // in the morpher so we won't apply this
+                // optimization to structs.
+                //
+                // Debug code spills for every IL instruction, and
+                // therefore it will split statements, so we will
+                // need the address.  Note that this optimization
+                // is based in that we know what trees we will
+                // generate for this ldfld, and we require that we
+                // won't need the address of this local at all
+
+                const bool notStruct    = !varTypeIsStruct(lcl->GetType());
+                const bool notLastInstr = (codeAddr < codeEnd - sz);
+                const bool notDebugCode = !opts.compDbgCode;
+
+                if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
+                {
+                    // We can skip the addrtaken, as next IL instruction consumes
+                    // the address.
+                }
+                else
+                {
+                    lcl->lvHasLdAddrOp = true;
+
+                    if (!info.compIsStatic && (varNum == 0))
+                    {
+                        // Addr taken on "this" pointer is significant,
+                        // go ahead to mark it as permanently addr-exposed here.
+                        // This may be conservative, but probably not very.
+                        lvaSetAddressExposed(lcl);
+                    }
+                }
+            }
+
+            lclRefCount++;
+            break;
+
+        case CEE_RET:
+            retBlocks++;
+            break;
+
+        case CEE_JMP:
+            retBlocks++;
+
+#if !defined(TARGET_X86) && !defined(TARGET_ARM)
+            if (inlineInfo == nullptr)
+            {
+                // We transform this into a set of ldarg's + tail call and
+                // thus may push more onto the stack than originally thought.
+                // This doesn't interfere with verification because CEE_JMP
+                // is never verifiable, and there's nothing unsafe you can
+                // do with a an IL stack overflow if the JIT is expecting it.
+                info.compMaxStack = Max(info.compMaxStack, info.GetILArgCount());
+                break;
+            }
+#endif
+            FALLTHROUGH;
+        case CEE_MKREFANY:
+        case CEE_RETHROW:
+            if (inlineResult != nullptr)
+            {
+                // Arguably this should be NoteFatal, but the legacy behavior is
+                // to ignore this for the prejit root.
+                inlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
+
+                // Fail fast if we're inlining...
+                if (inlineInfo != nullptr)
+                {
+                    assert(inlineResult->IsFailure());
+                    return nullptr;
+                }
+            }
+            break;
+
+        case CEE_LOCALLOC:
+            // We now allow localloc callees to become candidates in some cases.
+            if (inlineResult != nullptr)
+            {
+                inlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
+
+                if ((inlineInfo != nullptr) && inlineResult->IsFailure())
+                {
+                    return nullptr;
+                }
+            }
+            break;
+
+        case CEE_LDARG_0:
+        case CEE_LDARG_1:
+        case CEE_LDARG_2:
+        case CEE_LDARG_3:
+            varNum = opcode - CEE_LDARG_0;
+            goto LDARG;
+
+        case CEE_LDARG:
+            if (codeAddr > codeEnd - 2)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = getU2LittleEndian(codeAddr);
+            goto LDARG;
+
+        case CEE_LDARG_S:
+            if (codeAddr > codeEnd - 1)
+            {
+                goto TOO_FAR;
+            }
+
+            varNum = *codeAddr;
+
+        LDARG:
+            if (inlineResult != nullptr)
+            {
+                pushedStack.PushArgument(varNum);
+                handled = true;
+            }
+            break;
+
+        case CEE_LDLEN:
+            if (inlineResult != nullptr)
+            {
+                pushedStack.PushArrayLen();
+                handled = true;
+            }
+            break;
+
+        default:
+            break;
         }
 
         // Increment the number of observed instructions
@@ -2033,63 +2028,63 @@ void Compiler::fgLinkBasicBlocks()
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
-            case BBJ_ALWAYS:
-            case BBJ_LEAVE:
-                block->bbJumpDest = fgLookupBB(block->bbJumpOffs);
-                block->bbJumpDest->bbRefs++;
+        case BBJ_COND:
+        case BBJ_ALWAYS:
+        case BBJ_LEAVE:
+            block->bbJumpDest = fgLookupBB(block->bbJumpOffs);
+            block->bbJumpDest->bbRefs++;
 
-                if (block->bbJumpDest->bbNum <= block->bbNum)
-                {
-                    fgMarkBackwardJump(block->bbJumpDest, block);
-                }
-
-                if (block->bbJumpKind != BBJ_COND)
-                {
-                    break;
-                }
-
-                FALLTHROUGH;
-            case BBJ_NONE:
-                if (block->bbNext == nullptr)
-                {
-                    BADCODE("Fall thru the end of a method");
-                }
-
-                block->bbNext->bbRefs++;
-                break;
-
-            case BBJ_SWITCH:
+            if (block->bbJumpDest->bbNum <= block->bbNum)
             {
-                unsigned     count   = block->bbJumpSwt->bbsCount;
-                BasicBlock** targets = block->bbJumpSwt->bbsDstTab;
-
-                for (unsigned i = 0; i < count; i++)
-                {
-                    BasicBlock* target = fgLookupBB(static_cast<unsigned>(reinterpret_cast<size_t>(targets[i])));
-                    target->bbRefs++;
-                    targets[i] = target;
-
-                    if (target->bbNum <= block->bbNum)
-                    {
-                        fgMarkBackwardJump(target, block);
-                    }
-                }
-
-                noway_assert(targets[count - 1] == block->bbNext);
+                fgMarkBackwardJump(block->bbJumpDest, block);
             }
+
+            if (block->bbJumpKind != BBJ_COND)
+            {
+                break;
+            }
+
+            FALLTHROUGH;
+        case BBJ_NONE:
+            if (block->bbNext == nullptr)
+            {
+                BADCODE("Fall thru the end of a method");
+            }
+
+            block->bbNext->bbRefs++;
             break;
 
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                break;
+        case BBJ_SWITCH:
+        {
+            unsigned     count   = block->bbJumpSwt->bbsCount;
+            BasicBlock** targets = block->bbJumpSwt->bbsDstTab;
 
-            case BBJ_CALLFINALLY: // BBJ_CALLFINALLY and BBJ_EHCATCHRET don't appear until later
-            case BBJ_EHCATCHRET:
-            default:
-                unreached();
+            for (unsigned i = 0; i < count; i++)
+            {
+                BasicBlock* target = fgLookupBB(static_cast<unsigned>(reinterpret_cast<size_t>(targets[i])));
+                target->bbRefs++;
+                targets[i] = target;
+
+                if (target->bbNum <= block->bbNum)
+                {
+                    fgMarkBackwardJump(target, block);
+                }
+            }
+
+            noway_assert(targets[count - 1] == block->bbNext);
+        }
+        break;
+
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            break;
+
+        case BBJ_CALLFINALLY: // BBJ_CALLFINALLY and BBJ_EHCATCHRET don't appear until later
+        case BBJ_EHCATCHRET:
+        default:
+            unreached();
         }
     }
 }
@@ -2146,172 +2141,172 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
 
         switch (opcode)
         {
-            case CEE_PREFIX1:
-                opcode = static_cast<OPCODE>(256 + *codeAddr++);
-                assert(opcode < CEE_COUNT);
-                goto DECODE_OPCODE;
+        case CEE_PREFIX1:
+            opcode = static_cast<OPCODE>(256 + *codeAddr++);
+            assert(opcode < CEE_COUNT);
+            goto DECODE_OPCODE;
 
-            case CEE_TAILCALL:
-                opcode   = static_cast<OPCODE>(*codeAddr++);
-                tailCall = true;
-                goto DECODE_OPCODE;
+        case CEE_TAILCALL:
+            opcode   = static_cast<OPCODE>(*codeAddr++);
+            tailCall = true;
+            goto DECODE_OPCODE;
 
-            case CEE_THROW:
-            case CEE_RETHROW:
-                jumpKind = BBJ_THROW;
-                break;
-
-            case CEE_ENDFILTER:
-                blockFlags |= BBF_DONT_REMOVE;
-                jumpKind = BBJ_EHFILTERRET;
-                break;
-
-            case CEE_ENDFINALLY:
-                jumpKind = BBJ_EHFINALLYRET;
-                break;
-
-            case CEE_BRFALSE:
-            case CEE_BRFALSE_S:
-            case CEE_BRTRUE:
-            case CEE_BRTRUE_S:
-            case CEE_BEQ:
-            case CEE_BEQ_S:
-            case CEE_BGE:
-            case CEE_BGE_S:
-            case CEE_BGE_UN:
-            case CEE_BGE_UN_S:
-            case CEE_BGT:
-            case CEE_BGT_S:
-            case CEE_BGT_UN:
-            case CEE_BGT_UN_S:
-            case CEE_BLE:
-            case CEE_BLE_S:
-            case CEE_BLE_UN:
-            case CEE_BLE_UN_S:
-            case CEE_BLT:
-            case CEE_BLT_S:
-            case CEE_BLT_UN:
-            case CEE_BLT_UN_S:
-            case CEE_BNE_UN:
-            case CEE_BNE_UN_S:
-                jumpKind = BBJ_COND;
-                goto JMP;
-
-            case CEE_LEAVE:
-            case CEE_LEAVE_S:
-                jumpKind = BBJ_LEAVE;
-                goto JMP;
-
-            case CEE_BR:
-            case CEE_BR_S:
-                jumpKind = BBJ_ALWAYS;
-                goto JMP;
-
-            JMP:
-            {
-                int jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
-
-                if ((inlineInfo != nullptr) && (jmpDist == 0) && (opcode == CEE_BR || opcode == CEE_BR_S))
-                {
-                    continue;
-                }
-
-                jumpOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + jmpDist;
-            }
+        case CEE_THROW:
+        case CEE_RETHROW:
+            jumpKind = BBJ_THROW;
             break;
 
-            case CEE_SWITCH:
+        case CEE_ENDFILTER:
+            blockFlags |= BBF_DONT_REMOVE;
+            jumpKind = BBJ_EHFILTERRET;
+            break;
+
+        case CEE_ENDFINALLY:
+            jumpKind = BBJ_EHFINALLYRET;
+            break;
+
+        case CEE_BRFALSE:
+        case CEE_BRFALSE_S:
+        case CEE_BRTRUE:
+        case CEE_BRTRUE_S:
+        case CEE_BEQ:
+        case CEE_BEQ_S:
+        case CEE_BGE:
+        case CEE_BGE_S:
+        case CEE_BGE_UN:
+        case CEE_BGE_UN_S:
+        case CEE_BGT:
+        case CEE_BGT_S:
+        case CEE_BGT_UN:
+        case CEE_BGT_UN_S:
+        case CEE_BLE:
+        case CEE_BLE_S:
+        case CEE_BLE_UN:
+        case CEE_BLE_UN_S:
+        case CEE_BLT:
+        case CEE_BLT_S:
+        case CEE_BLT_UN:
+        case CEE_BLT_UN_S:
+        case CEE_BNE_UN:
+        case CEE_BNE_UN_S:
+            jumpKind = BBJ_COND;
+            goto JMP;
+
+        case CEE_LEAVE:
+        case CEE_LEAVE_S:
+            jumpKind = BBJ_LEAVE;
+            goto JMP;
+
+        case CEE_BR:
+        case CEE_BR_S:
+            jumpKind = BBJ_ALWAYS;
+            goto JMP;
+
+        JMP:
+        {
+            int jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
+
+            if ((inlineInfo != nullptr) && (jmpDist == 0) && (opcode == CEE_BR || opcode == CEE_BR_S))
             {
-                switchDesc = new (this, CMK_BasicBlock) BBswtDesc;
+                continue;
+            }
 
-                unsigned targetCount = getU4LittleEndian(codeAddr);
+            jumpOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + jmpDist;
+        }
+        break;
+
+        case CEE_SWITCH:
+        {
+            switchDesc = new (this, CMK_BasicBlock) BBswtDesc;
+
+            unsigned targetCount = getU4LittleEndian(codeAddr);
+            codeAddr += 4;
+            unsigned fallThroughOffset = static_cast<unsigned>((codeAddr - codeBegin) + targetCount * 4);
+
+            BasicBlock** targetTable = new (this, CMK_BasicBlock) BasicBlock*[targetCount + 1];
+
+            for (unsigned i = 0; i < targetCount; i++)
+            {
+                int distance = getI4LittleEndian(codeAddr);
                 codeAddr += 4;
-                unsigned fallThroughOffset = static_cast<unsigned>((codeAddr - codeBegin) + targetCount * 4);
 
-                BasicBlock** targetTable = new (this, CMK_BasicBlock) BasicBlock*[targetCount + 1];
+                // Store the offset in the pointer. We change these in fgLinkBasicBlocks.
+                targetTable[i] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset + distance));
+            }
 
-                for (unsigned i = 0; i < targetCount; i++)
+            targetTable[targetCount] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset));
+
+            switchDesc->bbsCount  = targetCount + 1;
+            switchDesc->bbsDstTab = targetTable;
+
+            jumpKind    = BBJ_SWITCH;
+            fgHasSwitch = true;
+
+            if (opts.compProcedureSplitting)
+            {
+                // TODO-CQ: We might need to create a switch table; we won't know for sure until much later.
+                // However, switch tables don't work with hot/cold splitting, currently. The switch table data needs
+                // a relocation such that if the base (the first block after the prolog) and target of the switch
+                // branch are put in different sections, the difference stored in the table is updated. However, our
+                // relocation implementation doesn't support three different pointers (relocation address, base, and
+                // target). So, we need to change our switch table implementation to be more like
+                // JIT64: put the table in the code section, in the same hot/cold section as the switch jump itself
+                // (maybe immediately after the switch jump), and make the "base" address be also in that section,
+                // probably the address after the switch jump.
+                opts.compProcedureSplitting = false;
+                JITDUMP("Turning off procedure splitting for this method, as it might need switch tables; "
+                        "implementation limitation.\n");
+            }
+
+            assert(sz == 0);
+            break;
+        }
+
+        case CEE_CALL:
+        case CEE_CALLVIRT:
+        case CEE_CALLI:
+            if (tailCall)
+            {
+                if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                 {
-                    int distance = getI4LittleEndian(codeAddr);
-                    codeAddr += 4;
-
-                    // Store the offset in the pointer. We change these in fgLinkBasicBlocks.
-                    targetTable[i] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset + distance));
+                    BADCODE3("tail call not followed by ret", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
-                targetTable[targetCount] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset));
-
-                switchDesc->bbsCount  = targetCount + 1;
-                switchDesc->bbsDstTab = targetTable;
-
-                jumpKind    = BBJ_SWITCH;
-                fgHasSwitch = true;
-
-                if (opts.compProcedureSplitting)
+                impHasExplicitTailCall = true;
+            }
+#ifdef DEBUG
+            else if (compTailCallStress() && (inlineInfo == nullptr))
+            {
+                if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                 {
-                    // TODO-CQ: We might need to create a switch table; we won't know for sure until much later.
-                    // However, switch tables don't work with hot/cold splitting, currently. The switch table data needs
-                    // a relocation such that if the base (the first block after the prolog) and target of the switch
-                    // branch are put in different sections, the difference stored in the table is updated. However, our
-                    // relocation implementation doesn't support three different pointers (relocation address, base, and
-                    // target). So, we need to change our switch table implementation to be more like
-                    // JIT64: put the table in the code section, in the same hot/cold section as the switch jump itself
-                    // (maybe immediately after the switch jump), and make the "base" address be also in that section,
-                    // probably the address after the switch jump.
-                    opts.compProcedureSplitting = false;
-                    JITDUMP("Turning off procedure splitting for this method, as it might need switch tables; "
-                            "implementation limitation.\n");
+                    // Next opcode is not RET, bail the attempt to stress the tailcall.
+                    break;
                 }
-
-                assert(sz == 0);
+            }
+#endif
+            else
+            {
                 break;
             }
 
-            case CEE_CALL:
-            case CEE_CALLVIRT:
-            case CEE_CALLI:
-                if (tailCall)
-                {
-                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
-                    {
-                        BADCODE3("tail call not followed by ret", " at offset %04X",
-                                 static_cast<unsigned>(codeAddr - codeBegin));
-                    }
+            // For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the target.
+            // So we don't need an epilog - just like CORINFO_HELP_THROW.
+            // Make the block BBJ_RETURN, but we will change it to BBJ_THROW if the tailness
+            // of the call is satisfied.
+            // NOTE: The next instruction is guaranteed to be a CEE_RET and it will create
+            // another BasicBlock. But there may be an jump directly to that CEE_RET. If we
+            // want to avoid creating an unnecessary block, we need to check if the CEE_RETURN
+            // is the target of a jump.
+            FALLTHROUGH;
+        case CEE_JMP:
+        case CEE_RET:
+            retBlocks++;
+            jumpKind = BBJ_RETURN;
+            break;
 
-                    impHasExplicitTailCall = true;
-                }
-#ifdef DEBUG
-                else if (compTailCallStress() && (inlineInfo == nullptr))
-                {
-                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
-                    {
-                        // Next opcode is not RET, bail the attempt to stress the tailcall.
-                        break;
-                    }
-                }
-#endif
-                else
-                {
-                    break;
-                }
-
-                // For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the target.
-                // So we don't need an epilog - just like CORINFO_HELP_THROW.
-                // Make the block BBJ_RETURN, but we will change it to BBJ_THROW if the tailness
-                // of the call is satisfied.
-                // NOTE: The next instruction is guaranteed to be a CEE_RET and it will create
-                // another BasicBlock. But there may be an jump directly to that CEE_RET. If we
-                // want to avoid creating an unnecessary block, we need to check if the CEE_RETURN
-                // is the target of a jump.
-                FALLTHROUGH;
-            case CEE_JMP:
-            case CEE_RET:
-                retBlocks++;
-                jumpKind = BBJ_RETURN;
-                break;
-
-            default:
-                break;
+        default:
+            break;
         }
 
         codeAddr += sz;
@@ -2361,19 +2356,19 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
 
         switch (jumpKind)
         {
-            case BBJ_SWITCH:
-                block->bbJumpSwt = switchDesc;
-                break;
+        case BBJ_SWITCH:
+            block->bbJumpSwt = switchDesc;
+            break;
 
-            case BBJ_COND:
-            case BBJ_ALWAYS:
-            case BBJ_LEAVE:
-                assert(jumpOffset != BAD_IL_OFFSET);
-                block->bbJumpOffs = jumpOffset;
-                break;
+        case BBJ_COND:
+        case BBJ_ALWAYS:
+        case BBJ_LEAVE:
+            assert(jumpOffset != BAD_IL_OFFSET);
+            block->bbJumpOffs = jumpOffset;
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
 
         if (fgFirstBB != nullptr)
@@ -2902,90 +2897,90 @@ void Compiler::fgCheckBasicBlockControlFlow()
 
         switch (blk->bbJumpKind)
         {
-            case BBJ_NONE: // block flows into the next one (no jump)
+        case BBJ_NONE: // block flows into the next one (no jump)
 
-                fgControlFlowPermitted(blk, blk->bbNext);
+            fgControlFlowPermitted(blk, blk->bbNext);
 
-                break;
+            break;
 
-            case BBJ_ALWAYS: // block does unconditional jump to target
+        case BBJ_ALWAYS: // block does unconditional jump to target
 
-                fgControlFlowPermitted(blk, blk->bbJumpDest);
+            fgControlFlowPermitted(blk, blk->bbJumpDest);
 
-                break;
+            break;
 
-            case BBJ_COND: // block conditionally jumps to the target
+        case BBJ_COND: // block conditionally jumps to the target
 
-                fgControlFlowPermitted(blk, blk->bbNext);
+            fgControlFlowPermitted(blk, blk->bbNext);
 
-                fgControlFlowPermitted(blk, blk->bbJumpDest);
+            fgControlFlowPermitted(blk, blk->bbJumpDest);
 
-                break;
+            break;
 
-            case BBJ_RETURN: // block ends with 'ret'
+        case BBJ_RETURN: // block ends with 'ret'
 
-                if (blk->hasTryIndex() || blk->hasHndIndex())
+            if (blk->hasTryIndex() || blk->hasHndIndex())
+            {
+                BADCODE3("Return from a protected block", ". Before offset %04X", blk->bbCodeOffsEnd);
+            }
+            break;
+
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+
+            if (!blk->hasHndIndex()) // must be part of a handler
+            {
+                BADCODE3("Missing handler", ". Before offset %04X", blk->bbCodeOffsEnd);
+            }
+
+            HBtab = ehGetDsc(blk->getHndIndex());
+
+            // Endfilter allowed only in a filter block
+            if (blk->bbJumpKind == BBJ_EHFILTERRET)
+            {
+                if (!HBtab->HasFilter())
                 {
-                    BADCODE3("Return from a protected block", ". Before offset %04X", blk->bbCodeOffsEnd);
+                    BADCODE("Unexpected endfilter");
                 }
-                break;
+            }
+            // endfinally allowed only in a finally/fault block
+            else if (!HBtab->HasFinallyOrFaultHandler())
+            {
+                BADCODE("Unexpected endfinally");
+            }
 
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
+            // The handler block should be the innermost block
+            // Exception blocks are listed, innermost first.
+            if (blk->hasTryIndex() && (blk->getTryIndex() < blk->getHndIndex()))
+            {
+                BADCODE("endfinally / endfilter in nested try block");
+            }
 
-                if (!blk->hasHndIndex()) // must be part of a handler
-                {
-                    BADCODE3("Missing handler", ". Before offset %04X", blk->bbCodeOffsEnd);
-                }
+            break;
 
-                HBtab = ehGetDsc(blk->getHndIndex());
+        case BBJ_THROW: // block ends with 'throw'
+            /* throw is permitted from every BB, so nothing to check */
+            /* importer makes sure that rethrow is done from a catch */
+            break;
 
-                // Endfilter allowed only in a filter block
-                if (blk->bbJumpKind == BBJ_EHFILTERRET)
-                {
-                    if (!HBtab->HasFilter())
-                    {
-                        BADCODE("Unexpected endfilter");
-                    }
-                }
-                // endfinally allowed only in a finally/fault block
-                else if (!HBtab->HasFinallyOrFaultHandler())
-                {
-                    BADCODE("Unexpected endfinally");
-                }
+        case BBJ_LEAVE: // block always jumps to the target, maybe out of guarded
+                        // region. Used temporarily until importing
+            fgControlFlowPermitted(blk, blk->bbJumpDest, true);
 
-                // The handler block should be the innermost block
-                // Exception blocks are listed, innermost first.
-                if (blk->hasTryIndex() && (blk->getTryIndex() < blk->getHndIndex()))
-                {
-                    BADCODE("endfinally / endfilter in nested try block");
-                }
+            break;
 
-                break;
+        case BBJ_SWITCH: // block ends with a switch statement
+            for (BasicBlock* const bTarget : blk->SwitchTargets())
+            {
+                fgControlFlowPermitted(blk, bTarget);
+            }
+            break;
 
-            case BBJ_THROW: // block ends with 'throw'
-                /* throw is permitted from every BB, so nothing to check */
-                /* importer makes sure that rethrow is done from a catch */
-                break;
-
-            case BBJ_LEAVE: // block always jumps to the target, maybe out of guarded
-                            // region. Used temporarily until importing
-                fgControlFlowPermitted(blk, blk->bbJumpDest, true);
-
-                break;
-
-            case BBJ_SWITCH: // block ends with a switch statement
-                for (BasicBlock* const bTarget : blk->SwitchTargets())
-                {
-                    fgControlFlowPermitted(blk, bTarget);
-                }
-                break;
-
-            case BBJ_EHCATCHRET:  // block ends with a leave out of a catch (only #if defined(FEATURE_EH_FUNCLETS))
-            case BBJ_CALLFINALLY: // block always calls the target finally
-            default:
-                noway_assert(!"Unexpected bbJumpKind"); // these blocks don't get created until importing
-                break;
+        case BBJ_EHCATCHRET:  // block ends with a leave out of a catch (only #if defined(FEATURE_EH_FUNCLETS))
+        case BBJ_CALLFINALLY: // block always calls the target finally
+        default:
+            noway_assert(!"Unexpected bbJumpKind"); // these blocks don't get created until importing
+            break;
         }
     }
 }
@@ -3873,20 +3868,20 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
 
         switch (block->bbJumpKind)
         {
-            case BBJ_NONE:
-                break;
+        case BBJ_NONE:
+            break;
 
-            case BBJ_ALWAYS:
-                /* Do not remove a block that jumps to itself - used for while (true){} */
-                noway_assert(block->bbJumpDest != block);
+        case BBJ_ALWAYS:
+            /* Do not remove a block that jumps to itself - used for while (true){} */
+            noway_assert(block->bbJumpDest != block);
 
-                /* Empty GOTO can be removed iff bPrev is BBJ_NONE */
-                noway_assert(bPrev && bPrev->bbJumpKind == BBJ_NONE);
-                break;
+            /* Empty GOTO can be removed iff bPrev is BBJ_NONE */
+            noway_assert(bPrev && bPrev->bbJumpKind == BBJ_NONE);
+            break;
 
-            default:
-                noway_assert(!"Empty block of this type cannot be removed!");
-                break;
+        default:
+            noway_assert(!"Empty block of this type cannot be removed!");
+            break;
         }
 #endif // DEBUG
 
@@ -4020,59 +4015,59 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
             /* change all jumps to the removed block */
             switch (predBlock->bbJumpKind)
             {
-                default:
-                    noway_assert(!"Unexpected bbJumpKind in fgRemoveBlock()");
+            default:
+                noway_assert(!"Unexpected bbJumpKind in fgRemoveBlock()");
+                break;
+
+            case BBJ_NONE:
+                noway_assert(predBlock == bPrev);
+                assert(bPrev != nullptr);
+
+                /* In the case of BBJ_ALWAYS we have to change the type of its predecessor */
+                if (block->bbJumpKind == BBJ_ALWAYS)
+                {
+                    /* bPrev now becomes a BBJ_ALWAYS */
+                    bPrev->bbJumpKind = BBJ_ALWAYS;
+                    bPrev->bbJumpDest = succBlock;
+                }
+                break;
+
+            case BBJ_COND:
+                /* The links for the direct predecessor case have already been updated above */
+                if (predBlock->bbJumpDest != block)
+                {
                     break;
+                }
 
-                case BBJ_NONE:
-                    noway_assert(predBlock == bPrev);
-                    assert(bPrev != nullptr);
-
-                    /* In the case of BBJ_ALWAYS we have to change the type of its predecessor */
-                    if (block->bbJumpKind == BBJ_ALWAYS)
-                    {
-                        /* bPrev now becomes a BBJ_ALWAYS */
-                        bPrev->bbJumpKind = BBJ_ALWAYS;
-                        bPrev->bbJumpDest = succBlock;
-                    }
-                    break;
-
-                case BBJ_COND:
-                    /* The links for the direct predecessor case have already been updated above */
-                    if (predBlock->bbJumpDest != block)
-                    {
-                        break;
-                    }
-
-                    /* Check if both side of the BBJ_COND now jump to the same block */
-                    if (predBlock->bbNext == succBlock)
-                    {
-                        // Make sure we are replacing "block" with "succBlock" in predBlock->bbJumpDest.
-                        noway_assert(predBlock->bbJumpDest == block);
-                        predBlock->bbJumpDest = succBlock;
-                        fgRemoveConditionalJump(predBlock);
-                        break;
-                    }
-
-                    /* Fall through for the jump case */
-                    FALLTHROUGH;
-
-                case BBJ_CALLFINALLY:
-                case BBJ_ALWAYS:
-                case BBJ_EHCATCHRET:
+                /* Check if both side of the BBJ_COND now jump to the same block */
+                if (predBlock->bbNext == succBlock)
+                {
+                    // Make sure we are replacing "block" with "succBlock" in predBlock->bbJumpDest.
                     noway_assert(predBlock->bbJumpDest == block);
                     predBlock->bbJumpDest = succBlock;
+                    fgRemoveConditionalJump(predBlock);
                     break;
+                }
 
-                case BBJ_SWITCH:
-                    // Change any jumps from 'predBlock' (a BBJ_SWITCH) to 'block' to jump to 'succBlock'
-                    //
-                    // For the jump targets of 'predBlock' (a BBJ_SWITCH) that jump to 'block'
-                    // remove the old predecessor at 'block' from 'predBlock'  and
-                    // add the new predecessor at 'succBlock' from 'predBlock'
-                    //
-                    fgReplaceSwitchJumpTarget(predBlock, succBlock, block);
-                    break;
+                /* Fall through for the jump case */
+                FALLTHROUGH;
+
+            case BBJ_CALLFINALLY:
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+                noway_assert(predBlock->bbJumpDest == block);
+                predBlock->bbJumpDest = succBlock;
+                break;
+
+            case BBJ_SWITCH:
+                // Change any jumps from 'predBlock' (a BBJ_SWITCH) to 'block' to jump to 'succBlock'
+                //
+                // For the jump targets of 'predBlock' (a BBJ_SWITCH) that jump to 'block'
+                // remove the old predecessor at 'block' from 'predBlock'  and
+                // add the new predecessor at 'succBlock' from 'predBlock'
+                //
+                fgReplaceSwitchJumpTarget(predBlock, succBlock, block);
+                break;
             }
         }
     }
@@ -4081,39 +4076,39 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
     {
         switch (bPrev->bbJumpKind)
         {
-            case BBJ_CALLFINALLY:
-                // If prev is a BBJ_CALLFINALLY it better be marked as RETLESS
-                noway_assert(bPrev->bbFlags & BBF_RETLESS_CALL);
-                break;
+        case BBJ_CALLFINALLY:
+            // If prev is a BBJ_CALLFINALLY it better be marked as RETLESS
+            noway_assert(bPrev->bbFlags & BBF_RETLESS_CALL);
+            break;
 
-            case BBJ_ALWAYS:
-                // Check for branch to next block. Just make sure the BBJ_ALWAYS block is not
-                // part of a BBJ_CALLFINALLY/BBJ_ALWAYS pair. We do this here and don't rely on fgUpdateFlowGraph
-                // because we can be called by ComputeDominators and it expects it to remove this jump to
-                // the next block. This is the safest fix. We should remove all this BBJ_CALLFINALLY/BBJ_ALWAYS
-                // pairing.
+        case BBJ_ALWAYS:
+            // Check for branch to next block. Just make sure the BBJ_ALWAYS block is not
+            // part of a BBJ_CALLFINALLY/BBJ_ALWAYS pair. We do this here and don't rely on fgUpdateFlowGraph
+            // because we can be called by ComputeDominators and it expects it to remove this jump to
+            // the next block. This is the safest fix. We should remove all this BBJ_CALLFINALLY/BBJ_ALWAYS
+            // pairing.
 
-                if ((bPrev->bbJumpDest == bPrev->bbNext) &&
-                    !fgInDifferentRegions(bPrev, bPrev->bbJumpDest)) // We don't remove a branch from Hot -> Cold
+            if ((bPrev->bbJumpDest == bPrev->bbNext) &&
+                !fgInDifferentRegions(bPrev, bPrev->bbJumpDest)) // We don't remove a branch from Hot -> Cold
+            {
+                if ((bPrev == fgFirstBB) || !bPrev->isBBCallAlwaysPairTail())
                 {
-                    if ((bPrev == fgFirstBB) || !bPrev->isBBCallAlwaysPairTail())
-                    {
-                        // It's safe to change the jump type
-                        bPrev->bbJumpKind = BBJ_NONE;
-                    }
+                    // It's safe to change the jump type
+                    bPrev->bbJumpKind = BBJ_NONE;
                 }
-                break;
+            }
+            break;
 
-            case BBJ_COND:
-                /* Check for branch to next block */
-                if (bPrev->bbJumpDest == bPrev->bbNext)
-                {
-                    fgRemoveConditionalJump(bPrev);
-                }
-                break;
+        case BBJ_COND:
+            /* Check for branch to next block */
+            if (bPrev->bbJumpDest == bPrev->bbNext)
+            {
+                fgRemoveConditionalJump(bPrev);
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
 
         ehUpdateForDeletedBlock(block);
@@ -4140,90 +4135,90 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
             switch (bSrc->bbJumpKind)
             {
 
-                case BBJ_NONE:
-                    bSrc->bbJumpKind = BBJ_ALWAYS;
-                    bSrc->bbJumpDest = bDst;
+            case BBJ_NONE:
+                bSrc->bbJumpKind = BBJ_ALWAYS;
+                bSrc->bbJumpDest = bDst;
 
-                    JITDUMP("Block " FMT_BB " ended with a BBJ_NONE, Changed to an unconditional jump to " FMT_BB "\n",
-                            bSrc->bbNum, bSrc->bbJumpDest->bbNum);
-                    break;
+                JITDUMP("Block " FMT_BB " ended with a BBJ_NONE, Changed to an unconditional jump to " FMT_BB "\n",
+                        bSrc->bbNum, bSrc->bbJumpDest->bbNum);
+                break;
 
-                case BBJ_CALLFINALLY:
-                case BBJ_COND:
+            case BBJ_CALLFINALLY:
+            case BBJ_COND:
 
-                    // Add a new block after bSrc which jumps to 'bDst'
-                    jmpBlk = fgNewBBafter(BBJ_ALWAYS, bSrc, true);
+                // Add a new block after bSrc which jumps to 'bDst'
+                jmpBlk = fgNewBBafter(BBJ_ALWAYS, bSrc, true);
 
-                    if (fgComputePredsDone)
+                if (fgComputePredsDone)
+                {
+                    fgAddRefPred(jmpBlk, bSrc, fgGetPredForBlock(bDst, bSrc));
+                }
+                // Record the loop number in the new block
+                jmpBlk->bbNatLoopNum = bSrc->bbNatLoopNum;
+
+                // When adding a new jmpBlk we will set the bbWeight and bbFlags
+                //
+                if (fgHaveValidEdgeWeights && fgHaveProfileData())
+                {
+                    noway_assert(fgComputePredsDone);
+
+                    flowList* newEdge = fgGetPredForBlock(jmpBlk, bSrc);
+
+                    jmpBlk->bbWeight = (newEdge->edgeWeightMin() + newEdge->edgeWeightMax()) / 2;
+                    if (bSrc->bbWeight == BB_ZERO_WEIGHT)
                     {
-                        fgAddRefPred(jmpBlk, bSrc, fgGetPredForBlock(bDst, bSrc));
+                        jmpBlk->bbWeight = BB_ZERO_WEIGHT;
                     }
-                    // Record the loop number in the new block
-                    jmpBlk->bbNatLoopNum = bSrc->bbNatLoopNum;
 
-                    // When adding a new jmpBlk we will set the bbWeight and bbFlags
+                    if (jmpBlk->bbWeight == BB_ZERO_WEIGHT)
+                    {
+                        jmpBlk->bbFlags |= BBF_RUN_RARELY;
+                    }
+
+                    BasicBlock::weight_t weightDiff = (newEdge->edgeWeightMax() - newEdge->edgeWeightMin());
+                    BasicBlock::weight_t slop       = BasicBlock::GetSlopFraction(bSrc, bDst);
                     //
-                    if (fgHaveValidEdgeWeights && fgHaveProfileData())
+                    // If the [min/max] values for our edge weight is within the slop factor
+                    //  then we will set the BBF_PROF_WEIGHT flag for the block
+                    //
+                    if (weightDiff <= slop)
                     {
-                        noway_assert(fgComputePredsDone);
-
-                        flowList* newEdge = fgGetPredForBlock(jmpBlk, bSrc);
-
-                        jmpBlk->bbWeight = (newEdge->edgeWeightMin() + newEdge->edgeWeightMax()) / 2;
-                        if (bSrc->bbWeight == BB_ZERO_WEIGHT)
-                        {
-                            jmpBlk->bbWeight = BB_ZERO_WEIGHT;
-                        }
-
-                        if (jmpBlk->bbWeight == BB_ZERO_WEIGHT)
-                        {
-                            jmpBlk->bbFlags |= BBF_RUN_RARELY;
-                        }
-
-                        BasicBlock::weight_t weightDiff = (newEdge->edgeWeightMax() - newEdge->edgeWeightMin());
-                        BasicBlock::weight_t slop       = BasicBlock::GetSlopFraction(bSrc, bDst);
-                        //
-                        // If the [min/max] values for our edge weight is within the slop factor
-                        //  then we will set the BBF_PROF_WEIGHT flag for the block
-                        //
-                        if (weightDiff <= slop)
-                        {
-                            jmpBlk->bbFlags |= BBF_PROF_WEIGHT;
-                        }
+                        jmpBlk->bbFlags |= BBF_PROF_WEIGHT;
+                    }
+                }
+                else
+                {
+                    // We set the bbWeight to the smaller of bSrc->bbWeight or bDst->bbWeight
+                    if (bSrc->bbWeight < bDst->bbWeight)
+                    {
+                        jmpBlk->bbWeight = bSrc->bbWeight;
+                        jmpBlk->bbFlags |= (bSrc->bbFlags & BBF_RUN_RARELY);
                     }
                     else
                     {
-                        // We set the bbWeight to the smaller of bSrc->bbWeight or bDst->bbWeight
-                        if (bSrc->bbWeight < bDst->bbWeight)
-                        {
-                            jmpBlk->bbWeight = bSrc->bbWeight;
-                            jmpBlk->bbFlags |= (bSrc->bbFlags & BBF_RUN_RARELY);
-                        }
-                        else
-                        {
-                            jmpBlk->bbWeight = bDst->bbWeight;
-                            jmpBlk->bbFlags |= (bDst->bbFlags & BBF_RUN_RARELY);
-                        }
+                        jmpBlk->bbWeight = bDst->bbWeight;
+                        jmpBlk->bbFlags |= (bDst->bbFlags & BBF_RUN_RARELY);
                     }
+                }
 
-                    jmpBlk->bbJumpDest = bDst;
+                jmpBlk->bbJumpDest = bDst;
 
-                    if (fgComputePredsDone)
-                    {
-                        fgReplacePred(bDst, bSrc, jmpBlk);
-                    }
-                    else
-                    {
-                        jmpBlk->bbFlags |= BBF_IMPORTED;
-                    }
+                if (fgComputePredsDone)
+                {
+                    fgReplacePred(bDst, bSrc, jmpBlk);
+                }
+                else
+                {
+                    jmpBlk->bbFlags |= BBF_IMPORTED;
+                }
 
-                    JITDUMP("Added an unconditional jump to " FMT_BB " after block " FMT_BB "\n",
-                            jmpBlk->bbJumpDest->bbNum, bSrc->bbNum);
-                    break;
+                JITDUMP("Added an unconditional jump to " FMT_BB " after block " FMT_BB "\n", jmpBlk->bbJumpDest->bbNum,
+                        bSrc->bbNum);
+                break;
 
-                default:
-                    noway_assert(!"Unexpected bbJumpKind");
-                    break;
+            default:
+                noway_assert(!"Unexpected bbJumpKind");
+                break;
             }
         }
         else

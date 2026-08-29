@@ -636,16 +636,16 @@ void Compiler::compInit()
 #ifdef DEBUG
     switch (JitConfig.JitNoStructPromotion())
     {
-        case 0:
-            break;
-        case 1:
-            fgNoStructPromotion = true;
-            break;
-        case 2:
-            fgNoStructParamPromotion = true;
-            break;
-        default:
-            unreached();
+    case 0:
+        break;
+    case 1:
+        fgNoStructPromotion = true;
+        break;
+    case 2:
+        fgNoStructParamPromotion = true;
+        break;
+    default:
+        unreached();
     }
 #endif
 }
@@ -1452,49 +1452,49 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         unsigned kind            = (jitMinOpts & 0xF000000) >> 24;
         switch (kind)
         {
-            default:
-                if (jitMinOpts <= methodCount)
-                {
-                    JITDUMP(" Optimizations disabled by JitMinOpts and methodCount\n");
-                    theMinOptsValue = true;
-                }
-                break;
-            case 0xD:
+        default:
+            if (jitMinOpts <= methodCount)
             {
-                unsigned firstMinopts  = (jitMinOpts >> 12) & 0xFFF;
-                unsigned secondMinopts = (jitMinOpts >> 0) & 0xFFF;
-
-                if ((firstMinopts == methodCountMask) || (secondMinopts == methodCountMask))
-                {
-                    JITDUMP("0xD: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    theMinOptsValue = true;
-                }
+                JITDUMP(" Optimizations disabled by JitMinOpts and methodCount\n");
+                theMinOptsValue = true;
             }
             break;
-            case 0xE:
-            {
-                unsigned startMinopts = (jitMinOpts >> 12) & 0xFFF;
-                unsigned endMinopts   = (jitMinOpts >> 0) & 0xFFF;
+        case 0xD:
+        {
+            unsigned firstMinopts  = (jitMinOpts >> 12) & 0xFFF;
+            unsigned secondMinopts = (jitMinOpts >> 0) & 0xFFF;
 
-                if ((startMinopts <= methodCountMask) && (endMinopts >= methodCountMask))
-                {
-                    JITDUMP("0xE: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    theMinOptsValue = true;
-                }
-            }
-            break;
-            case 0xF:
+            if ((firstMinopts == methodCountMask) || (secondMinopts == methodCountMask))
             {
-                unsigned bitsZero = (jitMinOpts >> 12) & 0xFFF;
-                unsigned bitsOne  = (jitMinOpts >> 0) & 0xFFF;
-
-                if (((methodCountMask & bitsOne) == bitsOne) && ((~methodCountMask & bitsZero) == bitsZero))
-                {
-                    JITDUMP("0xF: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    theMinOptsValue = true;
-                }
+                JITDUMP("0xD: Optimizations disabled by JitMinOpts and methodCountMask\n");
+                theMinOptsValue = true;
             }
-            break;
+        }
+        break;
+        case 0xE:
+        {
+            unsigned startMinopts = (jitMinOpts >> 12) & 0xFFF;
+            unsigned endMinopts   = (jitMinOpts >> 0) & 0xFFF;
+
+            if ((startMinopts <= methodCountMask) && (endMinopts >= methodCountMask))
+            {
+                JITDUMP("0xE: Optimizations disabled by JitMinOpts and methodCountMask\n");
+                theMinOptsValue = true;
+            }
+        }
+        break;
+        case 0xF:
+        {
+            unsigned bitsZero = (jitMinOpts >> 12) & 0xFFF;
+            unsigned bitsOne  = (jitMinOpts >> 0) & 0xFFF;
+
+            if (((methodCountMask & bitsOne) == bitsOne) && ((~methodCountMask & bitsZero) == bitsZero))
+            {
+                JITDUMP("0xF: Optimizations disabled by JitMinOpts and methodCountMask\n");
+                theMinOptsValue = true;
+            }
+        }
+        break;
         }
     }
 
@@ -4360,256 +4360,256 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_LOAD:
-        case GT_LCL_STORE:
-        case GT_LCL_LOAD_FLD:
-        case GT_LCL_STORE_FLD:
-            if (flags & GTF_LCL_LAST_USE_MASK)
-            {
-                printf("[VAR_DEATH]");
-            }
-            FALLTHROUGH;
-        case GT_LCL_ADDR:
-            if (flags & GTF_VAR_CLONED)
-            {
-                printf("[VAR_CLONED]");
-            }
-            break;
-
-        case GT_INDEX_ADDR:
-            if (flags & GTF_INX_RNGCHK)
-            {
-                printf("[INX_RNGCHK]");
-            }
-            break;
-
-        case GT_IND_LOAD:
-        case GT_IND_STORE:
-        case GT_IND_LOAD_OBJ:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_LOAD_BLK:
-        case GT_IND_STORE_BLK:
-            if (tree->AsIndir()->IsVolatile())
-            {
-                printf("[IND_VOLATILE]");
-            }
-            if (tree->AsIndir()->IsUnaligned())
-            {
-                printf("[IND_UNALIGNED]");
-            }
-            if (flags & GTF_IND_TGT_HEAP)
-            {
-                printf("[IND_TGT_HEAP]");
-            }
-            if (flags & GTF_IND_TGT_NOT_HEAP)
-            {
-                printf("[IND_TGT_NOT_HEAP]");
-            }
-            if (flags & GTF_IND_INVARIANT)
-            {
-                printf("[IND_INVARIANT]");
-            }
-            if (flags & GTF_IND_NONNULL)
-            {
-                printf("[IND_NONNULL]");
-            }
-            FALLTHROUGH;
-        case GT_ARR_LENGTH:
-        case GT_NULLCHECK:
-            if (flags & GTF_IND_NONFAULTING)
-            {
-                printf("[IND_NONFAULTING]");
-            }
-            break;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            if (tree->AsDynBlk()->IsVolatile())
-            {
-                printf("[IND_VOLATILE]");
-            }
-            if (tree->AsDynBlk()->IsUnaligned())
-            {
-                printf("[BLK_UNALIGNED]");
-            }
-            break;
-
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-            if (tree->IsRelopUnordered())
-            {
-                printf("[RELOP_NAN_UN]");
-            }
-            if (tree->IsRelopUnsigned())
-            {
-                printf("[RELOP_UNSIGNED]");
-            }
-            break;
-
-        case GT_QMARK:
-            if (flags & GTF_QMARK_CAST_INSTOF)
-            {
-                printf("[QMARK_CAST_INSTOF]");
-            }
-            break;
-
-        case GT_CNS_INT:
-            switch (tree->AsIntCon()->GetHandleKind())
-            {
-                case HandleKind::Module:
-                    printf("[ICON_MODULE]");
-                    break;
-                case HandleKind::Class:
-                    printf("[ICON_CLASS]");
-                    break;
-                case HandleKind::Method:
-                    printf("[ICON_METHOD]");
-                    break;
-                case HandleKind::Field:
-                    printf("[ICON_FIELD]");
-                    break;
-                case HandleKind::Static:
-                    printf("[ICON_STATIC]");
-                    break;
-                case HandleKind::String:
-                    printf("[ICON_STRING]");
-                    break;
-                case HandleKind::ConstData:
-                    printf("[ICON_CONST_DATA]");
-                    break;
-                case HandleKind::MutableData:
-                    printf("[ICON_MUTABLE_DATA]");
-                    break;
-                case HandleKind::Token:
-                    printf("[ICON_TOKEN]");
-                    break;
-                case HandleKind::MethodAddr:
-                    printf("[ICON_METHOD_ADDR]");
-                    break;
-                case HandleKind::BlockCount:
-                    printf("[ICON_BLOCK_COUNT]");
-                    break;
-#ifdef WINDOWS_X86_ABI
-                case HandleKind::TLS:
-                    printf("[ICON_TLS]");
-                    break;
-#endif
-                default:
-                    break;
-            }
-            break;
-
-        case GT_CALL:
+    case GT_LCL_LOAD:
+    case GT_LCL_STORE:
+    case GT_LCL_LOAD_FLD:
+    case GT_LCL_STORE_FLD:
+        if (flags & GTF_LCL_LAST_USE_MASK)
         {
-            GenTreeCall* call = tree->AsCall();
-
-            if (flags & GTF_CALL_INLINE_CANDIDATE)
-            {
-                printf("[CALL_INLINE_CANDIDATE]");
-            }
-            if (!call->IsVirtual())
-            {
-                printf("[CALL_NONVIRT]");
-            }
-            if (call->IsVirtualVtable())
-            {
-                printf("[CALL_VIRT_VTABLE]");
-            }
-            if (call->IsVirtualStub())
-            {
-                printf("[CALL_VIRT_STUB]");
-            }
-            if (call->IsDelegateInvoke())
-            {
-                printf("[CALL_DELEGATE_INVOKE]");
-            }
-            if (tree->AsCall()->HasNullCheck())
-            {
-                printf("[CALL_NULLCHECK]");
-            }
-            if (flags & GTF_CALL_HOISTABLE)
-            {
-                printf("[CALL_HOISTABLE]");
-            }
-
-            GenTreeCallFlags callFlags = call->gtCallMoreFlags;
-
-            if (callFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
-            {
-                printf("[CALL_M_EXPLICIT_TAILCALL]");
-            }
-            if (callFlags & GTF_CALL_M_TAILCALL)
-            {
-                printf("[CALL_M_TAILCALL]");
-            }
-            if (callFlags & GTF_CALL_M_VARARGS)
-            {
-                printf("[CALL_M_VARARGS]");
-            }
-            if (callFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG)
-            {
-                printf("[CALL_M_REQUIRES_RETBUFFARG]");
-            }
-            if (callFlags & GTF_CALL_M_HAS_RETBUFF_ARG)
-            {
-                printf("[CALL_M_HAS_RETBUFFARG]");
-            }
-            if (callFlags & GTF_CALL_M_NOGCCHECK)
-            {
-                printf("[CALL_M_NOGCCHECK]");
-            }
-            if (callFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
-            {
-                printf("[CALL_M_SPECIAL_INTRINSIC]");
-            }
-#if FEATURE_TAILCALL_OPT
-            if (callFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
-            {
-                printf("[CALL_M_IMPLICIT_TAILCALL]");
-            }
-#endif
-            if (callFlags & GTF_CALL_M_PINVOKE)
-            {
-                printf("[CALL_M_PINVOKE]");
-            }
-
-            if (call->IsFatPointerCandidate())
-            {
-                printf("[CALL_FAT_POINTER_CANDIDATE]");
-            }
-
-            if (call->IsGuarded())
-            {
-                printf("[CALL_GUARDED]");
-            }
-
-            if (call->IsExpRuntimeLookup())
-            {
-                printf("[CALL_EXP_RUNTIME_LOOKUP]");
-            }
+            printf("[VAR_DEATH]");
+        }
+        FALLTHROUGH;
+    case GT_LCL_ADDR:
+        if (flags & GTF_VAR_CLONED)
+        {
+            printf("[VAR_CLONED]");
         }
         break;
 
-        case GT_NOP:
-        case GT_NO_OP:
-        case GT_ADD:
-        case GT_MUL:
-        case GT_LSH:
-        case GT_COMMA:
-        case GT_SREM:
-        case GT_UREM:
-            break;
+    case GT_INDEX_ADDR:
+        if (flags & GTF_INX_RNGCHK)
+        {
+            printf("[INX_RNGCHK]");
+        }
+        break;
 
-        default:
-            if (GenTreeFlags unknownFlags = flags & ~GTF_COMMON_MASK)
-            {
-                printf("[%08X]", unknownFlags);
-            }
+    case GT_IND_LOAD:
+    case GT_IND_STORE:
+    case GT_IND_LOAD_OBJ:
+    case GT_IND_STORE_OBJ:
+    case GT_IND_LOAD_BLK:
+    case GT_IND_STORE_BLK:
+        if (tree->AsIndir()->IsVolatile())
+        {
+            printf("[IND_VOLATILE]");
+        }
+        if (tree->AsIndir()->IsUnaligned())
+        {
+            printf("[IND_UNALIGNED]");
+        }
+        if (flags & GTF_IND_TGT_HEAP)
+        {
+            printf("[IND_TGT_HEAP]");
+        }
+        if (flags & GTF_IND_TGT_NOT_HEAP)
+        {
+            printf("[IND_TGT_NOT_HEAP]");
+        }
+        if (flags & GTF_IND_INVARIANT)
+        {
+            printf("[IND_INVARIANT]");
+        }
+        if (flags & GTF_IND_NONNULL)
+        {
+            printf("[IND_NONNULL]");
+        }
+        FALLTHROUGH;
+    case GT_ARR_LENGTH:
+    case GT_NULLCHECK:
+        if (flags & GTF_IND_NONFAULTING)
+        {
+            printf("[IND_NONFAULTING]");
+        }
+        break;
+
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        if (tree->AsDynBlk()->IsVolatile())
+        {
+            printf("[IND_VOLATILE]");
+        }
+        if (tree->AsDynBlk()->IsUnaligned())
+        {
+            printf("[BLK_UNALIGNED]");
+        }
+        break;
+
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+        if (tree->IsRelopUnordered())
+        {
+            printf("[RELOP_NAN_UN]");
+        }
+        if (tree->IsRelopUnsigned())
+        {
+            printf("[RELOP_UNSIGNED]");
+        }
+        break;
+
+    case GT_QMARK:
+        if (flags & GTF_QMARK_CAST_INSTOF)
+        {
+            printf("[QMARK_CAST_INSTOF]");
+        }
+        break;
+
+    case GT_CNS_INT:
+        switch (tree->AsIntCon()->GetHandleKind())
+        {
+        case HandleKind::Module:
+            printf("[ICON_MODULE]");
             break;
+        case HandleKind::Class:
+            printf("[ICON_CLASS]");
+            break;
+        case HandleKind::Method:
+            printf("[ICON_METHOD]");
+            break;
+        case HandleKind::Field:
+            printf("[ICON_FIELD]");
+            break;
+        case HandleKind::Static:
+            printf("[ICON_STATIC]");
+            break;
+        case HandleKind::String:
+            printf("[ICON_STRING]");
+            break;
+        case HandleKind::ConstData:
+            printf("[ICON_CONST_DATA]");
+            break;
+        case HandleKind::MutableData:
+            printf("[ICON_MUTABLE_DATA]");
+            break;
+        case HandleKind::Token:
+            printf("[ICON_TOKEN]");
+            break;
+        case HandleKind::MethodAddr:
+            printf("[ICON_METHOD_ADDR]");
+            break;
+        case HandleKind::BlockCount:
+            printf("[ICON_BLOCK_COUNT]");
+            break;
+#ifdef WINDOWS_X86_ABI
+        case HandleKind::TLS:
+            printf("[ICON_TLS]");
+            break;
+#endif
+        default:
+            break;
+        }
+        break;
+
+    case GT_CALL:
+    {
+        GenTreeCall* call = tree->AsCall();
+
+        if (flags & GTF_CALL_INLINE_CANDIDATE)
+        {
+            printf("[CALL_INLINE_CANDIDATE]");
+        }
+        if (!call->IsVirtual())
+        {
+            printf("[CALL_NONVIRT]");
+        }
+        if (call->IsVirtualVtable())
+        {
+            printf("[CALL_VIRT_VTABLE]");
+        }
+        if (call->IsVirtualStub())
+        {
+            printf("[CALL_VIRT_STUB]");
+        }
+        if (call->IsDelegateInvoke())
+        {
+            printf("[CALL_DELEGATE_INVOKE]");
+        }
+        if (tree->AsCall()->HasNullCheck())
+        {
+            printf("[CALL_NULLCHECK]");
+        }
+        if (flags & GTF_CALL_HOISTABLE)
+        {
+            printf("[CALL_HOISTABLE]");
+        }
+
+        GenTreeCallFlags callFlags = call->gtCallMoreFlags;
+
+        if (callFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
+        {
+            printf("[CALL_M_EXPLICIT_TAILCALL]");
+        }
+        if (callFlags & GTF_CALL_M_TAILCALL)
+        {
+            printf("[CALL_M_TAILCALL]");
+        }
+        if (callFlags & GTF_CALL_M_VARARGS)
+        {
+            printf("[CALL_M_VARARGS]");
+        }
+        if (callFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG)
+        {
+            printf("[CALL_M_REQUIRES_RETBUFFARG]");
+        }
+        if (callFlags & GTF_CALL_M_HAS_RETBUFF_ARG)
+        {
+            printf("[CALL_M_HAS_RETBUFFARG]");
+        }
+        if (callFlags & GTF_CALL_M_NOGCCHECK)
+        {
+            printf("[CALL_M_NOGCCHECK]");
+        }
+        if (callFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+        {
+            printf("[CALL_M_SPECIAL_INTRINSIC]");
+        }
+#if FEATURE_TAILCALL_OPT
+        if (callFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
+        {
+            printf("[CALL_M_IMPLICIT_TAILCALL]");
+        }
+#endif
+        if (callFlags & GTF_CALL_M_PINVOKE)
+        {
+            printf("[CALL_M_PINVOKE]");
+        }
+
+        if (call->IsFatPointerCandidate())
+        {
+            printf("[CALL_FAT_POINTER_CANDIDATE]");
+        }
+
+        if (call->IsGuarded())
+        {
+            printf("[CALL_GUARDED]");
+        }
+
+        if (call->IsExpRuntimeLookup())
+        {
+            printf("[CALL_EXP_RUNTIME_LOOKUP]");
+        }
+    }
+    break;
+
+    case GT_NOP:
+    case GT_NO_OP:
+    case GT_ADD:
+    case GT_MUL:
+    case GT_LSH:
+    case GT_COMMA:
+    case GT_SREM:
+    case GT_UREM:
+        break;
+
+    default:
+        if (GenTreeFlags unknownFlags = flags & ~GTF_COMMON_MASK)
+        {
+            printf("[%08X]", unknownFlags);
+        }
+        break;
     }
 
     if (flags & GTF_ASG)

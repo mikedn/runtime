@@ -10,42 +10,42 @@ static CORINFO_InstructionSet X64VersionOfIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
-        case InstructionSet_X86Base:
-            return InstructionSet_X86Base_X64;
-        case InstructionSet_SSE:
-            return InstructionSet_SSE_X64;
-        case InstructionSet_SSE2:
-            return InstructionSet_SSE2_X64;
-        case InstructionSet_SSE3:
-            return InstructionSet_SSE3_X64;
-        case InstructionSet_SSSE3:
-            return InstructionSet_SSSE3_X64;
-        case InstructionSet_SSE41:
-            return InstructionSet_SSE41_X64;
-        case InstructionSet_SSE42:
-            return InstructionSet_SSE42_X64;
-        case InstructionSet_AVX:
-            return InstructionSet_AVX_X64;
-        case InstructionSet_AVX2:
-            return InstructionSet_AVX2_X64;
-        case InstructionSet_AVXVNNI:
-            return InstructionSet_AVXVNNI_X64;
-        case InstructionSet_AES:
-            return InstructionSet_AES_X64;
-        case InstructionSet_BMI1:
-            return InstructionSet_BMI1_X64;
-        case InstructionSet_BMI2:
-            return InstructionSet_BMI2_X64;
-        case InstructionSet_FMA:
-            return InstructionSet_FMA_X64;
-        case InstructionSet_LZCNT:
-            return InstructionSet_LZCNT_X64;
-        case InstructionSet_PCLMULQDQ:
-            return InstructionSet_PCLMULQDQ_X64;
-        case InstructionSet_POPCNT:
-            return InstructionSet_POPCNT_X64;
-        default:
-            return InstructionSet_NONE;
+    case InstructionSet_X86Base:
+        return InstructionSet_X86Base_X64;
+    case InstructionSet_SSE:
+        return InstructionSet_SSE_X64;
+    case InstructionSet_SSE2:
+        return InstructionSet_SSE2_X64;
+    case InstructionSet_SSE3:
+        return InstructionSet_SSE3_X64;
+    case InstructionSet_SSSE3:
+        return InstructionSet_SSSE3_X64;
+    case InstructionSet_SSE41:
+        return InstructionSet_SSE41_X64;
+    case InstructionSet_SSE42:
+        return InstructionSet_SSE42_X64;
+    case InstructionSet_AVX:
+        return InstructionSet_AVX_X64;
+    case InstructionSet_AVX2:
+        return InstructionSet_AVX2_X64;
+    case InstructionSet_AVXVNNI:
+        return InstructionSet_AVXVNNI_X64;
+    case InstructionSet_AES:
+        return InstructionSet_AES_X64;
+    case InstructionSet_BMI1:
+        return InstructionSet_BMI1_X64;
+    case InstructionSet_BMI2:
+        return InstructionSet_BMI2_X64;
+    case InstructionSet_FMA:
+        return InstructionSet_FMA_X64;
+    case InstructionSet_LZCNT:
+        return InstructionSet_LZCNT_X64;
+    case InstructionSet_PCLMULQDQ:
+        return InstructionSet_PCLMULQDQ_X64;
+    case InstructionSet_POPCNT:
+        return InstructionSet_POPCNT_X64;
+    default:
+        return InstructionSet_NONE;
     }
 }
 
@@ -167,18 +167,18 @@ unsigned HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
 
     switch (id)
     {
-        case NI_AVX_Compare:
-        case NI_AVX_CompareScalar:
-            return 31;
-        case NI_AVX2_GatherVector128:
-        case NI_AVX2_GatherVector256:
-        case NI_AVX2_GatherMaskVector128:
-        case NI_AVX2_GatherMaskVector256:
-        case NI_AVX2_GATHERD:
-        case NI_AVX2_GATHERQ:
-            return 8;
-        default:
-            return 255;
+    case NI_AVX_Compare:
+    case NI_AVX_CompareScalar:
+        return 31;
+    case NI_AVX2_GatherVector128:
+    case NI_AVX2_GatherVector256:
+    case NI_AVX2_GatherMaskVector128:
+    case NI_AVX2_GatherMaskVector256:
+    case NI_AVX2_GATHERD:
+    case NI_AVX2_GATHERQ:
+        return 8;
+    default:
+        return 255;
     }
 }
 
@@ -186,15 +186,15 @@ bool HWIntrinsicInfo::IsAvx2GatherIntrinsic(NamedIntrinsic id)
 {
     switch (id)
     {
-        case NI_AVX2_GatherVector128:
-        case NI_AVX2_GatherVector256:
-        case NI_AVX2_GatherMaskVector128:
-        case NI_AVX2_GatherMaskVector256:
-        case NI_AVX2_GATHERD:
-        case NI_AVX2_GATHERQ:
-            return true;
-        default:
-            return false;
+    case NI_AVX2_GatherVector128:
+    case NI_AVX2_GatherVector256:
+    case NI_AVX2_GatherMaskVector128:
+    case NI_AVX2_GatherMaskVector256:
+    case NI_AVX2_GATHERD:
+    case NI_AVX2_GATHERQ:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -202,152 +202,152 @@ int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDep
 {
     switch (id)
     {
-        case NI_SSE_CompareEqual:
-        case NI_SSE_CompareScalarEqual:
-        case NI_SSE2_CompareEqual:
-        case NI_SSE2_CompareScalarEqual:
-        case NI_AVX_CompareEqual:
-            return static_cast<int>(FloatComparisonMode::OrderedEqualNonSignaling);
-        case NI_SSE_CompareGreaterThan:
-        case NI_SSE_CompareScalarGreaterThan:
-        case NI_SSE2_CompareGreaterThan:
-        case NI_SSE2_CompareScalarGreaterThan:
-        case NI_AVX_CompareGreaterThan:
-            if (opportunisticallyDependsOnAVX)
-            {
-                return static_cast<int>(FloatComparisonMode::OrderedGreaterThanSignaling);
-            }
+    case NI_SSE_CompareEqual:
+    case NI_SSE_CompareScalarEqual:
+    case NI_SSE2_CompareEqual:
+    case NI_SSE2_CompareScalarEqual:
+    case NI_AVX_CompareEqual:
+        return static_cast<int>(FloatComparisonMode::OrderedEqualNonSignaling);
+    case NI_SSE_CompareGreaterThan:
+    case NI_SSE_CompareScalarGreaterThan:
+    case NI_SSE2_CompareGreaterThan:
+    case NI_SSE2_CompareScalarGreaterThan:
+    case NI_AVX_CompareGreaterThan:
+        if (opportunisticallyDependsOnAVX)
+        {
+            return static_cast<int>(FloatComparisonMode::OrderedGreaterThanSignaling);
+        }
 
-            // CompareGreaterThan is not directly supported in hardware without AVX support.
-            // We will return the inverted case here and lowering will itself swap the ops
-            // to ensure the emitted code remains correct. This simplifies the overall logic
-            // here and for other use cases.
+        // CompareGreaterThan is not directly supported in hardware without AVX support.
+        // We will return the inverted case here and lowering will itself swap the ops
+        // to ensure the emitted code remains correct. This simplifies the overall logic
+        // here and for other use cases.
 
-            assert(id != NI_AVX_CompareGreaterThan);
-            return static_cast<int>(FloatComparisonMode::OrderedLessThanSignaling);
-        case NI_SSE_CompareLessThan:
-        case NI_SSE_CompareScalarLessThan:
-        case NI_SSE2_CompareLessThan:
-        case NI_SSE2_CompareScalarLessThan:
-        case NI_AVX_CompareLessThan:
-            return static_cast<int>(FloatComparisonMode::OrderedLessThanSignaling);
-        case NI_SSE_CompareGreaterThanOrEqual:
-        case NI_SSE_CompareScalarGreaterThanOrEqual:
-        case NI_SSE2_CompareGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarGreaterThanOrEqual:
-        case NI_AVX_CompareGreaterThanOrEqual:
-            if (opportunisticallyDependsOnAVX)
-            {
-                return static_cast<int>(FloatComparisonMode::OrderedGreaterThanOrEqualSignaling);
-            }
+        assert(id != NI_AVX_CompareGreaterThan);
+        return static_cast<int>(FloatComparisonMode::OrderedLessThanSignaling);
+    case NI_SSE_CompareLessThan:
+    case NI_SSE_CompareScalarLessThan:
+    case NI_SSE2_CompareLessThan:
+    case NI_SSE2_CompareScalarLessThan:
+    case NI_AVX_CompareLessThan:
+        return static_cast<int>(FloatComparisonMode::OrderedLessThanSignaling);
+    case NI_SSE_CompareGreaterThanOrEqual:
+    case NI_SSE_CompareScalarGreaterThanOrEqual:
+    case NI_SSE2_CompareGreaterThanOrEqual:
+    case NI_SSE2_CompareScalarGreaterThanOrEqual:
+    case NI_AVX_CompareGreaterThanOrEqual:
+        if (opportunisticallyDependsOnAVX)
+        {
+            return static_cast<int>(FloatComparisonMode::OrderedGreaterThanOrEqualSignaling);
+        }
 
-            // CompareGreaterThanOrEqual is not directly supported in hardware without AVX support.
-            // We will return the inverted case here and lowering will itself swap the ops
-            // to ensure the emitted code remains correct. This simplifies the overall logic
-            // here and for other use cases.
+        // CompareGreaterThanOrEqual is not directly supported in hardware without AVX support.
+        // We will return the inverted case here and lowering will itself swap the ops
+        // to ensure the emitted code remains correct. This simplifies the overall logic
+        // here and for other use cases.
 
-            assert(id != NI_AVX_CompareGreaterThanOrEqual);
-            return static_cast<int>(FloatComparisonMode::OrderedLessThanOrEqualSignaling);
-        case NI_SSE_CompareLessThanOrEqual:
-        case NI_SSE_CompareScalarLessThanOrEqual:
-        case NI_SSE2_CompareLessThanOrEqual:
-        case NI_SSE2_CompareScalarLessThanOrEqual:
-        case NI_AVX_CompareLessThanOrEqual:
-            return static_cast<int>(FloatComparisonMode::OrderedLessThanOrEqualSignaling);
-        case NI_SSE_CompareNotEqual:
-        case NI_SSE_CompareScalarNotEqual:
-        case NI_SSE2_CompareNotEqual:
-        case NI_SSE2_CompareScalarNotEqual:
-        case NI_AVX_CompareNotEqual:
-            return static_cast<int>(FloatComparisonMode::UnorderedNotEqualNonSignaling);
-        case NI_SSE_CompareNotGreaterThan:
-        case NI_SSE_CompareScalarNotGreaterThan:
-        case NI_SSE2_CompareNotGreaterThan:
-        case NI_SSE2_CompareScalarNotGreaterThan:
-        case NI_AVX_CompareNotGreaterThan:
-            if (opportunisticallyDependsOnAVX)
-            {
-                return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanSignaling);
-            }
+        assert(id != NI_AVX_CompareGreaterThanOrEqual);
+        return static_cast<int>(FloatComparisonMode::OrderedLessThanOrEqualSignaling);
+    case NI_SSE_CompareLessThanOrEqual:
+    case NI_SSE_CompareScalarLessThanOrEqual:
+    case NI_SSE2_CompareLessThanOrEqual:
+    case NI_SSE2_CompareScalarLessThanOrEqual:
+    case NI_AVX_CompareLessThanOrEqual:
+        return static_cast<int>(FloatComparisonMode::OrderedLessThanOrEqualSignaling);
+    case NI_SSE_CompareNotEqual:
+    case NI_SSE_CompareScalarNotEqual:
+    case NI_SSE2_CompareNotEqual:
+    case NI_SSE2_CompareScalarNotEqual:
+    case NI_AVX_CompareNotEqual:
+        return static_cast<int>(FloatComparisonMode::UnorderedNotEqualNonSignaling);
+    case NI_SSE_CompareNotGreaterThan:
+    case NI_SSE_CompareScalarNotGreaterThan:
+    case NI_SSE2_CompareNotGreaterThan:
+    case NI_SSE2_CompareScalarNotGreaterThan:
+    case NI_AVX_CompareNotGreaterThan:
+        if (opportunisticallyDependsOnAVX)
+        {
+            return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanSignaling);
+        }
 
-            // CompareNotGreaterThan is not directly supported in hardware without AVX support.
-            // We will return the inverted case here and lowering will itself swap the ops
-            // to ensure the emitted code remains correct. This simplifies the overall logic
-            // here and for other use cases.
+        // CompareNotGreaterThan is not directly supported in hardware without AVX support.
+        // We will return the inverted case here and lowering will itself swap the ops
+        // to ensure the emitted code remains correct. This simplifies the overall logic
+        // here and for other use cases.
 
-            assert(id != NI_AVX_CompareNotGreaterThan);
-            return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanSignaling);
-        case NI_SSE_CompareNotLessThan:
-        case NI_SSE_CompareScalarNotLessThan:
-        case NI_SSE2_CompareNotLessThan:
-        case NI_SSE2_CompareScalarNotLessThan:
-        case NI_AVX_CompareNotLessThan:
-            return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanSignaling);
-        case NI_SSE_CompareNotGreaterThanOrEqual:
-        case NI_SSE_CompareScalarNotGreaterThanOrEqual:
-        case NI_SSE2_CompareNotGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
-        case NI_AVX_CompareNotGreaterThanOrEqual:
-            if (opportunisticallyDependsOnAVX)
-            {
-                return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanOrEqualSignaling);
-            }
+        assert(id != NI_AVX_CompareNotGreaterThan);
+        return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanSignaling);
+    case NI_SSE_CompareNotLessThan:
+    case NI_SSE_CompareScalarNotLessThan:
+    case NI_SSE2_CompareNotLessThan:
+    case NI_SSE2_CompareScalarNotLessThan:
+    case NI_AVX_CompareNotLessThan:
+        return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanSignaling);
+    case NI_SSE_CompareNotGreaterThanOrEqual:
+    case NI_SSE_CompareScalarNotGreaterThanOrEqual:
+    case NI_SSE2_CompareNotGreaterThanOrEqual:
+    case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
+    case NI_AVX_CompareNotGreaterThanOrEqual:
+        if (opportunisticallyDependsOnAVX)
+        {
+            return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanOrEqualSignaling);
+        }
 
-            // CompareNotGreaterThanOrEqual is not directly supported in hardware without AVX support.
-            // We will return the inverted case here and lowering will itself swap the ops
-            // to ensure the emitted code remains correct. This simplifies the overall logic
-            // here and for other use cases.
+        // CompareNotGreaterThanOrEqual is not directly supported in hardware without AVX support.
+        // We will return the inverted case here and lowering will itself swap the ops
+        // to ensure the emitted code remains correct. This simplifies the overall logic
+        // here and for other use cases.
 
-            assert(id != NI_AVX_CompareNotGreaterThanOrEqual);
-            return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling);
-        case NI_SSE_CompareNotLessThanOrEqual:
-        case NI_SSE_CompareScalarNotLessThanOrEqual:
-        case NI_SSE2_CompareNotLessThanOrEqual:
-        case NI_SSE2_CompareScalarNotLessThanOrEqual:
-        case NI_AVX_CompareNotLessThanOrEqual:
-            return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling);
-        case NI_SSE_CompareOrdered:
-        case NI_SSE_CompareScalarOrdered:
-        case NI_SSE2_CompareOrdered:
-        case NI_SSE2_CompareScalarOrdered:
-        case NI_AVX_CompareOrdered:
-            return static_cast<int>(FloatComparisonMode::OrderedNonSignaling);
-        case NI_SSE_CompareUnordered:
-        case NI_SSE_CompareScalarUnordered:
-        case NI_SSE2_CompareUnordered:
-        case NI_SSE2_CompareScalarUnordered:
-        case NI_AVX_CompareUnordered:
-            return static_cast<int>(FloatComparisonMode::UnorderedNonSignaling);
+        assert(id != NI_AVX_CompareNotGreaterThanOrEqual);
+        return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling);
+    case NI_SSE_CompareNotLessThanOrEqual:
+    case NI_SSE_CompareScalarNotLessThanOrEqual:
+    case NI_SSE2_CompareNotLessThanOrEqual:
+    case NI_SSE2_CompareScalarNotLessThanOrEqual:
+    case NI_AVX_CompareNotLessThanOrEqual:
+        return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling);
+    case NI_SSE_CompareOrdered:
+    case NI_SSE_CompareScalarOrdered:
+    case NI_SSE2_CompareOrdered:
+    case NI_SSE2_CompareScalarOrdered:
+    case NI_AVX_CompareOrdered:
+        return static_cast<int>(FloatComparisonMode::OrderedNonSignaling);
+    case NI_SSE_CompareUnordered:
+    case NI_SSE_CompareScalarUnordered:
+    case NI_SSE2_CompareUnordered:
+    case NI_SSE2_CompareScalarUnordered:
+    case NI_AVX_CompareUnordered:
+        return static_cast<int>(FloatComparisonMode::UnorderedNonSignaling);
 
-        case NI_SSE41_Ceiling:
-        case NI_SSE41_CeilingScalar:
-        case NI_SSE41_RoundToPositiveInfinity:
-        case NI_SSE41_RoundToPositiveInfinityScalar:
-        case NI_AVX_Ceiling:
-        case NI_AVX_RoundToPositiveInfinity:
-            return static_cast<int>(FloatRoundingMode::ToPositiveInfinity);
-        case NI_SSE41_Floor:
-        case NI_SSE41_FloorScalar:
-        case NI_SSE41_RoundToNegativeInfinity:
-        case NI_SSE41_RoundToNegativeInfinityScalar:
-        case NI_AVX_Floor:
-        case NI_AVX_RoundToNegativeInfinity:
-            return static_cast<int>(FloatRoundingMode::ToNegativeInfinity);
-        case NI_SSE41_RoundCurrentDirection:
-        case NI_SSE41_RoundCurrentDirectionScalar:
-        case NI_AVX_RoundCurrentDirection:
-            return static_cast<int>(FloatRoundingMode::CurrentDirection);
-        case NI_SSE41_RoundToNearestInteger:
-        case NI_SSE41_RoundToNearestIntegerScalar:
-        case NI_AVX_RoundToNearestInteger:
-            return static_cast<int>(FloatRoundingMode::ToNearestInteger);
-        case NI_SSE41_RoundToZero:
-        case NI_SSE41_RoundToZeroScalar:
-        case NI_AVX_RoundToZero:
-            return static_cast<int>(FloatRoundingMode::ToZero);
+    case NI_SSE41_Ceiling:
+    case NI_SSE41_CeilingScalar:
+    case NI_SSE41_RoundToPositiveInfinity:
+    case NI_SSE41_RoundToPositiveInfinityScalar:
+    case NI_AVX_Ceiling:
+    case NI_AVX_RoundToPositiveInfinity:
+        return static_cast<int>(FloatRoundingMode::ToPositiveInfinity);
+    case NI_SSE41_Floor:
+    case NI_SSE41_FloorScalar:
+    case NI_SSE41_RoundToNegativeInfinity:
+    case NI_SSE41_RoundToNegativeInfinityScalar:
+    case NI_AVX_Floor:
+    case NI_AVX_RoundToNegativeInfinity:
+        return static_cast<int>(FloatRoundingMode::ToNegativeInfinity);
+    case NI_SSE41_RoundCurrentDirection:
+    case NI_SSE41_RoundCurrentDirectionScalar:
+    case NI_AVX_RoundCurrentDirection:
+        return static_cast<int>(FloatRoundingMode::CurrentDirection);
+    case NI_SSE41_RoundToNearestInteger:
+    case NI_SSE41_RoundToNearestIntegerScalar:
+    case NI_AVX_RoundToNearestInteger:
+        return static_cast<int>(FloatRoundingMode::ToNearestInteger);
+    case NI_SSE41_RoundToZero:
+    case NI_SSE41_RoundToZeroScalar:
+    case NI_AVX_RoundToZero:
+        return static_cast<int>(FloatRoundingMode::ToZero);
 
-        default:
-            return -1;
+    default:
+        return -1;
     }
 }
 
@@ -355,27 +355,27 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 {
     switch (HWIntrinsicInfo::GetIsa(intrinsic))
     {
-        case InstructionSet_Vector128:
-        case InstructionSet_Vector256:
-            return ImportBaseIntrinsic(intrinsic, sig);
-        case InstructionSet_SSE:
-        case InstructionSet_SSE2:
-        case InstructionSet_SSE2_X64:
-        case InstructionSet_SSE41:
-        case InstructionSet_SSE41_X64:
-        case InstructionSet_SSE42:
-        case InstructionSet_SSE42_X64:
-            return ImportSSEIntrinsic(intrinsic, sig);
-        case InstructionSet_AVX:
-        case InstructionSet_AVX2:
-            return ImportAVXIntrinsic(intrinsic, sig);
-        case InstructionSet_BMI1:
-        case InstructionSet_BMI1_X64:
-        case InstructionSet_BMI2:
-        case InstructionSet_BMI2_X64:
-            return ImportBMIIntrinsic(intrinsic, sig);
-        default:
-            return nullptr;
+    case InstructionSet_Vector128:
+    case InstructionSet_Vector256:
+        return ImportBaseIntrinsic(intrinsic, sig);
+    case InstructionSet_SSE:
+    case InstructionSet_SSE2:
+    case InstructionSet_SSE2_X64:
+    case InstructionSet_SSE41:
+    case InstructionSet_SSE41_X64:
+    case InstructionSet_SSE42:
+    case InstructionSet_SSE42_X64:
+        return ImportSSEIntrinsic(intrinsic, sig);
+    case InstructionSet_AVX:
+    case InstructionSet_AVX2:
+        return ImportAVXIntrinsic(intrinsic, sig);
+    case InstructionSet_BMI1:
+    case InstructionSet_BMI1_X64:
+    case InstructionSet_BMI2:
+    case InstructionSet_BMI2_X64:
+        return ImportBMIIntrinsic(intrinsic, sig);
+    default:
+        return nullptr;
     }
 }
 
@@ -390,192 +390,192 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
         GenTree*  op1;
         GenTree*  op2;
 
-        case NI_Vector256_As:
-        case NI_Vector256_AsByte:
-        case NI_Vector256_AsDouble:
-        case NI_Vector256_AsInt16:
-        case NI_Vector256_AsInt32:
-        case NI_Vector256_AsInt64:
-        case NI_Vector256_AsSByte:
-        case NI_Vector256_AsSingle:
-        case NI_Vector256_AsUInt16:
-        case NI_Vector256_AsUInt32:
-        case NI_Vector256_AsUInt64:
-            assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == TYP_SIMD32);
-            assert(sig.retType == TYP_SIMD32);
+    case NI_Vector256_As:
+    case NI_Vector256_AsByte:
+    case NI_Vector256_AsDouble:
+    case NI_Vector256_AsInt16:
+    case NI_Vector256_AsInt32:
+    case NI_Vector256_AsInt64:
+    case NI_Vector256_AsSByte:
+    case NI_Vector256_AsSingle:
+    case NI_Vector256_AsUInt16:
+    case NI_Vector256_AsUInt32:
+    case NI_Vector256_AsUInt64:
+        assert(sig.paramCount == 1);
+        assert(sig.paramType[0] == TYP_SIMD32);
+        assert(sig.retType == TYP_SIMD32);
 
-            return PopVec(TYP_SIMD32);
+        return PopVec(TYP_SIMD32);
 
-        case NI_Vector128_As:
-        case NI_Vector128_AsByte:
-        case NI_Vector128_AsDouble:
-        case NI_Vector128_AsInt16:
-        case NI_Vector128_AsInt32:
-        case NI_Vector128_AsInt64:
-        case NI_Vector128_AsSByte:
-        case NI_Vector128_AsSingle:
-        case NI_Vector128_AsUInt16:
-        case NI_Vector128_AsUInt32:
-        case NI_Vector128_AsUInt64:
-        case NI_Vector128_AsVector4:
-            assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == TYP_SIMD16);
-            assert(sig.retType == TYP_SIMD16);
+    case NI_Vector128_As:
+    case NI_Vector128_AsByte:
+    case NI_Vector128_AsDouble:
+    case NI_Vector128_AsInt16:
+    case NI_Vector128_AsInt32:
+    case NI_Vector128_AsInt64:
+    case NI_Vector128_AsSByte:
+    case NI_Vector128_AsSingle:
+    case NI_Vector128_AsUInt16:
+    case NI_Vector128_AsUInt32:
+    case NI_Vector128_AsUInt64:
+    case NI_Vector128_AsVector4:
+        assert(sig.paramCount == 1);
+        assert(sig.paramType[0] == TYP_SIMD16);
+        assert(sig.retType == TYP_SIMD16);
 
-            return PopVec(TYP_SIMD16);
+        return PopVec(TYP_SIMD16);
 
-        case NI_Vector128_AsVector:
-        case NI_Vector128_AsVector128:
-        case NI_Vector256_AsVector:
-        case NI_Vector256_AsVector256:
-            assert(sig.paramCount == 1);
-            assert((sig.paramType[0] == TYP_SIMD16) || (sig.paramType[0] == TYP_SIMD32));
-            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
+    case NI_Vector128_AsVector:
+    case NI_Vector128_AsVector128:
+    case NI_Vector256_AsVector:
+    case NI_Vector256_AsVector256:
+        assert(sig.paramCount == 1);
+        assert((sig.paramType[0] == TYP_SIMD16) || (sig.paramType[0] == TYP_SIMD32));
+        assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
-            op1 = PopVec(sig.paramType[0]);
+        op1 = PopVec(sig.paramType[0]);
 
-            if (sig.paramType[0] == sig.retType)
-            {
-                return op1;
-            }
-
-            intrinsic = sig.retType == TYP_SIMD16 ? NI_VEC_TRUNC : NI_VEC_ZEXT;
-            eltType   = varTypeNodeType(sig.paramLayout[0]->GetElementType());
-            return NewVecNode(sig.retType, intrinsic, eltType, op1);
-
-        case NI_Vector256_GetLower:
-            assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == TYP_SIMD32);
-            assert(sig.retType == TYP_SIMD16);
-
-            eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
-            op1     = PopVec(TYP_SIMD32);
-            return NewVecNode(sig.retType, NI_VEC_TRUNC, eltType, op1);
-
-        case NI_Vector128_ToVector256:
-            assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == TYP_SIMD16);
-            assert(sig.retType == TYP_SIMD32);
-
-            eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
-            op1     = PopVec(TYP_SIMD16);
-            return NewVecNode(TYP_SIMD32, NI_VEC_ZEXT, eltType, op1);
-
-        case NI_Vector128_ToVector256Unsafe:
-            assert(sig.paramCount == 1);
-            assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD32));
-
-            eltType = varTypeNodeType(sig.retLayout->GetElementType());
-            op1     = PopVec(TYP_SIMD16);
-            return NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, 16, op1);
-
-        case NI_Vector128_get_Zero:
-        case NI_Vector256_get_Zero:
-            assert(sig.paramCount == 0);
-            assert(varTypeIsTargetVec(sig.retType));
-
-            eltType = varTypeNodeType(sig.retLayout->GetElementType());
-            return NewVecNode(sig.retType, NI_VEC_ZERO, eltType);
-
-        case NI_Vector128_get_AllBitsSet:
-        case NI_Vector256_get_AllBitsSet:
-            assert(sig.paramCount == 0);
-            assert(varTypeIsTargetVec(sig.retType));
-
-            eltType = varTypeNodeType(sig.retLayout->GetElementType());
-            return NewVecNode(sig.retType, NI_VEC_ONE_BITS, eltType);
-
-        case NI_Vector128_CreateScalarUnsafe:
-        case NI_Vector256_CreateScalarUnsafe:
-            assert(sig.paramCount == 1);
-            assert(varTypeIsTargetVec(sig.retType));
-
-            eltType   = varTypeNodeType(sig.retLayout->GetElementType());
-            intrinsic = varTypeIsFloating(eltType) ? NI_VEC_REGCAST : NI_VEC_ITOV;
-            op1       = impPopStack().val;
-
-            return NewVecNode(sig.retType, intrinsic, eltType, op1);
-
-        case NI_Vector128_Create:
-        case NI_Vector256_Create:
-            assert((sig.paramCount >= 1) && (sig.paramCount <= 32));
-            assert(varTypeIsTargetVec(sig.retType));
-
-            eltType = varTypeNodeType(sig.retLayout->GetElementType());
-            vecSize = sig.retLayout->GetSize();
-
-            if (sig.paramCount > 1)
-            {
-                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, NI_VEC_PACK, eltType);
-                create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
-
-                for (unsigned i = 0; i < sig.paramCount; i++)
-                {
-                    GenTree* op = impPopStack().val;
-                    create->SetOp(sig.paramCount - 1 - i, op);
-                    create->AddSideEffects(op->GetSideEffects());
-                }
-
-                return create;
-            }
-
-            return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, impPopStack().val);
-
-        case NI_Vector128_WithElement:
-        case NI_Vector256_WithElement:
+        if (sig.paramType[0] == sig.retType)
         {
-            assert(sig.paramCount == 3);
-            assert(varTypeIsTargetVec(sig.retType));
-            assert(sig.paramType[0] == sig.retType);
-            assert(sig.paramLayout[0]->GetElementType() == sig.paramType[2]);
-            assert(sig.paramType[1] == TYP_INT);
-
-            GenTreeIntCon* idx = impStackTop(1).val->IsIntCon();
-
-            if ((idx == nullptr) || (idx->GetUInt32Value() >= sig.paramLayout[0]->GetElementCount()))
-            {
-                return nullptr;
-            }
-
-            if ((sig.retType == TYP_SIMD16) && (sig.paramType[2] != TYP_FLOAT) && (sig.paramType[2] != TYP_DOUBLE) &&
-                !varTypeIsShort(sig.paramType[2]) && !comp->compExactlyDependsOn(InstructionSet_SSE41))
-            {
-                // TODO-MIKE-CQ: Would it make sense to emulate PINSRD with 2 PINSRW?
-                // Or just use float shuffles. Inserts/shuffles aren't necessarily faster
-                // than going though memory but the memory access patterns generated by
-                // vector inserts is likely to block or slow down store forwarding and
-                // then the memory version won't be that fast.
-                return nullptr;
-            }
-
-            GenTree* elt = impPopStack().val;
-            /* idx = */ impPopStack();
-            GenTree* vec = PopVec(sig.retType);
-
-            return comp->gtNewVecInsertNode(sig.paramType[2], vec, idx, elt);
+            return op1;
         }
 
-        case NI_Vector256_GetElement:
-        case NI_Vector128_GetElement:
-            assert(sig.paramCount == 2);
-            assert(sig.paramLayout[0]->GetElementType() == sig.retType);
+        intrinsic = sig.retType == TYP_SIMD16 ? NI_VEC_TRUNC : NI_VEC_ZEXT;
+        eltType   = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+        return NewVecNode(sig.retType, intrinsic, eltType, op1);
 
-            op2 = impPopStackCoerceArg(TYP_INT);
-            op1 = PopVec(sig.paramType[0]);
-            return impVecExtract(sig.paramLayout[0], op1, op2);
+    case NI_Vector256_GetLower:
+        assert(sig.paramCount == 1);
+        assert(sig.paramType[0] == TYP_SIMD32);
+        assert(sig.retType == TYP_SIMD16);
 
-        case NI_Vector128_ToScalar:
-        case NI_Vector256_ToScalar:
-            assert(sig.paramCount == 1);
-            assert(sig.paramLayout[0]->GetElementType() == sig.retType);
+        eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+        op1     = PopVec(TYP_SIMD32);
+        return NewVecNode(sig.retType, NI_VEC_TRUNC, eltType, op1);
 
-            op2 = comp->gtNewIconNode(0);
-            op1 = PopVec(sig.paramType[0]);
-            return NewVecExtractNode(sig.retType, op1, op2);
+    case NI_Vector128_ToVector256:
+        assert(sig.paramCount == 1);
+        assert(sig.paramType[0] == TYP_SIMD16);
+        assert(sig.retType == TYP_SIMD32);
 
-        default:
+        eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+        op1     = PopVec(TYP_SIMD16);
+        return NewVecNode(TYP_SIMD32, NI_VEC_ZEXT, eltType, op1);
+
+    case NI_Vector128_ToVector256Unsafe:
+        assert(sig.paramCount == 1);
+        assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD32));
+
+        eltType = varTypeNodeType(sig.retLayout->GetElementType());
+        op1     = PopVec(TYP_SIMD16);
+        return NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, 16, op1);
+
+    case NI_Vector128_get_Zero:
+    case NI_Vector256_get_Zero:
+        assert(sig.paramCount == 0);
+        assert(varTypeIsTargetVec(sig.retType));
+
+        eltType = varTypeNodeType(sig.retLayout->GetElementType());
+        return NewVecNode(sig.retType, NI_VEC_ZERO, eltType);
+
+    case NI_Vector128_get_AllBitsSet:
+    case NI_Vector256_get_AllBitsSet:
+        assert(sig.paramCount == 0);
+        assert(varTypeIsTargetVec(sig.retType));
+
+        eltType = varTypeNodeType(sig.retLayout->GetElementType());
+        return NewVecNode(sig.retType, NI_VEC_ONE_BITS, eltType);
+
+    case NI_Vector128_CreateScalarUnsafe:
+    case NI_Vector256_CreateScalarUnsafe:
+        assert(sig.paramCount == 1);
+        assert(varTypeIsTargetVec(sig.retType));
+
+        eltType   = varTypeNodeType(sig.retLayout->GetElementType());
+        intrinsic = varTypeIsFloating(eltType) ? NI_VEC_REGCAST : NI_VEC_ITOV;
+        op1       = impPopStack().val;
+
+        return NewVecNode(sig.retType, intrinsic, eltType, op1);
+
+    case NI_Vector128_Create:
+    case NI_Vector256_Create:
+        assert((sig.paramCount >= 1) && (sig.paramCount <= 32));
+        assert(varTypeIsTargetVec(sig.retType));
+
+        eltType = varTypeNodeType(sig.retLayout->GetElementType());
+        vecSize = sig.retLayout->GetSize();
+
+        if (sig.paramCount > 1)
+        {
+            GenTreeHWIntrinsic* create = NewVecNode(sig.retType, NI_VEC_PACK, eltType);
+            create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
+
+            for (unsigned i = 0; i < sig.paramCount; i++)
+            {
+                GenTree* op = impPopStack().val;
+                create->SetOp(sig.paramCount - 1 - i, op);
+                create->AddSideEffects(op->GetSideEffects());
+            }
+
+            return create;
+        }
+
+        return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, impPopStack().val);
+
+    case NI_Vector128_WithElement:
+    case NI_Vector256_WithElement:
+    {
+        assert(sig.paramCount == 3);
+        assert(varTypeIsTargetVec(sig.retType));
+        assert(sig.paramType[0] == sig.retType);
+        assert(sig.paramLayout[0]->GetElementType() == sig.paramType[2]);
+        assert(sig.paramType[1] == TYP_INT);
+
+        GenTreeIntCon* idx = impStackTop(1).val->IsIntCon();
+
+        if ((idx == nullptr) || (idx->GetUInt32Value() >= sig.paramLayout[0]->GetElementCount()))
+        {
             return nullptr;
+        }
+
+        if ((sig.retType == TYP_SIMD16) && (sig.paramType[2] != TYP_FLOAT) && (sig.paramType[2] != TYP_DOUBLE) &&
+            !varTypeIsShort(sig.paramType[2]) && !comp->compExactlyDependsOn(InstructionSet_SSE41))
+        {
+            // TODO-MIKE-CQ: Would it make sense to emulate PINSRD with 2 PINSRW?
+            // Or just use float shuffles. Inserts/shuffles aren't necessarily faster
+            // than going though memory but the memory access patterns generated by
+            // vector inserts is likely to block or slow down store forwarding and
+            // then the memory version won't be that fast.
+            return nullptr;
+        }
+
+        GenTree* elt = impPopStack().val;
+        /* idx = */ impPopStack();
+        GenTree* vec = PopVec(sig.retType);
+
+        return comp->gtNewVecInsertNode(sig.paramType[2], vec, idx, elt);
+    }
+
+    case NI_Vector256_GetElement:
+    case NI_Vector128_GetElement:
+        assert(sig.paramCount == 2);
+        assert(sig.paramLayout[0]->GetElementType() == sig.retType);
+
+        op2 = impPopStackCoerceArg(TYP_INT);
+        op1 = PopVec(sig.paramType[0]);
+        return impVecExtract(sig.paramLayout[0], op1, op2);
+
+    case NI_Vector128_ToScalar:
+    case NI_Vector256_ToScalar:
+        assert(sig.paramCount == 1);
+        assert(sig.paramLayout[0]->GetElementType() == sig.retType);
+
+        op2 = comp->gtNewIconNode(0);
+        op1 = PopVec(sig.paramType[0]);
+        return NewVecExtractNode(sig.retType, op1, op2);
+
+    default:
+        return nullptr;
     }
 }
 
@@ -583,177 +583,176 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
 {
     switch (intrinsic)
     {
-        case NI_SSE_CompareScalarGreaterThan:
-        case NI_SSE_CompareScalarGreaterThanOrEqual:
-        case NI_SSE_CompareScalarNotGreaterThan:
-        case NI_SSE_CompareScalarNotGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarGreaterThan:
-        case NI_SSE2_CompareScalarGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarNotGreaterThan:
-        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
+    case NI_SSE_CompareScalarGreaterThan:
+    case NI_SSE_CompareScalarGreaterThanOrEqual:
+    case NI_SSE_CompareScalarNotGreaterThan:
+    case NI_SSE_CompareScalarNotGreaterThanOrEqual:
+    case NI_SSE2_CompareScalarGreaterThan:
+    case NI_SSE2_CompareScalarGreaterThanOrEqual:
+    case NI_SSE2_CompareScalarNotGreaterThan:
+    case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
+    {
+        assert(sig.paramCount == 2);
+        GenTree* op2 = PopVec(TYP_SIMD16);
+        GenTree* op1 = PopVec(TYP_SIMD16);
+
+        var_types baseType = sig.retLayout->GetElementType();
+        assert(varTypeIsFloating(baseType));
+
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
         {
-            assert(sig.paramCount == 2);
-            GenTree* op2 = PopVec(TYP_SIMD16);
-            GenTree* op1 = PopVec(TYP_SIMD16);
+            // These intrinsics are "special import" because the non-AVX path isn't directly
+            // hardware supported. Instead, they start with "swapped operands" and we fix that here.
 
-            var_types baseType = sig.retLayout->GetElementType();
-            assert(varTypeIsFloating(baseType));
-
-            if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                // These intrinsics are "special import" because the non-AVX path isn't directly
-                // hardware supported. Instead, they start with "swapped operands" and we fix that here.
-
-                FloatComparisonMode comparison =
-                    static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImplicitImm(intrinsic, true));
-                return NewVecNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, op1, op2,
-                                  comp->gtNewIconNode(static_cast<int>(comparison)));
-            }
-
-            GenTree* op1Uses[2];
-            impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
-                            CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
-            GenTree* retNode = NewVecNode(TYP_SIMD16, intrinsic, baseType, op2, op1Uses[0]);
-            return NewVecNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar, baseType,
-                              op1Uses[1], retNode);
+            FloatComparisonMode comparison =
+                static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImplicitImm(intrinsic, true));
+            return NewVecNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, op1, op2,
+                              comp->gtNewIconNode(static_cast<int>(comparison)));
         }
 
-        case NI_SSE2_ConvertScalarToVector128UInt32:
-            return NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT,
-                              impPopStackCoerceArg(TYP_INT));
+        GenTree* op1Uses[2];
+        impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
+                        CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
+        GenTree* retNode = NewVecNode(TYP_SIMD16, intrinsic, baseType, op2, op1Uses[0]);
+        return NewVecNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar, baseType,
+                          op1Uses[1], retNode);
+    }
 
-        case NI_SSE2_X64_ConvertScalarToVector128UInt64:
-            return NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG,
-                              impPopStackCoerceArg(TYP_LONG));
+    case NI_SSE2_ConvertScalarToVector128UInt32:
+        return NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, impPopStackCoerceArg(TYP_INT));
 
-        case NI_SSE2_ConvertToInt32:
-            assert(sig.paramCount == 1);
-            if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
-            {
-                return NewVecNode(TYP_INT, NI_SSE2_ConvertToInt32, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
-            }
-            assert(sig.paramLayout[0]->GetElementType() == TYP_INT);
-            FALLTHROUGH;
-        case NI_SSE2_ConvertToUInt32:
-            return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
+    case NI_SSE2_X64_ConvertScalarToVector128UInt64:
+        return NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG,
+                          impPopStackCoerceArg(TYP_LONG));
 
-        case NI_SSE2_X64_ConvertToInt64:
-            assert(sig.paramCount == 1);
-            if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
-            {
-                return NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
-            }
-            assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
-            FALLTHROUGH;
-        case NI_SSE2_X64_ConvertToUInt64:
-            return NewVecExtractNode(TYP_LONG, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
-
-        case NI_SSE2_Extract:
-        case NI_SSE41_Extract:
-        case NI_SSE41_X64_Extract:
+    case NI_SSE2_ConvertToInt32:
+        assert(sig.paramCount == 1);
+        if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
         {
-            assert(sig.paramCount == 2);
-            assert(sig.retType == sig.paramLayout[0]->GetElementType());
+            return NewVecNode(TYP_INT, NI_SSE2_ConvertToInt32, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
+        }
+        assert(sig.paramLayout[0]->GetElementType() == TYP_INT);
+        FALLTHROUGH;
+    case NI_SSE2_ConvertToUInt32:
+        return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
-            GenTree* op2 = impPopStackCoerceArg(TYP_INT);
-            GenTree* op1 = PopVec(TYP_SIMD16);
+    case NI_SSE2_X64_ConvertToInt64:
+        assert(sig.paramCount == 1);
+        if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
+        {
+            return NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
+        }
+        assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
+        FALLTHROUGH;
+    case NI_SSE2_X64_ConvertToUInt64:
+        return NewVecExtractNode(TYP_LONG, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
-            var_types eltType   = sig.paramLayout[0]->GetElementType();
-            int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
+    case NI_SSE2_Extract:
+    case NI_SSE41_Extract:
+    case NI_SSE41_X64_Extract:
+    {
+        assert(sig.paramCount == 2);
+        assert(sig.retType == sig.paramLayout[0]->GetElementType());
 
-            if (GenTreeIntCon* intCon = op2->IsIntCon())
-            {
-                intCon->SetValue(intCon->GetValue() & indexMask);
-            }
-            else
-            {
-                op2 = comp->gtNewOperNode(GT_AND, TYP_INT, op2, comp->gtNewIconNode(indexMask));
-            }
+        GenTree* op2 = impPopStackCoerceArg(TYP_INT);
+        GenTree* op1 = PopVec(TYP_SIMD16);
 
-            return NewVecExtractNode(varTypeNodeType(sig.retType), op1, op2);
+        var_types eltType   = sig.paramLayout[0]->GetElementType();
+        int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
+
+        if (GenTreeIntCon* intCon = op2->IsIntCon())
+        {
+            intCon->SetValue(intCon->GetValue() & indexMask);
+        }
+        else
+        {
+            op2 = comp->gtNewOperNode(GT_AND, TYP_INT, op2, comp->gtNewIconNode(indexMask));
         }
 
-        case NI_SSE_Prefetch0:
-        case NI_SSE_Prefetch1:
-        case NI_SSE_Prefetch2:
-        case NI_SSE_PrefetchNonTemporal:
+        return NewVecExtractNode(varTypeNodeType(sig.retType), op1, op2);
+    }
+
+    case NI_SSE_Prefetch0:
+    case NI_SSE_Prefetch1:
+    case NI_SSE_Prefetch2:
+    case NI_SSE_PrefetchNonTemporal:
+    {
+        assert(sig.paramCount == 1);
+        assert(sig.retType == TYP_VOID);
+        GenTree* op1  = impPopStack().val;
+        GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
+        node->SetDoNotCSE();
+        return node;
+    }
+
+    case NI_SSE_StoreFence:
+    case NI_SSE2_LoadFence:
+    case NI_SSE2_MemoryFence:
+    {
+        assert(sig.paramCount == 0);
+        assert(sig.retType == TYP_VOID);
+        GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
+        node->SetDoNotCSE();
+        return node;
+    }
+
+    case NI_SSE2_StoreNonTemporal:
+    {
+        assert(sig.paramCount == 2);
+        assert(sig.retType == TYP_VOID);
+        GenTree* op2 = impPopStack().val;
+        GenTree* op1 = impPopStack().val;
+        return comp->gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
+    }
+
+    case NI_SSE42_Crc32:
+    case NI_SSE42_X64_Crc32:
+    {
+        assert(sig.paramCount == 2);
+        assert((sig.retType == TYP_UINT) || (sig.retType == TYP_ULONG));
+        assert(sig.retType == sig.paramType[0]);
+
+        if (sig.paramType[1] == TYP_UBYTE)
         {
-            assert(sig.paramCount == 1);
-            assert(sig.retType == TYP_VOID);
-            GenTree* op1  = impPopStack().val;
-            GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
-            node->SetDoNotCSE();
-            return node;
+            assert(sig.retType == TYP_UINT);
+            intrinsic = NI_SSE42_CRC32B;
+        }
+        else if (sig.paramType[1] == TYP_USHORT)
+        {
+            assert(sig.retType == TYP_UINT);
+            intrinsic = NI_SSE42_CRC32W;
+        }
+        else
+        {
+            assert(sig.retType == sig.paramType[1]);
+            intrinsic = NI_SSE42_CRC32;
         }
 
-        case NI_SSE_StoreFence:
-        case NI_SSE2_LoadFence:
-        case NI_SSE2_MemoryFence:
+        GenTree* op2 = impPopStack().val;
+        GenTree* op1 = impPopStack().val;
+        return comp->gtNewScalarHWIntrinsicNode(varTypeNodeType(sig.retType), intrinsic, op1, op2);
+    }
+
+    case NI_SSE2_ShiftLeftLogical:
+    case NI_SSE2_ShiftRightArithmetic:
+    case NI_SSE2_ShiftRightLogical:
+    {
+        var_types eltType = sig.retLayout->GetElementType();
+
+        GenTree* op2 = impPopStack().val;
+        GenTree* op1 = PopVec(sig.retType);
+
+        if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
         {
-            assert(sig.paramCount == 0);
-            assert(sig.retType == TYP_VOID);
-            GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
-            node->SetDoNotCSE();
-            return node;
+            op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
         }
 
-        case NI_SSE2_StoreNonTemporal:
-        {
-            assert(sig.paramCount == 2);
-            assert(sig.retType == TYP_VOID);
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impPopStack().val;
-            return comp->gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
-        }
+        return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
+    }
 
-        case NI_SSE42_Crc32:
-        case NI_SSE42_X64_Crc32:
-        {
-            assert(sig.paramCount == 2);
-            assert((sig.retType == TYP_UINT) || (sig.retType == TYP_ULONG));
-            assert(sig.retType == sig.paramType[0]);
-
-            if (sig.paramType[1] == TYP_UBYTE)
-            {
-                assert(sig.retType == TYP_UINT);
-                intrinsic = NI_SSE42_CRC32B;
-            }
-            else if (sig.paramType[1] == TYP_USHORT)
-            {
-                assert(sig.retType == TYP_UINT);
-                intrinsic = NI_SSE42_CRC32W;
-            }
-            else
-            {
-                assert(sig.retType == sig.paramType[1]);
-                intrinsic = NI_SSE42_CRC32;
-            }
-
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impPopStack().val;
-            return comp->gtNewScalarHWIntrinsicNode(varTypeNodeType(sig.retType), intrinsic, op1, op2);
-        }
-
-        case NI_SSE2_ShiftLeftLogical:
-        case NI_SSE2_ShiftRightArithmetic:
-        case NI_SSE2_ShiftRightLogical:
-        {
-            var_types eltType = sig.retLayout->GetElementType();
-
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = PopVec(sig.retType);
-
-            if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
-            {
-                op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
-            }
-
-            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
-        }
-
-        default:
-            JITDUMP("Not implemented hardware intrinsic");
-            return nullptr;
+    default:
+        JITDUMP("Not implemented hardware intrinsic");
+        return nullptr;
     }
 }
 
@@ -761,181 +760,181 @@ GenTree* Importer::ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
 {
     switch (intrinsic)
     {
-        case NI_AVX_Compare:
-        case NI_AVX_CompareScalar:
+    case NI_AVX_Compare:
+    case NI_AVX_CompareScalar:
+    {
+        assert(varTypeIsTargetVec(sig.retType));
+        assert(sig.paramCount == 3);
+        assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+        assert(sig.paramType[2] == TYP_UBYTE);
+
+        var_types eltType = sig.retLayout->GetElementType();
+        assert(varTypeIsFloating(eltType));
+
+        if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
         {
-            assert(varTypeIsTargetVec(sig.retType));
-            assert(sig.paramCount == 3);
-            assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
-            assert(sig.paramType[2] == TYP_UBYTE);
-
-            var_types eltType = sig.retLayout->GetElementType();
-            assert(varTypeIsFloating(eltType));
-
-            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
-            {
-                if (imm->GetUInt32Value() > 31)
-                {
-                    return nullptr;
-                }
-            }
-            else if (!sig.isIntrinsicMethod)
+            if (imm->GetUInt32Value() > 31)
             {
                 return nullptr;
             }
-
-            GenTree* op3 = impPopStack().val;
-            GenTree* op2 = PopVec(sig.retType);
-            GenTree* op1 = PopVec(sig.retType);
-
-            if (!op3->IsIntCon())
-            {
-                op3 = AddHWIntrinsicRangeCheck(op3, 0, 31);
-            }
-
-            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2, op3);
         }
-
-        case NI_AVX2_ShiftLeftLogical:
-        case NI_AVX2_ShiftRightArithmetic:
-        case NI_AVX2_ShiftRightLogical:
+        else if (!sig.isIntrinsicMethod)
         {
-            var_types eltType = sig.retLayout->GetElementType();
-            assert(varTypeIsIntegral(eltType));
-
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = PopVec(sig.retType);
-
-            if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
-            {
-                op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
-            }
-
-            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
-        }
-
-        case NI_AVX2_ConvertToInt32:
-        case NI_AVX2_ConvertToUInt32:
-            return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));
-
-        case NI_AVX2_BroadcastScalarToVector128:
-        {
-            assert(sig.paramCount == 1);
-
-            GenTree* op1;
-
-            if (sig.paramType[0] == TYP_SIMD16)
-            {
-                if (sig.retLayout->GetElementType() == TYP_DOUBLE)
-                {
-                    intrinsic = NI_SSE3_MoveAndDuplicate;
-                }
-
-                op1 = PopVec(TYP_SIMD16);
-            }
-            else
-            {
-                op1 = impPopStack().val;
-            }
-
-            return NewVecNode(TYP_SIMD16, intrinsic, sig.retLayout->GetElementType(), op1);
-        }
-
-        case NI_AVX2_PermuteVar8x32:
-        {
-            var_types eltType = sig.retLayout->GetElementType();
-            GenTree*  control = PopVec(TYP_SIMD32);
-            GenTree*  left    = PopVec(TYP_SIMD32);
-
-            // AVX2.PermuteVar8x32 signature is messed up, parameter order does not match
-            // instruction operand order.
-
-            if (!gtCanSwapOrder(control, left))
-            {
-                // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
-
-                LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
-                impAppendTempStore(tempLcl, left, sig.paramLayout[0], CHECK_SPILL_ALL);
-                left = comp->gtNewLclLoad(tempLcl, sig.paramType[0]);
-            }
-
-            return NewVecNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, control, left);
-        }
-
-        case NI_AVX2_GatherVector128:
-        case NI_AVX2_GatherVector256:
-        {
-            assert(sig.paramCount == 3);
-
-            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
-            {
-                int val = imm->GetInt32Value();
-
-                if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
-                {
-                    return nullptr;
-                }
-            }
-            else if (!sig.isIntrinsicMethod)
-            {
-                return nullptr;
-            }
-
-            GenTree* op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
-            GenTree* op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
-            GenTree* op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
-
-            var_types eltType   = sig.retLayout->GetElementType();
-            var_types indexType = sig.paramLayout[1]->GetElementType();
-            assert((indexType == TYP_INT) || (indexType == TYP_LONG));
-
-            intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
-
-            GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, op1, op2, op3);
-            node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
-            return node;
-        }
-
-        case NI_AVX2_GatherMaskVector128:
-        case NI_AVX2_GatherMaskVector256:
-        {
-            assert(sig.paramCount == 5);
-
-            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
-            {
-                int val = imm->GetInt32Value();
-
-                if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
-                {
-                    return nullptr;
-                }
-            }
-            else if (!sig.isIntrinsicMethod)
-            {
-                return nullptr;
-            }
-
-            GenTree* ops[5];
-
-            for (int i = _countof(ops) - 1; i >= 0; i--)
-            {
-                ops[i] = PopHWIntrinsicArg(sig.paramType[i], sig.paramLayout[i]);
-            }
-
-            var_types eltType   = sig.retLayout->GetElementType();
-            var_types indexType = sig.paramLayout[2]->GetElementType();
-            assert((indexType == TYP_INT) || (indexType == TYP_LONG));
-
-            intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
-
-            GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, _countof(ops), ops);
-            node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
-            return node;
-        }
-
-        default:
-            JITDUMP("Not implemented hardware intrinsic");
             return nullptr;
+        }
+
+        GenTree* op3 = impPopStack().val;
+        GenTree* op2 = PopVec(sig.retType);
+        GenTree* op1 = PopVec(sig.retType);
+
+        if (!op3->IsIntCon())
+        {
+            op3 = AddHWIntrinsicRangeCheck(op3, 0, 31);
+        }
+
+        return NewVecNode(sig.retType, intrinsic, eltType, op1, op2, op3);
+    }
+
+    case NI_AVX2_ShiftLeftLogical:
+    case NI_AVX2_ShiftRightArithmetic:
+    case NI_AVX2_ShiftRightLogical:
+    {
+        var_types eltType = sig.retLayout->GetElementType();
+        assert(varTypeIsIntegral(eltType));
+
+        GenTree* op2 = impPopStack().val;
+        GenTree* op1 = PopVec(sig.retType);
+
+        if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
+        {
+            op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
+        }
+
+        return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
+    }
+
+    case NI_AVX2_ConvertToInt32:
+    case NI_AVX2_ConvertToUInt32:
+        return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));
+
+    case NI_AVX2_BroadcastScalarToVector128:
+    {
+        assert(sig.paramCount == 1);
+
+        GenTree* op1;
+
+        if (sig.paramType[0] == TYP_SIMD16)
+        {
+            if (sig.retLayout->GetElementType() == TYP_DOUBLE)
+            {
+                intrinsic = NI_SSE3_MoveAndDuplicate;
+            }
+
+            op1 = PopVec(TYP_SIMD16);
+        }
+        else
+        {
+            op1 = impPopStack().val;
+        }
+
+        return NewVecNode(TYP_SIMD16, intrinsic, sig.retLayout->GetElementType(), op1);
+    }
+
+    case NI_AVX2_PermuteVar8x32:
+    {
+        var_types eltType = sig.retLayout->GetElementType();
+        GenTree*  control = PopVec(TYP_SIMD32);
+        GenTree*  left    = PopVec(TYP_SIMD32);
+
+        // AVX2.PermuteVar8x32 signature is messed up, parameter order does not match
+        // instruction operand order.
+
+        if (!gtCanSwapOrder(control, left))
+        {
+            // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
+
+            LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
+            impAppendTempStore(tempLcl, left, sig.paramLayout[0], CHECK_SPILL_ALL);
+            left = comp->gtNewLclLoad(tempLcl, sig.paramType[0]);
+        }
+
+        return NewVecNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, control, left);
+    }
+
+    case NI_AVX2_GatherVector128:
+    case NI_AVX2_GatherVector256:
+    {
+        assert(sig.paramCount == 3);
+
+        if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
+        {
+            int val = imm->GetInt32Value();
+
+            if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
+            {
+                return nullptr;
+            }
+        }
+        else if (!sig.isIntrinsicMethod)
+        {
+            return nullptr;
+        }
+
+        GenTree* op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
+        GenTree* op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+        GenTree* op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
+
+        var_types eltType   = sig.retLayout->GetElementType();
+        var_types indexType = sig.paramLayout[1]->GetElementType();
+        assert((indexType == TYP_INT) || (indexType == TYP_LONG));
+
+        intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
+
+        GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, op1, op2, op3);
+        node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+        return node;
+    }
+
+    case NI_AVX2_GatherMaskVector128:
+    case NI_AVX2_GatherMaskVector256:
+    {
+        assert(sig.paramCount == 5);
+
+        if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
+        {
+            int val = imm->GetInt32Value();
+
+            if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
+            {
+                return nullptr;
+            }
+        }
+        else if (!sig.isIntrinsicMethod)
+        {
+            return nullptr;
+        }
+
+        GenTree* ops[5];
+
+        for (int i = _countof(ops) - 1; i >= 0; i--)
+        {
+            ops[i] = PopHWIntrinsicArg(sig.paramType[i], sig.paramLayout[i]);
+        }
+
+        var_types eltType   = sig.retLayout->GetElementType();
+        var_types indexType = sig.paramLayout[2]->GetElementType();
+        assert((indexType == TYP_INT) || (indexType == TYP_LONG));
+
+        intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
+
+        GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, _countof(ops), ops);
+        node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+        return node;
+    }
+
+    default:
+        JITDUMP("Not implemented hardware intrinsic");
+        return nullptr;
     }
 }
 
@@ -943,45 +942,45 @@ GenTree* Importer::ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
 {
     switch (intrinsic)
     {
-        case NI_BMI1_BitFieldExtract:
-        case NI_BMI1_X64_BitFieldExtract:
-            // The 3-arg version is implemented in managed code
-            if (sig.paramCount == 3)
-            {
-                return nullptr;
-            }
-            FALLTHROUGH;
-        case NI_BMI2_ZeroHighBits:
-        case NI_BMI2_X64_ZeroHighBits:
+    case NI_BMI1_BitFieldExtract:
+    case NI_BMI1_X64_BitFieldExtract:
+        // The 3-arg version is implemented in managed code
+        if (sig.paramCount == 3)
         {
-            assert(sig.paramCount == 2);
-            assert(sig.retType == sig.paramType[0]);
-            assert(sig.retType == TYP_UINT || sig.retType == TYP_ULONG);
+            return nullptr;
+        }
+        FALLTHROUGH;
+    case NI_BMI2_ZeroHighBits:
+    case NI_BMI2_X64_ZeroHighBits:
+    {
+        assert(sig.paramCount == 2);
+        assert(sig.retType == sig.paramType[0]);
+        assert(sig.retType == TYP_UINT || sig.retType == TYP_ULONG);
 
-            var_types type = varTypeNodeType(sig.retType);
-            GenTree*  op2  = impPopStack().val;
-            GenTree*  op1  = impPopStack().val;
+        var_types type = varTypeNodeType(sig.retType);
+        GenTree*  op2  = impPopStack().val;
+        GenTree*  op1  = impPopStack().val;
 
-            if (!gtCanSwapOrder(op1, op2))
-            {
-                // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
+        if (!gtCanSwapOrder(op1, op2))
+        {
+            // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-                LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
-                impAppendTempStore(tempLcl, op1, CHECK_SPILL_ALL);
-                op1 = comp->gtNewLclLoad(tempLcl, type);
-            }
-
-            // Instructions BZHI and BEXTR require to encode op2 (3rd register) in VEX.vvvv and op1
-            // maybe memory operand, so swap op1 and op2 to unify the backend code.
-
-            // TODO-MIKE-Review: It would be better for codegen to handle this instead of having
-            // to swap here and potentially add a temp...
-
-            return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op2, op1);
+            LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
+            impAppendTempStore(tempLcl, op1, CHECK_SPILL_ALL);
+            op1 = comp->gtNewLclLoad(tempLcl, type);
         }
 
-        default:
-            return nullptr;
+        // Instructions BZHI and BEXTR require to encode op2 (3rd register) in VEX.vvvv and op1
+        // maybe memory operand, so swap op1 and op2 to unify the backend code.
+
+        // TODO-MIKE-Review: It would be better for codegen to handle this instead of having
+        // to swap here and potentially add a temp...
+
+        return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op2, op1);
+    }
+
+    default:
+        return nullptr;
     }
 }
 

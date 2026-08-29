@@ -366,22 +366,22 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     {
         switch (info.compCallConv)
         {
-            case CorInfoCallConvExtension::Thiscall:
-                intRegCount = 1;
-                break;
-            case CorInfoCallConvExtension::C:
-            case CorInfoCallConvExtension::Stdcall:
-            case CorInfoCallConvExtension::CMemberFunction:
-            case CorInfoCallConvExtension::StdcallMemberFunction:
-                intRegCount = 0;
-                break;
-            case CorInfoCallConvExtension::Managed:
-            case CorInfoCallConvExtension::Fastcall:
-            case CorInfoCallConvExtension::FastcallMemberFunction:
-                break;
-            default:
-                assert(!"Unknown calling convention");
-                break;
+        case CorInfoCallConvExtension::Thiscall:
+            intRegCount = 1;
+            break;
+        case CorInfoCallConvExtension::C:
+        case CorInfoCallConvExtension::Stdcall:
+        case CorInfoCallConvExtension::CMemberFunction:
+        case CorInfoCallConvExtension::StdcallMemberFunction:
+            intRegCount = 0;
+            break;
+        case CorInfoCallConvExtension::Managed:
+        case CorInfoCallConvExtension::Fastcall:
+        case CorInfoCallConvExtension::FastcallMemberFunction:
+            break;
+        default:
+            assert(!"Unknown calling convention");
+            break;
         }
     }
 #endif
@@ -1220,24 +1220,24 @@ void Compiler::lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_
 {
     switch (corType)
     {
-        // Mark types that looks like a pointer for doing shadow-copying of
-        // parameters if we have an unsafe buffer.
-        // Note that this does not handle structs with pointer fields. Instead,
-        // we rely on using the assign-groups/equivalence-groups in
-        // gsFindVulnerableParams() to determine if a buffer-struct contains a
-        // pointer. We could do better by having the EE determine this for us.
-        // Note that we want to keep buffers without pointers at lower memory
-        // addresses than buffers with pointers.
-        case CORINFO_TYPE_PTR:
-        case CORINFO_TYPE_BYREF:
-        case CORINFO_TYPE_CLASS:
-        case CORINFO_TYPE_STRING:
-        case CORINFO_TYPE_VAR:
-        case CORINFO_TYPE_REFANY:
-            lcl->lvIsPtr = true;
-            break;
-        default:
-            break;
+    // Mark types that looks like a pointer for doing shadow-copying of
+    // parameters if we have an unsafe buffer.
+    // Note that this does not handle structs with pointer fields. Instead,
+    // we rely on using the assign-groups/equivalence-groups in
+    // gsFindVulnerableParams() to determine if a buffer-struct contains a
+    // pointer. We could do better by having the EE determine this for us.
+    // Note that we want to keep buffers without pointers at lower memory
+    // addresses than buffers with pointers.
+    case CORINFO_TYPE_PTR:
+    case CORINFO_TYPE_BYREF:
+    case CORINFO_TYPE_CLASS:
+    case CORINFO_TYPE_STRING:
+    case CORINFO_TYPE_VAR:
+    case CORINFO_TYPE_REFANY:
+        lcl->lvIsPtr = true;
+        break;
+    default:
+        break;
     }
 
     var_types type = CorTypeToVarType(corType);
@@ -1467,57 +1467,57 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
 
         switch (reason)
         {
-            case DNER_AddrExposed:
-                assert(lcl->IsAddressExposed());
-                message = "it is address exposed";
-                break;
-            case DNER_IsStruct:
-                assert(varTypeIsStruct(lcl->GetType()));
-                message = "it is a struct";
-                break;
-            case DNER_IsStructArg:
-                assert(varTypeIsStruct(lcl->GetType()));
-                message = "it is a struct arg";
-                break;
-            case DNER_BlockOp:
-                lcl->lvLclBlockOpAddr = true;
-                message               = "written in a block op";
-                break;
-            case DNER_LocalField:
-                lcl->lvLclFieldExpr = true;
-                message             = "was accessed as a local field";
-                break;
-            case DNER_LiveInOutOfHandler:
-                message = "live in/out of a handler";
-                break;
-            case DNER_DepField:
-                assert(lcl->IsDependentPromotedField(this));
-                message = "field of a dependently promoted struct";
-                break;
-            case DNER_NoRegVars:
-                assert(!opts.EnregLocals());
-                message = "opts.compFlags & CLFLG_REGVAR is not set";
-                break;
+        case DNER_AddrExposed:
+            assert(lcl->IsAddressExposed());
+            message = "it is address exposed";
+            break;
+        case DNER_IsStruct:
+            assert(varTypeIsStruct(lcl->GetType()));
+            message = "it is a struct";
+            break;
+        case DNER_IsStructArg:
+            assert(varTypeIsStruct(lcl->GetType()));
+            message = "it is a struct arg";
+            break;
+        case DNER_BlockOp:
+            lcl->lvLclBlockOpAddr = true;
+            message               = "written in a block op";
+            break;
+        case DNER_LocalField:
+            lcl->lvLclFieldExpr = true;
+            message             = "was accessed as a local field";
+            break;
+        case DNER_LiveInOutOfHandler:
+            message = "live in/out of a handler";
+            break;
+        case DNER_DepField:
+            assert(lcl->IsDependentPromotedField(this));
+            message = "field of a dependently promoted struct";
+            break;
+        case DNER_NoRegVars:
+            assert(!opts.EnregLocals());
+            message = "opts.compFlags & CLFLG_REGVAR is not set";
+            break;
 #ifdef JIT32_GCENCODER
-            case DNER_PinningRef:
-                assert(lcl->IsPinning());
-                message = "pinning ref";
-                break;
+        case DNER_PinningRef:
+            assert(lcl->IsPinning());
+            message = "pinning ref";
+            break;
 #endif
 #ifndef TARGET_64BIT
-            case DNER_LongParamField:
-                message = "it is a decomposed field of a long parameter";
-                break;
-            case DNER_LongUnpromoted:
-                message = "it is unpromoted LONG";
-                break;
+        case DNER_LongParamField:
+            message = "it is a decomposed field of a long parameter";
+            break;
+        case DNER_LongUnpromoted:
+            message = "it is unpromoted LONG";
+            break;
 #endif
-            case DNER_HasImplicitRefs:
-                message = "it has implicit references";
-                break;
-            default:
-                message = "???";
-                break;
+        case DNER_HasImplicitRefs:
+            message = "it has implicit references";
+            break;
+        default:
+            message = "???";
+            break;
         }
 
         printf("\nLocal V%02u should not be enregistered: %s\n", lcl->GetLclNum(), message);
@@ -1855,44 +1855,44 @@ unsigned LclVarDsc::GetFrameSize() const
 
     switch (lvType)
     {
-        case TYP_BLK:
-            return roundUp(lvExactSize, REGSIZE_BYTES);
+    case TYP_BLK:
+        return roundUp(lvExactSize, REGSIZE_BYTES);
 
-        case TYP_STRUCT:
+    case TYP_STRUCT:
+    {
+        unsigned size = m_layout->GetSize();
+
+        if (lvIsParam)
         {
-            unsigned size = m_layout->GetSize();
+            bool     isFloatHfa = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
+            unsigned alignment  = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
 
-            if (lvIsParam)
-            {
-                bool     isFloatHfa = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
-                unsigned alignment  = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
+            // TODO-MIKE-CQ: This is messed up for reg params on osx-arm64,
+            // it prevents widening of SIMD12 to 16 bytes.
 
-                // TODO-MIKE-CQ: This is messed up for reg params on osx-arm64,
-                // it prevents widening of SIMD12 to 16 bytes.
-
-                return roundUp(size, alignment);
-            }
-
-            // TODO-MIKE-CQ: This is messed up for structs with a single SIMD12
-            // field on x86, it prevents widening of SIMD12 to 16 bytes.
-
-            return roundUp(size, REGSIZE_BYTES);
+            return roundUp(size, alignment);
         }
 
+        // TODO-MIKE-CQ: This is messed up for structs with a single SIMD12
+        // field on x86, it prevents widening of SIMD12 to 16 bytes.
+
+        return roundUp(size, REGSIZE_BYTES);
+    }
+
 #ifdef FEATURE_SIMD
-        case TYP_SIMD12:
-            return 16;
+    case TYP_SIMD12:
+        return 16;
 #endif
 
-        default:
+    default:
 #ifdef TARGET_64BIT
-            if (lvQuirkToLong)
-            {
-                noway_assert(varActualTypeIsInt(lvType) && lvAddrExposed);
-                return 8;
-            }
+        if (lvQuirkToLong)
+        {
+            noway_assert(varActualTypeIsInt(lvType) && lvAddrExposed);
+            return 8;
+        }
 #endif
-            return varTypeSize(varActualType(lvType));
+        return varTypeSize(varActualType(lvType));
     }
 }
 
@@ -2526,36 +2526,36 @@ void Compiler::lvaComputeRefCountsHIR()
 
             switch (node->GetOper())
             {
-                case GT_LCL_STORE:
+            case GT_LCL_STORE:
 #if OPT_BOOL_OPS
-                {
-                    GenTree* value = node->AsLclStore()->GetValue();
+            {
+                GenTree* value = node->AsLclStore()->GetValue();
 
-                    if (!value->TypeIs(TYP_BOOL) && !value->OperIsRelop() && !value->IsIntegralConst(0) &&
-                        !value->IsIntegralConst(1))
-                    {
-                        node->AsLclStore()->GetLcl()->lvIsBoolean = false;
-                    }
+                if (!value->TypeIs(TYP_BOOL) && !value->OperIsRelop() && !value->IsIntegralConst(0) &&
+                    !value->IsIntegralConst(1))
+                {
+                    node->AsLclStore()->GetLcl()->lvIsBoolean = false;
                 }
-                    FALLTHROUGH;
+            }
+                FALLTHROUGH;
 #endif
-                case GT_LCL_STORE_FLD:
-                case GT_LCL_LOAD:
-                case GT_LCL_LOAD_FLD:
-                    MarkLclRefs(node->AsLclRef(), user);
-                    break;
-
-                case GT_LCL_ADDR:
-                {
-                    LclVarDsc* lcl = node->AsLclAddr()->GetLcl();
-                    assert(lcl->IsAddressExposed());
-                    DisqualifyAddCopy(lcl);
-                    m_compiler->lvaAddRef(lcl, 0);
-                }
+            case GT_LCL_STORE_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
+                MarkLclRefs(node->AsLclRef(), user);
                 break;
 
-                default:
-                    break;
+            case GT_LCL_ADDR:
+            {
+                LclVarDsc* lcl = node->AsLclAddr()->GetLcl();
+                assert(lcl->IsAddressExposed());
+                DisqualifyAddCopy(lcl);
+                m_compiler->lvaAddRef(lcl, 0);
+            }
+            break;
+
+            default:
+                break;
             }
         }
 
@@ -2719,39 +2719,39 @@ void Compiler::lvaComputeRefCountsLIR()
 
             switch (node->GetOper())
             {
-                case GT_LCL_ADDR:
+            case GT_LCL_ADDR:
+                refWeight = 0;
+                lcl       = node->AsLclAddr()->GetLcl();
+                break;
+
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
+                if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
+                {
+                    assert(node->OperIs(GT_LCL_LOAD));
+                    lvaGenericsContextInUse = true;
+                }
+
+                lcl = node->AsLclRef()->GetLcl();
+                break;
+
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
+                assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
+                lcl = node->AsLclRef()->GetLcl();
+
+                // If this is an EH var, use a zero weight for defs, so that we don't
+                // count those in our heuristic for register allocation, since they always
+                // must be stored, so there's no value in enregistering them at defs; only
+                // if there are enough uses to justify it.
+                if (lcl->lvLiveInOutOfHndlr && !lcl->lvDoNotEnregister)
+                {
                     refWeight = 0;
-                    lcl       = node->AsLclAddr()->GetLcl();
-                    break;
+                }
+                break;
 
-                case GT_LCL_LOAD:
-                case GT_LCL_LOAD_FLD:
-                    if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
-                    {
-                        assert(node->OperIs(GT_LCL_LOAD));
-                        lvaGenericsContextInUse = true;
-                    }
-
-                    lcl = node->AsLclRef()->GetLcl();
-                    break;
-
-                case GT_LCL_STORE:
-                case GT_LCL_STORE_FLD:
-                    assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
-                    lcl = node->AsLclRef()->GetLcl();
-
-                    // If this is an EH var, use a zero weight for defs, so that we don't
-                    // count those in our heuristic for register allocation, since they always
-                    // must be stored, so there's no value in enregistering them at defs; only
-                    // if there are enough uses to justify it.
-                    if (lcl->lvLiveInOutOfHndlr && !lcl->lvDoNotEnregister)
-                    {
-                        refWeight = 0;
-                    }
-                    break;
-
-                default:
-                    break;
+            default:
+                break;
             }
 
             if (lcl != nullptr)
@@ -3969,19 +3969,19 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     // (It should be legal to use these frame types for every frame).
     switch (opts.compJitSaveFpLrWithCalleeSavedRegisters)
     {
-        default:
-            // Default configuration
-            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters((getNeedsGSSecurityCookie() && compLocallocUsed) ||
-                                                            compStressCompile(STRESS_GENERIC_VARN, 20));
-            break;
-        case 1:
-            // Disable using new frames
-            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(false);
-            break;
-        case 2:
-            // Force using new frames
-            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(true);
-            break;
+    default:
+        // Default configuration
+        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters((getNeedsGSSecurityCookie() && compLocallocUsed) ||
+                                                        compStressCompile(STRESS_GENERIC_VARN, 20));
+        break;
+    case 1:
+        // Disable using new frames
+        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(false);
+        break;
+    case 2:
+        // Force using new frames
+        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(true);
+        break;
     }
 
     // For varargs we always save all of the integer register arguments

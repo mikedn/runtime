@@ -291,20 +291,20 @@ void CodeGen::GenShift(GenTreeOp* shift)
 
     switch (shift->GetOper())
     {
-        case GT_LSH:
-            ins = INS_lsl;
-            break;
-        case GT_RSH:
-            ins = INS_asr;
-            break;
-        case GT_RSZ:
-            ins = INS_lsr;
-            break;
-        case GT_ROR:
-            ins = INS_ror;
-            break;
-        default:
-            unreached();
+    case GT_LSH:
+        ins = INS_lsl;
+        break;
+    case GT_RSH:
+        ins = INS_asr;
+        break;
+    case GT_RSZ:
+        ins = INS_lsr;
+        break;
+    case GT_ROR:
+        ins = INS_ror;
+        break;
+    default:
+        unreached();
     }
 
     if (shiftBy->isUsedFromReg())
@@ -447,31 +447,31 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
 
     switch (kind)
     {
-        case StructStoreKind::MemSet:
-            GenStructStoreMemSet(store, layout);
-            break;
-        case StructStoreKind::MemCpy:
-            GenStructStoreMemCpy(store, layout);
-            break;
-        case StructStoreKind::UnrollInit:
-            GenStructStoreUnrollInit(store, layout);
-            break;
-        case StructStoreKind::UnrollCopy:
-            GenStructStoreUnrollCopy(store, layout);
-            break;
-        case StructStoreKind::UnrollCopyWB:
-            GenStructStoreUnrollCopyWB(store, layout);
-            break;
-        case StructStoreKind::UnrollRegs:
-            GenStructStoreUnrollRegs(store, layout);
-            break;
+    case StructStoreKind::MemSet:
+        GenStructStoreMemSet(store, layout);
+        break;
+    case StructStoreKind::MemCpy:
+        GenStructStoreMemCpy(store, layout);
+        break;
+    case StructStoreKind::UnrollInit:
+        GenStructStoreUnrollInit(store, layout);
+        break;
+    case StructStoreKind::UnrollCopy:
+        GenStructStoreUnrollCopy(store, layout);
+        break;
+    case StructStoreKind::UnrollCopyWB:
+        GenStructStoreUnrollCopyWB(store, layout);
+        break;
+    case StructStoreKind::UnrollRegs:
+        GenStructStoreUnrollRegs(store, layout);
+        break;
 #ifdef TARGET_ARM64
-        case StructStoreKind::UnrollRegsWB:
-            GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
-            break;
+    case StructStoreKind::UnrollRegsWB:
+        GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
+        break;
 #endif
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -605,23 +605,23 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         switch (regSize)
         {
-            case 1:
-                storeIns = INS_strb;
-                attr     = EA_4BYTE;
-                break;
-            case 2:
-                storeIns = INS_strh;
-                attr     = EA_4BYTE;
-                break;
-            case 4:
+        case 1:
+            storeIns = INS_strb;
+            attr     = EA_4BYTE;
+            break;
+        case 2:
+            storeIns = INS_strh;
+            attr     = EA_4BYTE;
+            break;
+        case 4:
 #ifdef TARGET_ARM64
-            case 8:
+        case 8:
 #endif
-                storeIns = INS_str;
-                attr     = EA_ATTR(regSize);
-                break;
-            default:
-                unreached();
+            storeIns = INS_str;
+            attr     = EA_ATTR(regSize);
+            break;
+        default:
+            unreached();
         }
 
         if (dstLcl != nullptr)
@@ -780,26 +780,26 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
         switch (regSize)
         {
-            case 1:
-                loadIns  = INS_ldrb;
-                storeIns = INS_strb;
-                attr     = EA_4BYTE;
-                break;
-            case 2:
-                loadIns  = INS_ldrh;
-                storeIns = INS_strh;
-                attr     = EA_4BYTE;
-                break;
-            case 4:
+        case 1:
+            loadIns  = INS_ldrb;
+            storeIns = INS_strb;
+            attr     = EA_4BYTE;
+            break;
+        case 2:
+            loadIns  = INS_ldrh;
+            storeIns = INS_strh;
+            attr     = EA_4BYTE;
+            break;
+        case 4:
 #ifdef TARGET_ARM64
-            case 8:
+        case 8:
 #endif
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = EA_ATTR(regSize);
-                break;
-            default:
-                unreached();
+            loadIns  = INS_ldr;
+            storeIns = INS_str;
+            attr     = EA_ATTR(regSize);
+            break;
+        default:
+            unreached();
         }
 
         if (srcLcl != nullptr)
@@ -984,19 +984,19 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
             switch (regSize)
             {
-                case 1:
-                    ins = INS_strb;
-                    break;
-                case 2:
-                    ins = INS_strh;
-                    break;
+            case 1:
+                ins = INS_strb;
+                break;
+            case 2:
+                ins = INS_strh;
+                break;
 #ifdef TARGET_ARM64
-                case 4:
-                    ins = INS_str;
-                    break;
+            case 4:
+                ins = INS_str;
+                break;
 #endif
-                default:
-                    unreached();
+            default:
+                unreached();
             }
 
             if (dstLcl != nullptr)
@@ -1495,12 +1495,12 @@ var_types Compiler::mangleVarArgsType(var_types type)
 
     switch (type)
     {
-        case TYP_FLOAT:
-            return TYP_INT;
-        case TYP_DOUBLE:
-            return TYP_LONG;
-        default:
-            return type;
+    case TYP_FLOAT:
+        return TYP_INT;
+    case TYP_DOUBLE:
+        return TYP_LONG;
+    default:
+        return type;
     }
 }
 
@@ -1679,40 +1679,40 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 
         switch (entryPoint.accessType)
         {
-            case IAT_VALUE:
+        case IAT_VALUE:
 #ifdef TARGET_ARM64
-                if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
+            if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
 #else
-                if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
+            if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
 #endif
-                {
-                    addr = entryPoint.addr;
-                    break;
-                }
-
-                // otherwise the target address doesn't fit in an immediate
-                // so we have to burn a register...
-                FALLTHROUGH;
-
-            case IAT_PVALUE:
-                // Load the address into a register, load indirect and call  through a register
-                // We have to use R12 since we assume the argument registers are in use
-                addrReg = REG_INDIRECT_CALL_TARGET_REG;
-
-                instGen_Set_Reg_To_Addr(addrReg, entryPoint.addr);
-                GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, addrReg, addrReg, 0);
+            {
+                addr = entryPoint.addr;
                 break;
+            }
 
-            case IAT_RELPVALUE:
-                // Load the address into a register, load relative indirect and call through a register
-                // We have to use R12 since we assume the argument registers are in use
-                // LR is used as helper register right before it is restored from stack, thus,
-                // all relative address calculations are performed before LR is restored.
-                addrReg = REG_R12;
-                break;
+            // otherwise the target address doesn't fit in an immediate
+            // so we have to burn a register...
+            FALLTHROUGH;
 
-            default:
-                unreached();
+        case IAT_PVALUE:
+            // Load the address into a register, load indirect and call  through a register
+            // We have to use R12 since we assume the argument registers are in use
+            addrReg = REG_INDIRECT_CALL_TARGET_REG;
+
+            instGen_Set_Reg_To_Addr(addrReg, entryPoint.addr);
+            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, addrReg, addrReg, 0);
+            break;
+
+        case IAT_RELPVALUE:
+            // Load the address into a register, load relative indirect and call through a register
+            // We have to use R12 since we assume the argument registers are in use
+            // LR is used as helper register right before it is restored from stack, thus,
+            // all relative address calculations are performed before LR is restored.
+            addrReg = REG_R12;
+            break;
+
+        default:
+            unreached();
         }
 
         // clang-format off
@@ -1777,23 +1777,23 @@ void CodeGen::GenOvfConv(GenTreeUnOp* conv)
 
     switch (conv->GetType())
     {
-        case TYP_UBYTE:
-            minValue = 0;
-            maxValue = UINT8_MAX;
-            break;
-        case TYP_BYTE:
-            minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
-            maxValue = INT8_MAX;
-            break;
-        case TYP_USHORT:
-            minValue = 0;
-            maxValue = UINT16_MAX;
-            break;
-        default:
-            assert(conv->TypeIs(TYP_SHORT));
-            minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
-            maxValue = INT16_MAX;
-            break;
+    case TYP_UBYTE:
+        minValue = 0;
+        maxValue = UINT8_MAX;
+        break;
+    case TYP_BYTE:
+        minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+        maxValue = INT8_MAX;
+        break;
+    case TYP_USHORT:
+        minValue = 0;
+        maxValue = UINT16_MAX;
+        break;
+    default:
+        assert(conv->TypeIs(TYP_SHORT));
+        minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+        maxValue = INT16_MAX;
+        break;
     }
 
 #ifdef TARGET_ARM64

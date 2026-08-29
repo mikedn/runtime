@@ -384,41 +384,41 @@ void Compiler::optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmar
 
         switch (block->bbJumpKind)
         {
-            case BBJ_NONE:
-            case BBJ_COND:
-                if (block->bbNext == loop.lpEntry)
+        case BBJ_NONE:
+        case BBJ_COND:
+            if (block->bbNext == loop.lpEntry)
+            {
+                removeLoop = true;
+                break;
+            }
+            if (block->bbJumpKind == BBJ_NONE)
+            {
+                break;
+            }
+
+            FALLTHROUGH;
+
+        case BBJ_ALWAYS:
+            noway_assert(block->bbJumpDest);
+            if (block->bbJumpDest == loop.lpEntry)
+            {
+                removeLoop = true;
+            }
+            break;
+
+        case BBJ_SWITCH:
+            for (BasicBlock* const bTarget : block->SwitchTargets())
+            {
+                if (bTarget == loop.lpEntry)
                 {
                     removeLoop = true;
                     break;
                 }
-                if (block->bbJumpKind == BBJ_NONE)
-                {
-                    break;
-                }
+            }
+            break;
 
-                FALLTHROUGH;
-
-            case BBJ_ALWAYS:
-                noway_assert(block->bbJumpDest);
-                if (block->bbJumpDest == loop.lpEntry)
-                {
-                    removeLoop = true;
-                }
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    if (bTarget == loop.lpEntry)
-                    {
-                        removeLoop = true;
-                        break;
-                    }
-                }
-                break;
-
-            default:
-                break;
+        default:
+            break;
         }
 
         if (removeLoop)
@@ -437,41 +437,41 @@ void Compiler::optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmar
 
                 switch (auxBlock->bbJumpKind)
                 {
-                    case BBJ_NONE:
-                    case BBJ_COND:
-                        if (auxBlock->bbNext == loop.lpEntry)
+                case BBJ_NONE:
+                case BBJ_COND:
+                    if (auxBlock->bbNext == loop.lpEntry)
+                    {
+                        removeLoop = false;
+                        break;
+                    }
+                    if (auxBlock->bbJumpKind == BBJ_NONE)
+                    {
+                        break;
+                    }
+
+                    FALLTHROUGH;
+
+                case BBJ_ALWAYS:
+                    noway_assert(auxBlock->bbJumpDest);
+                    if (auxBlock->bbJumpDest == loop.lpEntry)
+                    {
+                        removeLoop = false;
+                    }
+                    break;
+
+                case BBJ_SWITCH:
+                    for (BasicBlock* const bTarget : auxBlock->SwitchTargets())
+                    {
+                        if (bTarget == loop.lpEntry)
                         {
                             removeLoop = false;
                             break;
                         }
-                        if (auxBlock->bbJumpKind == BBJ_NONE)
-                        {
-                            break;
-                        }
+                    }
+                    break;
 
-                        FALLTHROUGH;
-
-                    case BBJ_ALWAYS:
-                        noway_assert(auxBlock->bbJumpDest);
-                        if (auxBlock->bbJumpDest == loop.lpEntry)
-                        {
-                            removeLoop = false;
-                        }
-                        break;
-
-                    case BBJ_SWITCH:
-                        for (BasicBlock* const bTarget : auxBlock->SwitchTargets())
-                        {
-                            if (bTarget == loop.lpEntry)
-                            {
-                                removeLoop = false;
-                                break;
-                            }
-                        }
-                        break;
-
-                    default:
-                        break;
+                default:
+                    break;
                 }
             }
 
@@ -2112,51 +2112,51 @@ private:
 
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
-            case BBJ_CALLFINALLY:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                assert(block->bbJumpDest);
-                exitPoint = block->bbJumpDest;
+        case BBJ_COND:
+        case BBJ_CALLFINALLY:
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+            assert(block->bbJumpDest);
+            exitPoint = block->bbJumpDest;
 
+            if (!loopBlocks.IsMember(exitPoint->bbNum))
+            {
+                /* exit from a block other than BOTTOM */
+                lastExit = block;
+                exitCount++;
+            }
+            break;
+
+        case BBJ_NONE:
+            break;
+
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+            /* The "try" associated with this "finally" must be in the
+            * same loop, so the finally block will return control inside the loop */
+            break;
+
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            /* those are exits from the loop */
+            lastExit = block;
+            exitCount++;
+            break;
+
+        case BBJ_SWITCH:
+            for (BasicBlock* const exitPoint : block->SwitchTargets())
+            {
                 if (!loopBlocks.IsMember(exitPoint->bbNum))
                 {
-                    /* exit from a block other than BOTTOM */
                     lastExit = block;
                     exitCount++;
                 }
-                break;
+            }
+            break;
 
-            case BBJ_NONE:
-                break;
-
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-                /* The "try" associated with this "finally" must be in the
-                * same loop, so the finally block will return control inside the loop */
-                break;
-
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                /* those are exits from the loop */
-                lastExit = block;
-                exitCount++;
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const exitPoint : block->SwitchTargets())
-                {
-                    if (!loopBlocks.IsMember(exitPoint->bbNum))
-                    {
-                        lastExit = block;
-                        exitCount++;
-                    }
-                }
-                break;
-
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+        default:
+            noway_assert(!"Unexpected bbJumpKind");
+            break;
         }
 
         if (block->bbFallsThrough() && !loopBlocks.IsMember(block->bbNext->bbNum))
@@ -2388,58 +2388,58 @@ void Compiler::optRedirectBlock(BasicBlock* blk, const BlockToBlockMap& redirect
 {
     switch (blk->bbJumpKind)
     {
-        case BBJ_NONE:
-        case BBJ_THROW:
-        case BBJ_RETURN:
-        case BBJ_EHFILTERRET:
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHCATCHRET:
-            // These have no jump destination to update.
-            break;
+    case BBJ_NONE:
+    case BBJ_THROW:
+    case BBJ_RETURN:
+    case BBJ_EHFILTERRET:
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHCATCHRET:
+        // These have no jump destination to update.
+        break;
 
-        case BBJ_ALWAYS:
-        case BBJ_LEAVE:
-        case BBJ_CALLFINALLY:
-        case BBJ_COND:
-            // All of these have a single jump destination to update.
-            if (BasicBlock * newJumpDest; redirectMap.Find(blk->bbJumpDest, &newJumpDest))
-            {
-                if (updatePreds)
-                {
-                    fgRemoveRefPred(blk->bbJumpDest, blk);
-                    fgAddRefPred(newJumpDest, blk);
-                }
-                blk->bbJumpDest = newJumpDest;
-            }
-            break;
-
-        case BBJ_SWITCH:
+    case BBJ_ALWAYS:
+    case BBJ_LEAVE:
+    case BBJ_CALLFINALLY:
+    case BBJ_COND:
+        // All of these have a single jump destination to update.
+        if (BasicBlock * newJumpDest; redirectMap.Find(blk->bbJumpDest, &newJumpDest))
         {
-            bool redirected = false;
-            for (unsigned i = 0; i < blk->bbJumpSwt->bbsCount; i++)
+            if (updatePreds)
             {
-                BasicBlock* switchDest = blk->bbJumpSwt->bbsDstTab[i];
-                if (BasicBlock * newJumpDest; redirectMap.Find(switchDest, &newJumpDest))
-                {
-                    if (updatePreds)
-                    {
-                        fgRemoveRefPred(switchDest, blk);
-                        fgAddRefPred(newJumpDest, blk);
-                    }
-                    blk->bbJumpSwt->bbsDstTab[i] = newJumpDest;
-                    redirected                   = true;
-                }
+                fgRemoveRefPred(blk->bbJumpDest, blk);
+                fgAddRefPred(newJumpDest, blk);
             }
-            // If any redirections happened, invalidate the switch table map for the switch.
-            if (redirected)
-            {
-                blk->bbJumpSwt->nonDuplicates = nullptr;
-            }
+            blk->bbJumpDest = newJumpDest;
         }
         break;
 
-        default:
-            unreached();
+    case BBJ_SWITCH:
+    {
+        bool redirected = false;
+        for (unsigned i = 0; i < blk->bbJumpSwt->bbsCount; i++)
+        {
+            BasicBlock* switchDest = blk->bbJumpSwt->bbsDstTab[i];
+            if (BasicBlock * newJumpDest; redirectMap.Find(switchDest, &newJumpDest))
+            {
+                if (updatePreds)
+                {
+                    fgRemoveRefPred(switchDest, blk);
+                    fgAddRefPred(newJumpDest, blk);
+                }
+                blk->bbJumpSwt->bbsDstTab[i] = newJumpDest;
+                redirected                   = true;
+            }
+        }
+        // If any redirections happened, invalidate the switch table map for the switch.
+        if (redirected)
+        {
+            blk->bbJumpSwt->nonDuplicates = nullptr;
+        }
+    }
+    break;
+
+    default:
+        unreached();
     }
 }
 
@@ -2451,20 +2451,20 @@ void Compiler::optCopyBlkDest(BasicBlock* from, BasicBlock* to)
     // copy the jump destination(s) from "from" to "to".
     switch (to->bbJumpKind)
     {
-        case BBJ_ALWAYS:
-        case BBJ_LEAVE:
-        case BBJ_CALLFINALLY:
-        case BBJ_COND:
-            // All of these have a single jump destination to update.
-            to->bbJumpDest = from->bbJumpDest;
-            break;
+    case BBJ_ALWAYS:
+    case BBJ_LEAVE:
+    case BBJ_CALLFINALLY:
+    case BBJ_COND:
+        // All of these have a single jump destination to update.
+        to->bbJumpDest = from->bbJumpDest;
+        break;
 
-        case BBJ_SWITCH:
-            to->bbJumpSwt = new (this, CMK_BasicBlock) BBswtDesc(this, from->bbJumpSwt);
-            break;
+    case BBJ_SWITCH:
+        to->bbJumpSwt = new (this, CMK_BasicBlock) BBswtDesc(this, from->bbJumpSwt);
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 
@@ -2849,222 +2849,222 @@ bool Compiler::optComputeLoopRep(const int        constInit,
     {
         int64_t iterAtExitX;
 
-        case GT_EQ:
-            // Something like "for (i=init; i == lim; i++)" doesn't make any sense.
-            return false;
+    case GT_EQ:
+        // Something like "for (i=init; i == lim; i++)" doesn't make any sense.
+        return false;
 
-        case GT_NE:
-            // Consider: "for (i = init; i != lim; i += const)"
-            // This is tricky since it may have a constant number of iterations or loop forever.
-            // We have to compute "(lim - init) mod iterInc" to see if it is zero.
-            // If "mod iterInc" is not zero then the limit test will miss and a wrap will occur
-            // which is probably not what the end user wanted, but it is legal.
+    case GT_NE:
+        // Consider: "for (i = init; i != lim; i += const)"
+        // This is tricky since it may have a constant number of iterations or loop forever.
+        // We have to compute "(lim - init) mod iterInc" to see if it is zero.
+        // If "mod iterInc" is not zero then the limit test will miss and a wrap will occur
+        // which is probably not what the end user wanted, but it is legal.
 
-            if (iterInc > 0)
+        if (iterInc > 0)
+        {
+            // Stepping by one, i.e. Mod with 1 is always zero.
+            if (iterInc != 1)
             {
-                // Stepping by one, i.e. Mod with 1 is always zero.
-                if (iterInc != 1)
+                if (((constLimitX - constInitX) % iterInc) != 0)
                 {
-                    if (((constLimitX - constInitX) % iterInc) != 0)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
-            else
+        }
+        else
+        {
+            noway_assert(iterInc < 0);
+            // Stepping by -1, i.e. Mod with 1 is always zero.
+            if (iterInc != -1)
             {
-                noway_assert(iterInc < 0);
-                // Stepping by -1, i.e. Mod with 1 is always zero.
-                if (iterInc != -1)
+                if (((constInitX - constLimitX) % (-iterInc)) != 0)
                 {
-                    if (((constInitX - constLimitX) % (-iterInc)) != 0)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
+        }
 
-            switch (iterOper)
+        switch (iterOper)
+        {
+        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            iterInc = -iterInc;
+            FALLTHROUGH;
+
+        case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (constInitX != constLimitX)
             {
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                    iterInc = -iterInc;
-                    FALLTHROUGH;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                    if (constInitX != constLimitX)
-                    {
-                        loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
-                    }
-
-                    iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
-
-                    if (unsTest)
-                    {
-                        iterAtExitX = (unsigned)iterAtExitX;
-                    }
-
-                    if (iterAtExitX < constLimitX)
-                    {
-                        return false;
-                    }
-
-                    *iterCount = loopCount;
-                    return true;
-
-                default:
-                    unreached();
+                loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
             }
 
-        case GT_LT:
-            switch (iterOper)
+            iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
+
+            if (unsTest)
             {
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                    iterInc = -iterInc;
-                    FALLTHROUGH;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                    if (constInitX < constLimitX)
-                    {
-                        loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
-                    }
-
-                    iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
-
-                    if (unsTest)
-                    {
-                        iterAtExitX = (unsigned)iterAtExitX;
-                    }
-
-                    if (iterAtExitX < constLimitX)
-                    {
-                        return false;
-                    }
-
-                    *iterCount = loopCount;
-                    return true;
-
-                default:
-                    unreached();
+                iterAtExitX = (unsigned)iterAtExitX;
             }
 
-        case GT_LE:
-            switch (iterOper)
+            if (iterAtExitX < constLimitX)
             {
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                    iterInc = -iterInc;
-                    FALLTHROUGH;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                    if (constInitX <= constLimitX)
-                    {
-                        loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
-                    }
-
-                    iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
-
-                    if (unsTest)
-                    {
-                        iterAtExitX = (unsigned)iterAtExitX;
-                    }
-
-                    if (iterAtExitX <= constLimitX)
-                    {
-                        return false;
-                    }
-
-                    *iterCount = loopCount;
-                    return true;
-
-                default:
-                    unreached();
+                return false;
             }
 
-        case GT_GT:
-            switch (iterOper)
-            {
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                    iterInc = -iterInc;
-                    FALLTHROUGH;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                    if (constInitX > constLimitX)
-                    {
-                        loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
-                    }
-
-                    iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
-
-                    if (unsTest)
-                    {
-                        iterAtExitX = (unsigned)iterAtExitX;
-                    }
-
-                    if (iterAtExitX > constLimitX)
-                    {
-                        return false;
-                    }
-
-                    *iterCount = loopCount;
-                    return true;
-
-                default:
-                    unreached();
-            }
-
-        case GT_GE:
-            switch (iterOper)
-            {
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                    iterInc = -iterInc;
-                    FALLTHROUGH;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                    if (constInitX >= constLimitX)
-                    {
-                        loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
-                    }
-
-                    iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
-
-                    if (unsTest)
-                    {
-                        iterAtExitX = (unsigned)iterAtExitX;
-                    }
-
-                    if (iterAtExitX >= constLimitX)
-                    {
-                        return false;
-                    }
-
-                    *iterCount = loopCount;
-                    return true;
-
-                default:
-                    unreached();
-            }
+            *iterCount = loopCount;
+            return true;
 
         default:
             unreached();
+        }
+
+    case GT_LT:
+        switch (iterOper)
+        {
+        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            iterInc = -iterInc;
+            FALLTHROUGH;
+
+        case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (constInitX < constLimitX)
+            {
+                loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
+            }
+
+            iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
+
+            if (unsTest)
+            {
+                iterAtExitX = (unsigned)iterAtExitX;
+            }
+
+            if (iterAtExitX < constLimitX)
+            {
+                return false;
+            }
+
+            *iterCount = loopCount;
+            return true;
+
+        default:
+            unreached();
+        }
+
+    case GT_LE:
+        switch (iterOper)
+        {
+        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            iterInc = -iterInc;
+            FALLTHROUGH;
+
+        case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (constInitX <= constLimitX)
+            {
+                loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
+            }
+
+            iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
+
+            if (unsTest)
+            {
+                iterAtExitX = (unsigned)iterAtExitX;
+            }
+
+            if (iterAtExitX <= constLimitX)
+            {
+                return false;
+            }
+
+            *iterCount = loopCount;
+            return true;
+
+        default:
+            unreached();
+        }
+
+    case GT_GT:
+        switch (iterOper)
+        {
+        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            iterInc = -iterInc;
+            FALLTHROUGH;
+
+        case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (constInitX > constLimitX)
+            {
+                loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
+            }
+
+            iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
+
+            if (unsTest)
+            {
+                iterAtExitX = (unsigned)iterAtExitX;
+            }
+
+            if (iterAtExitX > constLimitX)
+            {
+                return false;
+            }
+
+            *iterCount = loopCount;
+            return true;
+
+        default:
+            unreached();
+        }
+
+    case GT_GE:
+        switch (iterOper)
+        {
+        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            iterInc = -iterInc;
+            FALLTHROUGH;
+
+        case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (constInitX >= constLimitX)
+            {
+                loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
+            }
+
+            iterAtExitX = (int)(constInitX + iterInc * (int)loopCount);
+
+            if (unsTest)
+            {
+                iterAtExitX = (unsigned)iterAtExitX;
+            }
+
+            if (iterAtExitX >= constLimitX)
+            {
+                return false;
+            }
+
+            *iterCount = loopCount;
+            return true;
+
+        default:
+            unreached();
+        }
+
+    default:
+        unreached();
     }
 }
 
@@ -3425,18 +3425,18 @@ PhaseStatus Compiler::phUnrollLoops()
 
                 switch (iterOper)
                 {
-                    case GT_ADD:
-                    case GT_OVF_SADD:
-                    case GT_OVF_UADD:
-                        lval += iterInc;
-                        break;
-                    case GT_SUB:
-                    case GT_OVF_SSUB:
-                    case GT_OVF_USUB:
-                        lval -= iterInc;
-                        break;
-                    default:
-                        unreached();
+                case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
+                    lval += iterInc;
+                    break;
+                case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
+                    lval -= iterInc;
+                    break;
+                default:
+                    unreached();
                 }
             }
 
@@ -5693,149 +5693,147 @@ void Compiler::phRemoveRedundantZeroInits()
 
                 switch (node->GetOper())
                 {
-                    case GT_LCL_ADDR:
-                    case GT_LCL_LOAD:
-                    case GT_LCL_LOAD_FLD:
-                        BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclRef()->GetLcl()->GetLclNum());
-                        break;
+                case GT_LCL_ADDR:
+                case GT_LCL_LOAD:
+                case GT_LCL_LOAD_FLD:
+                    BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclRef()->GetLcl()->GetLclNum());
+                    break;
 
-                    case GT_LCL_STORE:
-                    case GT_LCL_STORE_FLD:
+                case GT_LCL_STORE:
+                case GT_LCL_STORE_FLD:
+                {
+                    GenTreeLclRef* lclNode = node->AsLclRef();
+                    LclVarDsc*     lcl     = lclNode->GetLcl();
+                    unsigned       lclNum  = lcl->GetLclNum();
+
+                    // We need to count the number of tracked var defs in the block
+                    // so that we can update block->bbVarDef if we remove any tracked var defs.
+
+                    if (lcl->HasLiveness())
                     {
-                        GenTreeLclRef* lclNode = node->AsLclRef();
-                        LclVarDsc*     lcl     = lclNode->GetLcl();
-                        unsigned       lclNum  = lcl->GetLclNum();
-
-                        // We need to count the number of tracked var defs in the block
-                        // so that we can update block->bbVarDef if we remove any tracked var defs.
-
-                        if (lcl->HasLiveness())
+                        defsInBlock[lclNum]++;
+                    }
+                    else if (lcl->IsPromoted() &&
+                             (lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this)))
+                    {
+                        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                         {
-                            defsInBlock[lclNum]++;
-                        }
-                        else if (lcl->IsPromoted() &&
-                                 (lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this)))
-                        {
-                            for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+                            if (fieldLcl->HasLiveness())
                             {
-                                if (fieldLcl->HasLiveness())
-                                {
-                                    defsInBlock[fieldLcl->GetLclNum()]++;
-                                }
+                                defsInBlock[fieldLcl->GetLclNum()]++;
                             }
                         }
+                    }
 
-                        // TODO-MIKE-CQ: This could also recognize indirect local stores.
-                        // Though they're so rare that's hardly worth the trouble...
+                    // TODO-MIKE-CQ: This could also recognize indirect local stores.
+                    // Though they're so rare that's hardly worth the trouble...
 
-                        if (!BitVecOps::TryAddElemD(bitVecTraits, referencedLocals, lclNum))
-                        {
-                            break;
-                        }
-
-                        if (lcl->IsPromotedField())
-                        {
-                            if (BitVecOps::IsMember(bitVecTraits, referencedLocals,
-                                                    lcl->GetPromotedFieldParentLclNum()))
-                            {
-                                break;
-                            }
-                        }
-                        else if (lcl->IsPromoted())
-                        {
-                            bool hasFieldReferences = false;
-
-                            for (unsigned i = 0; !hasFieldReferences && (i < lcl->GetPromotedFieldCount()); ++i)
-                            {
-                                hasFieldReferences =
-                                    BitVecOps::IsMember(bitVecTraits, referencedLocals, lcl->GetPromotedFieldLclNum(i));
-                            }
-
-                            if (hasFieldReferences)
-                            {
-                                break;
-                            }
-                        }
-
-                        // The local hasn't been referenced before this store.
-                        bool removedExplicitZeroInit = false;
-                        bool totalOverlap = lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this);
-
-                        if (lclNode->GetOp(0)->IsIntegralConst(0))
-                        {
-                            bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
-                            bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-
-                            if (!bbInALoop || bbIsReturn)
-                            {
-                                if (BitVecOps::IsMember(bitVecTraits, zeroInitLocals, lclNum) ||
-                                    (lcl->IsPromotedField() &&
-                                     BitVecOps::IsMember(bitVecTraits, zeroInitLocals,
-                                                         lcl->GetPromotedFieldParentLclNum())) ||
-                                    ((!lcl->HasLiveness() || !totalOverlap) &&
-                                     !fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn)))
-                                {
-                                    // We are guaranteed to have a zero initialization in the prolog or a
-                                    // dominating explicit zero initialization and the local hasn't been redefined
-                                    // between the prolog and this explicit zero initialization so the store
-                                    // can be safely removed.
-                                    if (lclNode == stmt->GetRootNode())
-                                    {
-                                        fgRemoveStmt(block, stmt);
-                                        removedExplicitZeroInit   = true;
-                                        lcl->lvSuppressedZeroInit = 1;
-
-                                        if (lcl->HasLiveness())
-                                        {
-                                            removedTrackedDefs = true;
-                                            defsInBlock.at(lclNum)--;
-                                        }
-                                    }
-                                }
-
-                                if (totalOverlap)
-                                {
-                                    BitVecOps::AddElemD(bitVecTraits, zeroInitLocals, lclNum);
-                                }
-
-                                BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);
-                            }
-                        }
-
-                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lcl->lvLiveInOutOfHndlr))
-                        {
-                            // If IsPInvokeFrameRequired returns true, lower may later
-                            // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
-                            if (!lcl->HasGCPtr() ||
-                                (!codeGen->GetInterruptible() && !hasGCSafePoint && !info.IsPInvokeFrameRequired()))
-                            {
-                                // The local hasn't been used and won't be reported to the gc between
-                                // the prolog and this explicit initialization. Therefore, it doesn't
-                                // require zero initialization in the prolog.
-                                lcl->lvHasExplicitInit = true;
-
-                                // If the local is the only field of a promoted struct local then the
-                                // promoted struct local also doesn't require zero initialization in
-                                // the prolog.
-                                if (lcl->IsPromotedField())
-                                {
-                                    LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-
-                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
-                                    {
-                                        parentLcl->lvHasExplicitInit = true;
-                                    }
-                                }
-
-                                JITDUMP("Marking V%02u as having an explicit init\n", lclNum);
-                            }
-                        }
-
+                    if (!BitVecOps::TryAddElemD(bitVecTraits, referencedLocals, lclNum))
+                    {
                         break;
                     }
 
-                    default:
-                        break;
+                    if (lcl->IsPromotedField())
+                    {
+                        if (BitVecOps::IsMember(bitVecTraits, referencedLocals, lcl->GetPromotedFieldParentLclNum()))
+                        {
+                            break;
+                        }
+                    }
+                    else if (lcl->IsPromoted())
+                    {
+                        bool hasFieldReferences = false;
+
+                        for (unsigned i = 0; !hasFieldReferences && (i < lcl->GetPromotedFieldCount()); ++i)
+                        {
+                            hasFieldReferences =
+                                BitVecOps::IsMember(bitVecTraits, referencedLocals, lcl->GetPromotedFieldLclNum(i));
+                        }
+
+                        if (hasFieldReferences)
+                        {
+                            break;
+                        }
+                    }
+
+                    // The local hasn't been referenced before this store.
+                    bool removedExplicitZeroInit = false;
+                    bool totalOverlap = lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this);
+
+                    if (lclNode->GetOp(0)->IsIntegralConst(0))
+                    {
+                        bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
+                        bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
+
+                        if (!bbInALoop || bbIsReturn)
+                        {
+                            if (BitVecOps::IsMember(bitVecTraits, zeroInitLocals, lclNum) ||
+                                (lcl->IsPromotedField() && BitVecOps::IsMember(bitVecTraits, zeroInitLocals,
+                                                                               lcl->GetPromotedFieldParentLclNum())) ||
+                                ((!lcl->HasLiveness() || !totalOverlap) &&
+                                 !fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn)))
+                            {
+                                // We are guaranteed to have a zero initialization in the prolog or a
+                                // dominating explicit zero initialization and the local hasn't been redefined
+                                // between the prolog and this explicit zero initialization so the store
+                                // can be safely removed.
+                                if (lclNode == stmt->GetRootNode())
+                                {
+                                    fgRemoveStmt(block, stmt);
+                                    removedExplicitZeroInit   = true;
+                                    lcl->lvSuppressedZeroInit = 1;
+
+                                    if (lcl->HasLiveness())
+                                    {
+                                        removedTrackedDefs = true;
+                                        defsInBlock.at(lclNum)--;
+                                    }
+                                }
+                            }
+
+                            if (totalOverlap)
+                            {
+                                BitVecOps::AddElemD(bitVecTraits, zeroInitLocals, lclNum);
+                            }
+
+                            BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);
+                        }
+                    }
+
+                    if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lcl->lvLiveInOutOfHndlr))
+                    {
+                        // If IsPInvokeFrameRequired returns true, lower may later
+                        // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
+                        if (!lcl->HasGCPtr() ||
+                            (!codeGen->GetInterruptible() && !hasGCSafePoint && !info.IsPInvokeFrameRequired()))
+                        {
+                            // The local hasn't been used and won't be reported to the gc between
+                            // the prolog and this explicit initialization. Therefore, it doesn't
+                            // require zero initialization in the prolog.
+                            lcl->lvHasExplicitInit = true;
+
+                            // If the local is the only field of a promoted struct local then the
+                            // promoted struct local also doesn't require zero initialization in
+                            // the prolog.
+                            if (lcl->IsPromotedField())
+                            {
+                                LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+                                if (parentLcl->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
+                                {
+                                    parentLcl->lvHasExplicitInit = true;
+                                }
+                            }
+
+                            JITDUMP("Marking V%02u as having an explicit init\n", lclNum);
+                        }
+                    }
+
+                    break;
+                }
+
+                default:
+                    break;
                 }
             }
         }

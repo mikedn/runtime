@@ -247,72 +247,72 @@ int16_t CodeGen::mapRegNumToDwarfReg(RegNum reg)
 {
     switch (reg)
     {
-        case REG_RAX:
-            return 0;
-        case REG_RCX:
-            return 2;
-        case REG_RDX:
-            return 1;
-        case REG_RBX:
-            return 3;
-        case REG_RSP:
-            return 7;
-        case REG_RBP:
-            return 6;
-        case REG_RSI:
-            return 4;
-        case REG_RDI:
-            return 5;
-        case REG_R8:
-            return 8;
-        case REG_R9:
-            return 9;
-        case REG_R10:
-            return 10;
-        case REG_R11:
-            return 11;
-        case REG_R12:
-            return 12;
-        case REG_R13:
-            return 13;
-        case REG_R14:
-            return 14;
-        case REG_R15:
-            return 15;
-        case REG_XMM0:
-            return 17;
-        case REG_XMM1:
-            return 18;
-        case REG_XMM2:
-            return 19;
-        case REG_XMM3:
-            return 20;
-        case REG_XMM4:
-            return 21;
-        case REG_XMM5:
-            return 22;
-        case REG_XMM6:
-            return 23;
-        case REG_XMM7:
-            return 24;
-        case REG_XMM8:
-            return 25;
-        case REG_XMM9:
-            return 26;
-        case REG_XMM10:
-            return 27;
-        case REG_XMM11:
-            return 28;
-        case REG_XMM12:
-            return 29;
-        case REG_XMM13:
-            return 30;
-        case REG_XMM14:
-            return 31;
-        case REG_XMM15:
-            return 32;
-        default:
-            unreached();
+    case REG_RAX:
+        return 0;
+    case REG_RCX:
+        return 2;
+    case REG_RDX:
+        return 1;
+    case REG_RBX:
+        return 3;
+    case REG_RSP:
+        return 7;
+    case REG_RBP:
+        return 6;
+    case REG_RSI:
+        return 4;
+    case REG_RDI:
+        return 5;
+    case REG_R8:
+        return 8;
+    case REG_R9:
+        return 9;
+    case REG_R10:
+        return 10;
+    case REG_R11:
+        return 11;
+    case REG_R12:
+        return 12;
+    case REG_R13:
+        return 13;
+    case REG_R14:
+        return 14;
+    case REG_R15:
+        return 15;
+    case REG_XMM0:
+        return 17;
+    case REG_XMM1:
+        return 18;
+    case REG_XMM2:
+        return 19;
+    case REG_XMM3:
+        return 20;
+    case REG_XMM4:
+        return 21;
+    case REG_XMM5:
+        return 22;
+    case REG_XMM6:
+        return 23;
+    case REG_XMM7:
+        return 24;
+    case REG_XMM8:
+        return 25;
+    case REG_XMM9:
+        return 26;
+    case REG_XMM10:
+        return 27;
+    case REG_XMM11:
+        return 28;
+    case REG_XMM12:
+        return 29;
+    case REG_XMM13:
+        return 30;
+    case REG_XMM14:
+        return 31;
+    case REG_XMM15:
+        return 32;
+    default:
+        unreached();
     }
 }
 
@@ -530,98 +530,98 @@ void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const UNWIND_INFO*
 
         switch (code.UnwindOp)
         {
-            case UWOP_PUSH_NONVOL:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_PUSH_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
-                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
-                break;
+        case UWOP_PUSH_NONVOL:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_PUSH_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
+                   code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
+            break;
 
-            case UWOP_ALLOC_LARGE:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_LARGE (%u)     OpInfo: %u - ", code.CodeOffset,
-                       code.UnwindOp, code.OpInfo);
-                if (code.OpInfo == 0)
-                {
-                    i++;
-                    printf("Scaled small  \n      Size: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
-                           header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
-                }
-                else if (code.OpInfo == 1)
-                {
-                    i++;
-                    printf("Unscaled large\n      Size: %u = 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]),
-                           *(uint32_t*)&(header->UnwindCode[i]));
-                    i++;
-                }
-                else
-                {
-                    printf("Unknown\n");
-                }
-                break;
-
-            case UWOP_ALLOC_SMALL:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_SMALL (%u)     OpInfo: %u * 8 + 8 = %u = 0x%02X\n",
-                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo * 8 + 8, code.OpInfo * 8 + 8);
-                break;
-
-            case UWOP_SET_FPREG:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG (%u)       OpInfo: Unused (%u)\n",
-                       code.CodeOffset, code.UnwindOp, code.OpInfo); // This should be zero
-                break;
-
-#ifdef TARGET_UNIX
-            case UWOP_SET_FPREG_LARGE:
+        case UWOP_ALLOC_LARGE:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_LARGE (%u)     OpInfo: %u - ", code.CodeOffset,
+                   code.UnwindOp, code.OpInfo);
+            if (code.OpInfo == 0)
             {
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG_LARGE (%u) OpInfo: Unused (%u)\n",
-                       code.CodeOffset, code.UnwindOp, code.OpInfo); // This should be zero
                 i++;
-                unsigned offset = *(uint32_t*)&(header->UnwindCode[i]);
+                printf("Scaled small  \n      Size: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                       header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
+            }
+            else if (code.OpInfo == 1)
+            {
                 i++;
-                printf("      Scaled Offset: %u * 16 = %u = 0x%08X\n", offset, offset * 16, offset * 16);
-                if ((offset & 0xF0000000) != 0)
-                {
-                    printf("      Illegal unscaled offset: too large\n");
-                }
+                printf("Unscaled large\n      Size: %u = 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]),
+                       *(uint32_t*)&(header->UnwindCode[i]));
+                i++;
+            }
+            else
+            {
+                printf("Unknown\n");
             }
             break;
+
+        case UWOP_ALLOC_SMALL:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_SMALL (%u)     OpInfo: %u * 8 + 8 = %u = 0x%02X\n",
+                   code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo * 8 + 8, code.OpInfo * 8 + 8);
+            break;
+
+        case UWOP_SET_FPREG:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG (%u)       OpInfo: Unused (%u)\n", code.CodeOffset,
+                   code.UnwindOp, code.OpInfo); // This should be zero
+            break;
+
+#ifdef TARGET_UNIX
+        case UWOP_SET_FPREG_LARGE:
+        {
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG_LARGE (%u) OpInfo: Unused (%u)\n", code.CodeOffset,
+                   code.UnwindOp, code.OpInfo); // This should be zero
+            i++;
+            unsigned offset = *(uint32_t*)&(header->UnwindCode[i]);
+            i++;
+            printf("      Scaled Offset: %u * 16 = %u = 0x%08X\n", offset, offset * 16, offset * 16);
+            if ((offset & 0xF0000000) != 0)
+            {
+                printf("      Illegal unscaled offset: too large\n");
+            }
+        }
+        break;
 #endif // TARGET_UNIX
 
-            case UWOP_SAVE_NONVOL:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
-                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
-                i++;
-                printf("      Scaled Small Offset: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
-                       header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
-                break;
+        case UWOP_SAVE_NONVOL:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
+                   code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
+            i++;
+            printf("      Scaled Small Offset: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                   header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
+            break;
 
-            case UWOP_SAVE_NONVOL_FAR:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL_FAR (%u) OpInfo: %s (%u)\n", code.CodeOffset,
-                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
-                i++;
-                printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
-                i++;
-                break;
+        case UWOP_SAVE_NONVOL_FAR:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL_FAR (%u) OpInfo: %s (%u)\n", code.CodeOffset,
+                   code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
+            i++;
+            printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
+            i++;
+            break;
 
-            case UWOP_SAVE_XMM128:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128 (%u)     OpInfo: XMM%u (%u)\n",
-                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo);
-                i++;
-                printf("      Scaled Small Offset: %u * 16 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
-                       header->UnwindCode[i].FrameOffset * 16, header->UnwindCode[i].FrameOffset * 16);
-                break;
+        case UWOP_SAVE_XMM128:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128 (%u)     OpInfo: XMM%u (%u)\n", code.CodeOffset,
+                   code.UnwindOp, code.OpInfo, code.OpInfo);
+            i++;
+            printf("      Scaled Small Offset: %u * 16 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                   header->UnwindCode[i].FrameOffset * 16, header->UnwindCode[i].FrameOffset * 16);
+            break;
 
-            case UWOP_SAVE_XMM128_FAR:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128_FAR (%u) OpInfo: XMM%u (%u)\n",
-                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo);
-                i++;
-                printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
-                i++;
-                break;
+        case UWOP_SAVE_XMM128_FAR:
+            printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128_FAR (%u) OpInfo: XMM%u (%u)\n", code.CodeOffset,
+                   code.UnwindOp, code.OpInfo, code.OpInfo);
+            i++;
+            printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
+            i++;
+            break;
 
-            case UWOP_EPILOG:
-            case UWOP_SPARE_CODE:
-            case UWOP_PUSH_MACHFRAME:
-            default:
-                printf("    Unrecognized UNWIND_CODE: 0x%04X\n", reinterpret_cast<const uint16_t*>(&code));
-                break;
+        case UWOP_EPILOG:
+        case UWOP_SPARE_CODE:
+        case UWOP_PUSH_MACHFRAME:
+        default:
+            printf("    Unrecognized UNWIND_CODE: 0x%04X\n", reinterpret_cast<const uint16_t*>(&code));
+            break;
         }
     }
 }

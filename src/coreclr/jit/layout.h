@@ -284,24 +284,24 @@ public:
 
         switch (m_size)
         {
-            case 1:
-                return TYP_UBYTE;
-            case 2:
-                return TYP_USHORT;
-            case 4:
-                return TYP_INT;
+        case 1:
+            return TYP_UBYTE;
+        case 2:
+            return TYP_USHORT;
+        case 4:
+            return TYP_INT;
 #ifdef TARGET_64BIT
-            case 8:
-                return TYP_LONG;
+        case 8:
+            return TYP_LONG;
 #endif
 #ifdef FEATURE_SIMD
-            // TODO: check TYP_SIMD12 profitability,
-            // it will need additional support in `BuildStoreLoc`.
-            case 16:
-                return TYP_SIMD16;
+        // TODO: check TYP_SIMD12 profitability,
+        // it will need additional support in `BuildStoreLoc`.
+        case 16:
+            return TYP_SIMD16;
 #endif
-            default:
-                return TYP_UNDEF;
+        default:
+            return TYP_UNDEF;
         }
     }
 
@@ -353,14 +353,14 @@ public:
     {
         switch (GetGCPtr(slot))
         {
-            case TYPE_GC_NONE:
-                return TYP_I_IMPL;
-            case TYPE_GC_REF:
-                return TYP_REF;
-            case TYPE_GC_BYREF:
-                return TYP_BYREF;
-            default:
-                unreached();
+        case TYPE_GC_NONE:
+            return TYP_I_IMPL;
+        case TYPE_GC_REF:
+            return TYP_REF;
+        case TYPE_GC_BYREF:
+            return TYP_BYREF;
+        default:
+            unreached();
         }
     }
 

@@ -59,63 +59,63 @@ typeInfo Importer::verMakeTypeInfo(CorInfoType corType, CORINFO_CLASS_HANDLE cls
 
     switch (corType)
     {
-        case CORINFO_TYPE_STRING:
-        case CORINFO_TYPE_CLASS:
-            type = verMakeTypeInfo(clsHnd);
+    case CORINFO_TYPE_STRING:
+    case CORINFO_TYPE_CLASS:
+        type = verMakeTypeInfo(clsHnd);
 
-            if (!type.IsRef())
-            {
-                // type must be consistent with element type
-                return typeInfo();
-            }
+        if (!type.IsRef())
+        {
+            // type must be consistent with element type
+            return typeInfo();
+        }
 
-            return type;
+        return type;
 
 #ifdef TARGET_64BIT
-        case CORINFO_TYPE_NATIVEINT:
-        case CORINFO_TYPE_NATIVEUINT:
-            if (clsHnd != NO_CLASS_HANDLE)
-            {
-                // If we have more precise information, use it
-                return verMakeTypeInfo(clsHnd);
-            }
+    case CORINFO_TYPE_NATIVEINT:
+    case CORINFO_TYPE_NATIVEUINT:
+        if (clsHnd != NO_CLASS_HANDLE)
+        {
+            // If we have more precise information, use it
+            return verMakeTypeInfo(clsHnd);
+        }
 
-            return typeInfo::NativeInt();
+        return typeInfo::NativeInt();
 #endif // TARGET_64BIT
 
-        case CORINFO_TYPE_VALUECLASS:
-        case CORINFO_TYPE_REFANY:
-            type = verMakeTypeInfo(clsHnd);
+    case CORINFO_TYPE_VALUECLASS:
+    case CORINFO_TYPE_REFANY:
+        type = verMakeTypeInfo(clsHnd);
 
-            // type must be constant with element type;
-            if (!type.IsValueClass())
-            {
-                return typeInfo();
-            }
-
-            return type;
-
-        case CORINFO_TYPE_BYREF:
-            CORINFO_CLASS_HANDLE childClassHandle;
-            CorInfoType          childType;
-            childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
-            return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
-
-        case CORINFO_TYPE_PTR: // for now, pointers are treated as an error
-        case CORINFO_TYPE_VOID:
+        // type must be constant with element type;
+        if (!type.IsValueClass())
+        {
             return typeInfo();
+        }
 
-        case CORINFO_TYPE_VAR:
-            unreached();
+        return type;
 
-        default:
-            if (clsHnd != NO_CLASS_HANDLE)
-            {
-                // If we have more precise information, use it
-                return typeInfo(TI_STRUCT, clsHnd);
-            }
+    case CORINFO_TYPE_BYREF:
+        CORINFO_CLASS_HANDLE childClassHandle;
+        CorInfoType          childType;
+        childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
+        return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
 
-            return typeInfo(JITtype2tiType(corType));
+    case CORINFO_TYPE_PTR: // for now, pointers are treated as an error
+    case CORINFO_TYPE_VOID:
+        return typeInfo();
+
+    case CORINFO_TYPE_VAR:
+        unreached();
+
+    default:
+        if (clsHnd != NO_CLASS_HANDLE)
+        {
+            // If we have more precise information, use it
+            return typeInfo(TI_STRUCT, clsHnd);
+        }
+
+        return typeInfo(JITtype2tiType(corType));
     }
 }
 

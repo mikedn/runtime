@@ -142,22 +142,22 @@ struct AssertionDsc
 
         switch (op2.kind)
         {
-            case O2K_CONST_INT:
-                return op2.intCon == that.op2.intCon;
+        case O2K_CONST_INT:
+            return op2.intCon == that.op2.intCon;
 #ifndef TARGET_64BIT
-            case O2K_CONST_LONG:
-                return op2.lngCon == that.op2.lngCon;
+        case O2K_CONST_LONG:
+            return op2.lngCon == that.op2.lngCon;
 #endif
-            case O2K_CONST_DOUBLE:
-                return op2.dblCon == that.op2.dblCon;
-            case O2K_VALUE_NUMBER:
-                return op2.vn == that.op2.vn;
-            case O2K_RANGE:
-                // Ranges are handled separately.
-                return false;
-            default:
-                assert(op2.kind == O2K_INVALID);
-                return false;
+        case O2K_CONST_DOUBLE:
+            return op2.dblCon == that.op2.dblCon;
+        case O2K_VALUE_NUMBER:
+            return op2.vn == that.op2.vn;
+        case O2K_RANGE:
+            // Ranges are handled separately.
+            return false;
+        default:
+            assert(op2.kind == O2K_INVALID);
+            return false;
         }
     }
 
@@ -454,108 +454,108 @@ private:
 
         switch (op2->GetOper())
         {
-            case GT_CNS_INT:
+        case GT_CNS_INT:
 #ifdef TARGET_ARM
-                if (!ArmImm::IsMovImm(op2->AsIntCon()->GetInt32Value()))
-                {
-                    return NO_ASSERTION_INDEX;
-                }
+            if (!ArmImm::IsMovImm(op2->AsIntCon()->GetInt32Value()))
+            {
+                return NO_ASSERTION_INDEX;
+            }
 #endif
 
-                if (lcl->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
-                {
-                    return NO_ASSERTION_INDEX;
-                }
+            if (lcl->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
+            {
+                return NO_ASSERTION_INDEX;
+            }
 
-                assertion.op1.kind              = O1K_LCLVAR;
-                assertion.op1.lclNum            = lcl->GetLclNum();
-                assertion.op2.kind              = O2K_CONST_INT;
-                assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
-                assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
-                break;
+            assertion.op1.kind              = O1K_LCLVAR;
+            assertion.op1.lclNum            = lcl->GetLclNum();
+            assertion.op2.kind              = O2K_CONST_INT;
+            assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
+            assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
+            break;
 
 #ifndef TARGET_64BIT
-            case GT_CNS_LNG:
-                assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = lcl->GetLclNum();
-                assertion.op2.kind         = O2K_CONST_LONG;
-                assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
-                break;
+        case GT_CNS_LNG:
+            assertion.op1.kind         = O1K_LCLVAR;
+            assertion.op1.lclNum       = lcl->GetLclNum();
+            assertion.op2.kind         = O2K_CONST_LONG;
+            assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
+            break;
 #endif
 
-            case GT_CNS_DBL:
-                // TODO-MIKE-Cleanup: This doesn't really belong here. An "x == NaN" assertion is
-                // fine in itself, the problem is that we can't really substitute x with NaN in
-                // subsequent code because NaN has multiple values. And then "x == NaN" is always
-                // false so we shouldn't even see this case, except that VN doesn't handle this.
-                if (_isnan(op2->AsDblCon()->GetValue()))
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = lcl->GetLclNum();
-                assertion.op2.kind         = O2K_CONST_DOUBLE;
-                assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
-                break;
-
-            case GT_LCL_LOAD:
+        case GT_CNS_DBL:
+            // TODO-MIKE-Cleanup: This doesn't really belong here. An "x == NaN" assertion is
+            // fine in itself, the problem is that we can't really substitute x with NaN in
+            // subsequent code because NaN has multiple values. And then "x == NaN" is always
+            // false so we shouldn't even see this case, except that VN doesn't handle this.
+            if (_isnan(op2->AsDblCon()->GetValue()))
             {
-                if (lcl == op2->AsLclLoad()->GetLcl())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                LclVarDsc* valLcl = op2->AsLclLoad()->GetLcl();
-
-                if (lcl->GetType() != valLcl->GetType())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                if (valLcl->IsAddressExposed())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                assertion.op1.kind = O1K_VALUE_NUMBER;
-                assertion.op2.kind = O2K_VALUE_NUMBER;
-                break;
-            }
-
-            case GT_LCL_USE:
-            {
-                if (lcl == op2->AsLclUse()->GetDef()->GetLcl())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                LclVarDsc* valLcl = op2->AsLclUse()->GetDef()->GetLcl();
-
-                assert(!valLcl->IsAddressExposed());
-
-                if (lcl->GetType() != valLcl->GetType())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                assertion.op1.kind = O1K_VALUE_NUMBER;
-                assertion.op2.kind = O2K_VALUE_NUMBER;
-                break;
-            }
-
-            default:
                 return NO_ASSERTION_INDEX;
+            }
+
+            assertion.op1.kind         = O1K_LCLVAR;
+            assertion.op1.lclNum       = lcl->GetLclNum();
+            assertion.op2.kind         = O2K_CONST_DOUBLE;
+            assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
+            break;
+
+        case GT_LCL_LOAD:
+        {
+            if (lcl == op2->AsLclLoad()->GetLcl())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            LclVarDsc* valLcl = op2->AsLclLoad()->GetLcl();
+
+            if (lcl->GetType() != valLcl->GetType())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            if (valLcl->IsAddressExposed())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assertion.op1.kind = O1K_VALUE_NUMBER;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            break;
+        }
+
+        case GT_LCL_USE:
+        {
+            if (lcl == op2->AsLclUse()->GetDef()->GetLcl())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            LclVarDsc* valLcl = op2->AsLclUse()->GetDef()->GetLcl();
+
+            assert(!valLcl->IsAddressExposed());
+
+            if (lcl->GetType() != valLcl->GetType())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assertion.op1.kind = O1K_VALUE_NUMBER;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            break;
+        }
+
+        default:
+            return NO_ASSERTION_INDEX;
         }
 
         assertion.kind   = kind;
@@ -668,35 +668,35 @@ private:
 
         switch (cond)
         {
-            case VNF_COND_SLT:
-                if (limit == INT32_MIN)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                max = limit - 1;
-                break;
-            case VNF_COND_SLE:
-                if (limit == INT32_MAX)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                max = limit;
-                break;
-            case VNF_COND_SGE:
-                if (limit == INT32_MIN)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                min = limit;
-                break;
-            default:
-                assert(cond == VNF_COND_SGT);
-                if (limit == INT32_MAX)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                min = limit + 1;
-                break;
+        case VNF_COND_SLT:
+            if (limit == INT32_MIN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            max = limit - 1;
+            break;
+        case VNF_COND_SLE:
+            if (limit == INT32_MAX)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            max = limit;
+            break;
+        case VNF_COND_SGE:
+            if (limit == INT32_MIN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            min = limit;
+            break;
+        default:
+            assert(cond == VNF_COND_SGT);
+            if (limit == INT32_MAX)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            min = limit + 1;
+            break;
         }
 
         AssertionIndex index = AddRangeAssertion(vn, min, max);
@@ -1214,68 +1214,68 @@ private:
 
         switch (node->GetOper())
         {
-            case GT_BOUNDS_CHECK:
-                assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
-                break;
+        case GT_BOUNDS_CHECK:
+            assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
+            break;
 
-            case GT_IND_STORE_BLK:
-            case GT_IND_STORE_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_LOAD_OBJ:
-                assert(node->AsBlk()->GetLayout()->GetSize() != 0);
-                FALLTHROUGH;
-            case GT_IND_STORE:
-            case GT_IND_LOAD:
-            case GT_NULLCHECK:
-                assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
-                break;
-            case GT_ARR_LENGTH:
-                assertionInfo = CreateNotNullAssertion(node->AsArrLen()->GetArray());
-                break;
-            case GT_ARR_ELEM:
-                assertionInfo = CreateNotNullAssertion(node->AsArrElem()->GetArray());
-                break;
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD_OBJ:
+            assert(node->AsBlk()->GetLayout()->GetSize() != 0);
+            FALLTHROUGH;
+        case GT_IND_STORE:
+        case GT_IND_LOAD:
+        case GT_NULLCHECK:
+            assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
+            break;
+        case GT_ARR_LENGTH:
+            assertionInfo = CreateNotNullAssertion(node->AsArrLen()->GetArray());
+            break;
+        case GT_ARR_ELEM:
+            assertionInfo = CreateNotNullAssertion(node->AsArrElem()->GetArray());
+            break;
 
-            case GT_CALL:
-                // A virtual call can create a non-null assertion. We transform some virtual calls
-                // into non-virtual calls with a GTF_CALL_NULLCHECK flag set.
-                // Ignore tail calls because they have 'this` pointer in the regular arg list and
-                // an implicit null check.
+        case GT_CALL:
+            // A virtual call can create a non-null assertion. We transform some virtual calls
+            // into non-virtual calls with a GTF_CALL_NULLCHECK flag set.
+            // Ignore tail calls because they have 'this` pointer in the regular arg list and
+            // an implicit null check.
+            {
+                GenTreeCall* call = node->AsCall();
+
+                if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
                 {
-                    GenTreeCall* call = node->AsCall();
-
-                    if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
-                    {
-                        assertionInfo = CreateNotNullAssertion(call->GetArgNodeByArgNum(0));
-                    }
+                    assertionInfo = CreateNotNullAssertion(call->GetArgNodeByArgNum(0));
                 }
-                break;
+            }
+            break;
 
-            case GT_CONV:
-            case GT_OVF_SCONV:
-            case GT_OVF_UCONV:
-                // We create a range assertion for a CONV's operand, not for the CONV itself.
-                // This assertion isn't known to be true at this time (and thus its index is
-                // not recorded in any node) but it can later be implied to be true by other
-                // assertions and then we can remove the cast (e.g. a const assertion x = 42
-                // implies CONV<UBYTE>(x) can be reduced to x).
-                // TODO-MIKE-Review: Why don't we just check for the relevant const assertion
-                // when we propagate to CONV?!? Given the diffs this seems to be doing more
-                // harm than good - there are very few cases where this helps and instead
-                // there are some cases where it just wastes space in the assertion table and
-                // prevents other useful assertions from being created.
-                CreateRangeAssertion(node->AsUnOp());
-                break;
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            // We create a range assertion for a CONV's operand, not for the CONV itself.
+            // This assertion isn't known to be true at this time (and thus its index is
+            // not recorded in any node) but it can later be implied to be true by other
+            // assertions and then we can remove the cast (e.g. a const assertion x = 42
+            // implies CONV<UBYTE>(x) can be reduced to x).
+            // TODO-MIKE-Review: Why don't we just check for the relevant const assertion
+            // when we propagate to CONV?!? Given the diffs this seems to be doing more
+            // harm than good - there are very few cases where this helps and instead
+            // there are some cases where it just wastes space in the assertion table and
+            // prevents other useful assertions from being created.
+            CreateRangeAssertion(node->AsUnOp());
+            break;
 
-            case GT_JTRUE:
-                if (node->AsUnOp()->GetOp(0)->OperIsRelop())
-                {
-                    assertionInfo = GenerateJTrueAssertions(node->AsUnOp()->GetOp(0)->AsOp());
-                }
-                break;
+        case GT_JTRUE:
+            if (node->AsUnOp()->GetOp(0)->OperIsRelop())
+            {
+                assertionInfo = GenerateJTrueAssertions(node->AsUnOp()->GetOp(0)->AsOp());
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
 
         if (assertionInfo.HasAssertion())
@@ -1301,48 +1301,48 @@ private:
 
         switch (val.kind)
         {
-            case O2K_CONST_DOUBLE:
-                // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
-                if (val.dblCon.value == 0.0)
-                {
-                    return nullptr;
-                }
+        case O2K_CONST_DOUBLE:
+            // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
+            if (val.dblCon.value == 0.0)
+            {
+                return nullptr;
+            }
 
-                conNode = load->ChangeToDblCon(val.dblCon.value);
-                assert(val.vn == vnStore->VNForDblCon(load->GetType(), val.dblCon.value));
-                break;
+            conNode = load->ChangeToDblCon(val.dblCon.value);
+            assert(val.vn == vnStore->VNForDblCon(load->GetType(), val.dblCon.value));
+            break;
 
 #ifndef TARGET_64BIT
-            case O2K_CONST_LONG:
-                if (!load->TypeIs(TYP_LONG))
-                {
-                    return nullptr;
-                }
+        case O2K_CONST_LONG:
+            if (!load->TypeIs(TYP_LONG))
+            {
+                return nullptr;
+            }
 
-                conNode = load->ChangeToLngCon(val.lngCon.value);
-                assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
-                break;
+            conNode = load->ChangeToLngCon(val.lngCon.value);
+            assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
+            break;
 #endif
 
-            default:
-                assert(val.kind == O2K_CONST_INT);
+        default:
+            assert(val.kind == O2K_CONST_INT);
 
-                if (val.intCon.handleKind == HandleKind::None)
-                {
-                    conNode = load->ChangeToIntCon(varActualType(load->GetType()), val.intCon.value);
-                    assert(val.vn == vnStore->VNForIntCon(load->GetType(), val.intCon.value));
-                }
-                else if (compiler->opts.compReloc)
-                {
-                    return nullptr;
-                }
-                else
-                {
-                    void* addr = reinterpret_cast<void*>(val.intCon.value);
-                    conNode    = load->ChangeToIntCon(addr, val.intCon.handleKind);
-                    assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
-                }
-                break;
+            if (val.intCon.handleKind == HandleKind::None)
+            {
+                conNode = load->ChangeToIntCon(varActualType(load->GetType()), val.intCon.value);
+                assert(val.vn == vnStore->VNForIntCon(load->GetType(), val.intCon.value));
+            }
+            else if (compiler->opts.compReloc)
+            {
+                return nullptr;
+            }
+            else
+            {
+                void* addr = reinterpret_cast<void*>(val.intCon.value);
+                conNode    = load->ChangeToIntCon(addr, val.intCon.handleKind);
+                assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
+            }
+            break;
         }
 
         conNode->SetVNP({val.vn, val.vn});
@@ -1367,56 +1367,56 @@ private:
 
         switch (val.kind)
         {
-            case O2K_CONST_DOUBLE:
-                // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
-                if (val.dblCon.value == 0.0)
-                {
-                    return nullptr;
-                }
+        case O2K_CONST_DOUBLE:
+            // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
+            if (val.dblCon.value == 0.0)
+            {
+                return nullptr;
+            }
 
-                use->GetDef()->RemoveUse(use);
-                conNode = use->ChangeToDblCon(val.dblCon.value);
-                assert(val.vn == vnStore->VNForDblCon(use->GetType(), val.dblCon.value));
-                break;
+            use->GetDef()->RemoveUse(use);
+            conNode = use->ChangeToDblCon(val.dblCon.value);
+            assert(val.vn == vnStore->VNForDblCon(use->GetType(), val.dblCon.value));
+            break;
 
 #ifndef TARGET_64BIT
-            case O2K_CONST_LONG:
-                if (!use->TypeIs(TYP_LONG))
-                {
-                    return nullptr;
-                }
+        case O2K_CONST_LONG:
+            if (!use->TypeIs(TYP_LONG))
+            {
+                return nullptr;
+            }
 
-                use->GetDef()->RemoveUse(use);
-                conNode = use->ChangeToLngCon(val.lngCon.value);
-                assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
-                break;
+            use->GetDef()->RemoveUse(use);
+            conNode = use->ChangeToLngCon(val.lngCon.value);
+            assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
+            break;
 #endif
 
-            default:
-                assert(val.kind == O2K_CONST_INT);
+        default:
+            assert(val.kind == O2K_CONST_INT);
 
-                if (val.intCon.handleKind == HandleKind::None)
-                {
-                    use->GetDef()->RemoveUse(use);
-                    conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
-                    // TODO-MIKE-Review: This stuff is messed up, we use the VN of the propagated
-                    // constant but that may have a different type from the node (e.g. BYREF/LONG).
-                    // assert(val.vn == vnStore->VNForIntCon(use->GetType(), val.intCon.value));
-                    assert(vnStore->IsConst(val.vn));
-                }
-                else if (compiler->opts.compReloc)
-                {
-                    return nullptr;
-                }
-                else
-                {
-                    use->GetDef()->RemoveUse(use);
-                    void* addr = reinterpret_cast<void*>(val.intCon.value);
-                    conNode    = use->ChangeToIntCon(addr, val.intCon.handleKind);
-                    assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
-                }
+            if (val.intCon.handleKind == HandleKind::None)
+            {
+                use->GetDef()->RemoveUse(use);
+                conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
+                // TODO-MIKE-Review: This stuff is messed up, we use the VN of the propagated
+                // constant but that may have a different type from the node (e.g. BYREF/LONG).
+                // assert(val.vn == vnStore->VNForIntCon(use->GetType(), val.intCon.value));
+                assert(vnStore->IsConst(val.vn));
+            }
+            else if (compiler->opts.compReloc)
+            {
+                return nullptr;
+            }
+            else
+            {
+                use->GetDef()->RemoveUse(use);
+                void* addr = reinterpret_cast<void*>(val.intCon.value);
+                conNode    = use->ChangeToIntCon(addr, val.intCon.handleKind);
+                assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
+            }
 
-                break;
+            break;
         }
 
         conNode->SetVNP({val.vn, val.vn});
@@ -1587,35 +1587,35 @@ private:
 
         switch (oper)
         {
-            case GT_LT:
-                if (limit == INT32_MIN)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                max = limit - 1;
-                break;
-            case GT_LE:
-                if (limit == INT32_MAX)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                max = limit;
-                break;
-            case GT_GE:
-                if (limit == INT32_MIN)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                min = limit;
-                break;
-            default:
-                assert(oper == GT_GT);
-                if (limit == INT32_MAX)
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-                min = limit + 1;
-                break;
+        case GT_LT:
+            if (limit == INT32_MIN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            max = limit - 1;
+            break;
+        case GT_LE:
+            if (limit == INT32_MAX)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            max = limit;
+            break;
+        case GT_GE:
+            if (limit == INT32_MIN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            min = limit;
+            break;
+        default:
+            assert(oper == GT_GT);
+            if (limit == INT32_MAX)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+            min = limit + 1;
+            break;
         }
 
         for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
@@ -2386,58 +2386,58 @@ private:
 
         switch (node->GetOper())
         {
-            case GT_LCL_LOAD:
-                if ((node->gtFlags & GTF_DONT_CSE) != 0)
-                {
-                    return nullptr;
-                }
-                return PropagateLclLoad(assertions, node->AsLclLoad(), stmt);
-            case GT_LCL_USE:
-                if ((node->gtFlags & GTF_DONT_CSE) != 0)
-                {
-                    return nullptr;
-                }
-                return PropagateLclUse(assertions, node->AsLclUse(), stmt);
-            case GT_IND_STORE:
-            case GT_IND_STORE_OBJ:
-            case GT_IND_STORE_BLK:
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_LOAD:
-            case GT_NULLCHECK:
-                return PropagateIndir(assertions, node->AsIndir(), stmt);
-            case GT_BOUNDS_CHECK:
-                return PropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
-            case GT_COMMA:
-                return PropagateComma(node->AsOp(), stmt);
-            case GT_OVF_U:
-                return PropagateOvfUnsigned(assertions, node->AsUnOp(), stmt);
-            case GT_OVF_TRUNC:
-            case GT_OVF_STRUNC:
-            case GT_OVF_UTRUNC:
-                return PropagateOvfTrunc(assertions, node->AsUnOp(), stmt);
-            case GT_CONV:
-            case GT_OVF_SCONV:
-            case GT_OVF_UCONV:
-                return PropagateConv(assertions, node->AsUnOp(), stmt);
-#ifdef TARGET_AMD64
-            case GT_SXT:
-                return PropagateSignExtend(assertions, node->AsUnOp(), stmt);
-#endif
-            case GT_CALL:
-                return PropagateCall(assertions, node->AsCall(), stmt);
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GT:
-            case GT_GE:
-                return PropagateRelop(assertions, node->AsOp(), stmt);
-            case GT_SDIV:
-            case GT_SREM:
-                return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
-            default:
+        case GT_LCL_LOAD:
+            if ((node->gtFlags & GTF_DONT_CSE) != 0)
+            {
                 return nullptr;
+            }
+            return PropagateLclLoad(assertions, node->AsLclLoad(), stmt);
+        case GT_LCL_USE:
+            if ((node->gtFlags & GTF_DONT_CSE) != 0)
+            {
+                return nullptr;
+            }
+            return PropagateLclUse(assertions, node->AsLclUse(), stmt);
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD:
+        case GT_NULLCHECK:
+            return PropagateIndir(assertions, node->AsIndir(), stmt);
+        case GT_BOUNDS_CHECK:
+            return PropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
+        case GT_COMMA:
+            return PropagateComma(node->AsOp(), stmt);
+        case GT_OVF_U:
+            return PropagateOvfUnsigned(assertions, node->AsUnOp(), stmt);
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
+            return PropagateOvfTrunc(assertions, node->AsUnOp(), stmt);
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            return PropagateConv(assertions, node->AsUnOp(), stmt);
+#ifdef TARGET_AMD64
+        case GT_SXT:
+            return PropagateSignExtend(assertions, node->AsUnOp(), stmt);
+#endif
+        case GT_CALL:
+            return PropagateCall(assertions, node->AsCall(), stmt);
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+            return PropagateRelop(assertions, node->AsOp(), stmt);
+        case GT_SDIV:
+        case GT_SREM:
+            return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
+        default:
+            return nullptr;
         }
     }
 
@@ -3209,94 +3209,94 @@ private:
 
             switch (tree->GetOper())
             {
-                case GT_LCL_LOAD:
-                    // Don't undo constant CSEs.
-                    if (tree->AsLclLoad()->GetLcl()->lvIsCSE)
-                    {
-                        return GenTreeWalkResult::Continue;
-                    }
-                    break;
-
-                case GT_LCL_USE:
-                    // Don't undo constant CSEs.
-                    if (tree->AsLclUse()->GetDef()->GetLcl()->lvIsCSE)
-                    {
-                        return GenTreeWalkResult::Continue;
-                    }
-                    break;
-
-                case GT_ADD:
-                case GT_OVF_SADD:
-                case GT_OVF_UADD:
-                case GT_SUB:
-                case GT_OVF_SSUB:
-                case GT_OVF_USUB:
-                case GT_MUL:
-                case GT_OVF_SMUL:
-                case GT_OVF_UMUL:
-                case GT_SDIV:
-                case GT_SREM:
-                case GT_UDIV:
-                case GT_UREM:
-                case GT_XOR:
-                case GT_AND:
-                case GT_LSH:
-                case GT_RSH:
-                case GT_RSZ:
-                case GT_ROL:
-                case GT_ROR:
-                case GT_BSWAP:
-                case GT_BSWAP16:
-                case GT_NEG:
-                case GT_NOT:
-                case GT_BITCAST:
-                case GT_INTRINSIC:
-                    // Normally these nodes should not have small int type. If they do, it's either due
-                    // to bogus JIT code or due to BOOL optimizations that "infect" AND/OR (though that
-                    // is still more or less due to bogus design/code). The former case is best ignored,
-                    // in order to avoid surprises due to bad VN, the later case is unlikely to involve
-                    // constants, as BOOL expressions tend to use BOOL indirs or BOOL HWINTRINSIC nodes
-                    // that aren't currently constant evaluated.
-                    if (varTypeIsSmall(tree->GetType()))
-                    {
-                        return GenTreeWalkResult::Continue;
-                    }
-                    FALLTHROUGH;
-                case GT_FADD:
-                case GT_FSUB:
-                case GT_FMUL:
-                case GT_FDIV:
-                case GT_FNEG:
-                case GT_FTRUNC:
-                case GT_FXT:
-                case GT_EQ:
-                case GT_NE:
-                case GT_LT:
-                case GT_LE:
-                case GT_GE:
-                case GT_GT:
-                case GT_OR:
-                case GT_OVF_TRUNC:
-                case GT_OVF_STRUNC:
-                case GT_OVF_UTRUNC:
-                case GT_OVF_U:
-                case GT_CONV:
-                case GT_OVF_SCONV:
-                case GT_OVF_UCONV:
-                case GT_TRUNC:
-                case GT_SXT:
-                case GT_UXT:
-                case GT_STOF:
-                case GT_UTOF:
-                case GT_FTOS:
-                case GT_FTOU:
-                    break;
-
-                // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
-                // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
-
-                default:
+            case GT_LCL_LOAD:
+                // Don't undo constant CSEs.
+                if (tree->AsLclLoad()->GetLcl()->lvIsCSE)
+                {
                     return GenTreeWalkResult::Continue;
+                }
+                break;
+
+            case GT_LCL_USE:
+                // Don't undo constant CSEs.
+                if (tree->AsLclUse()->GetDef()->GetLcl()->lvIsCSE)
+                {
+                    return GenTreeWalkResult::Continue;
+                }
+                break;
+
+            case GT_ADD:
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
+            case GT_SUB:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
+            case GT_MUL:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
+            case GT_SDIV:
+            case GT_SREM:
+            case GT_UDIV:
+            case GT_UREM:
+            case GT_XOR:
+            case GT_AND:
+            case GT_LSH:
+            case GT_RSH:
+            case GT_RSZ:
+            case GT_ROL:
+            case GT_ROR:
+            case GT_BSWAP:
+            case GT_BSWAP16:
+            case GT_NEG:
+            case GT_NOT:
+            case GT_BITCAST:
+            case GT_INTRINSIC:
+                // Normally these nodes should not have small int type. If they do, it's either due
+                // to bogus JIT code or due to BOOL optimizations that "infect" AND/OR (though that
+                // is still more or less due to bogus design/code). The former case is best ignored,
+                // in order to avoid surprises due to bad VN, the later case is unlikely to involve
+                // constants, as BOOL expressions tend to use BOOL indirs or BOOL HWINTRINSIC nodes
+                // that aren't currently constant evaluated.
+                if (varTypeIsSmall(tree->GetType()))
+                {
+                    return GenTreeWalkResult::Continue;
+                }
+                FALLTHROUGH;
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+            case GT_FDIV:
+            case GT_FNEG:
+            case GT_FTRUNC:
+            case GT_FXT:
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_LE:
+            case GT_GE:
+            case GT_GT:
+            case GT_OR:
+            case GT_OVF_TRUNC:
+            case GT_OVF_STRUNC:
+            case GT_OVF_UTRUNC:
+            case GT_OVF_U:
+            case GT_CONV:
+            case GT_OVF_SCONV:
+            case GT_OVF_UCONV:
+            case GT_TRUNC:
+            case GT_SXT:
+            case GT_UXT:
+            case GT_STOF:
+            case GT_UTOF:
+            case GT_FTOS:
+            case GT_FTOU:
+                break;
+
+            // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
+            // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
+
+            default:
+                return GenTreeWalkResult::Continue;
             }
 
             GenTree* newTree = GetConstNode(tree);
@@ -3370,27 +3370,27 @@ private:
                 {
                     switch (vnType)
                     {
-                        case TYP_FLOAT:
-                            newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstFloat(vn), TYP_FLOAT);
-                            break;
-                        case TYP_DOUBLE:
-                            newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstDouble(vn), TYP_DOUBLE);
-                            break;
-                        case TYP_INT:
-                            newTree = m_compiler->gtNewIconNode(m_vnStore->GetConstInt32(vn));
-                            break;
-                        case TYP_LONG:
-                            newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
-                            break;
-                        case TYP_REF:
-                            assert(vn == ValueNumStore::NullVN);
-                            newTree = m_compiler->gtNewIconNode(0, TYP_REF);
-                            break;
-                        case TYP_BYREF:
-                            // Do not support const byref optimization.
-                            break;
-                        default:
-                            unreached();
+                    case TYP_FLOAT:
+                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstFloat(vn), TYP_FLOAT);
+                        break;
+                    case TYP_DOUBLE:
+                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstDouble(vn), TYP_DOUBLE);
+                        break;
+                    case TYP_INT:
+                        newTree = m_compiler->gtNewIconNode(m_vnStore->GetConstInt32(vn));
+                        break;
+                    case TYP_LONG:
+                        newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
+                        break;
+                    case TYP_REF:
+                        assert(vn == ValueNumStore::NullVN);
+                        newTree = m_compiler->gtNewIconNode(0, TYP_REF);
+                        break;
+                    case TYP_BYREF:
+                        // Do not support const byref optimization.
+                        break;
+                    default:
+                        unreached();
                     }
                 }
             }
@@ -3777,26 +3777,26 @@ void SsaOptimizer::DumpAssertion(const AssertionDsc& assertion, unsigned index)
 
     switch (op2.kind)
     {
-        case O2K_CONST_INT:
-            if (op2.intCon.handleKind != HandleKind::None)
-            {
-                printf(" (0x%p %s)", dspPtr(op2.intCon.value), dmpGetHandleKindName(op2.intCon.handleKind));
-            }
-            else
-            {
-                printf(" (IntCon %Id)", op2.intCon.value);
-            }
-            break;
+    case O2K_CONST_INT:
+        if (op2.intCon.handleKind != HandleKind::None)
+        {
+            printf(" (0x%p %s)", dspPtr(op2.intCon.value), dmpGetHandleKindName(op2.intCon.handleKind));
+        }
+        else
+        {
+            printf(" (IntCon %Id)", op2.intCon.value);
+        }
+        break;
 #ifndef TARGET_64BIT
-        case O2K_CONST_LONG:
-            printf(" (LngCon 0x%016llx)", op2.lngCon.value);
-            break;
+    case O2K_CONST_LONG:
+        printf(" (LngCon 0x%016llx)", op2.lngCon.value);
+        break;
 #endif
-        case O2K_CONST_DOUBLE:
-            printf(" (DblCon %#.17g)", op2.dblCon.value);
-            break;
-        default:
-            break;
+    case O2K_CONST_DOUBLE:
+        printf(" (DblCon %#.17g)", op2.dblCon.value);
+        break;
+    default:
+        break;
     }
 }
 

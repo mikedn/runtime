@@ -385,100 +385,100 @@ DECODE_OPCODE:
 
     switch (opcode)
     {
-        case CEE_PREFIX1:
-            opcode = static_cast<OPCODE>(getU1LittleEndian(opcodePtr) + 256);
-            opcodePtr++;
-            goto DECODE_OPCODE;
+    case CEE_PREFIX1:
+        opcode = static_cast<OPCODE>(getU1LittleEndian(opcodePtr) + 256);
+        opcodePtr++;
+        goto DECODE_OPCODE;
+
+    default:
+    {
+        int64_t iOp;
+        double  dOp;
+        int     jOp;
+        DWORD   jOp2;
+
+        switch (argKind)
+        {
+        case InlineNone:
+            DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+            printf(" %-12s", opcodeNames[opcode]);
+            break;
+
+        case ShortInlineVar:
+            iOp = getU1LittleEndian(opcodePtr);
+            goto INT_OP;
+        case ShortInlineI:
+            iOp = getI1LittleEndian(opcodePtr);
+            goto INT_OP;
+        case InlineVar:
+            iOp = getU2LittleEndian(opcodePtr);
+            goto INT_OP;
+        case InlineTok:
+        case InlineMethod:
+        case InlineField:
+        case InlineType:
+        case InlineString:
+        case InlineSig:
+        case InlineI:
+            iOp = getI4LittleEndian(opcodePtr);
+            goto INT_OP;
+        case InlineI8:
+            iOp = getU4LittleEndian(opcodePtr);
+            iOp |= static_cast<int64_t>(getU4LittleEndian(opcodePtr + 4)) << 32;
+            goto INT_OP;
+
+        INT_OP:
+            DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+            printf(" %-12s 0x%X", opcodeNames[opcode], iOp);
+            break;
+
+        case ShortInlineR:
+            dOp = getR4LittleEndian(opcodePtr);
+            goto FLT_OP;
+        case InlineR:
+            dOp = getR8LittleEndian(opcodePtr);
+            goto FLT_OP;
+
+        FLT_OP:
+            DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+            printf(" %-12s %f", opcodeNames[opcode], dOp);
+            break;
+
+        case ShortInlineBrTarget:
+            jOp = getI1LittleEndian(opcodePtr);
+            goto JMP_OP;
+        case InlineBrTarget:
+            jOp = getI4LittleEndian(opcodePtr);
+            goto JMP_OP;
+
+        JMP_OP:
+            DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+            printf(" %-12s %d (IL_%04x)", opcodeNames[opcode], jOp, (int)(opcodePtr + sz - codeAddr) + jOp);
+            break;
+
+        case InlineSwitch:
+            jOp2 = getU4LittleEndian(opcodePtr);
+            opcodePtr += 4;
+            opcodePtr += jOp2 * 4; // Jump over the table
+            DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+            printf(" %-12s", opcodeNames[opcode]);
+            break;
+
+        case InlinePhi:
+            jOp2 = getU1LittleEndian(opcodePtr);
+            opcodePtr += 1;
+            opcodePtr += jOp2 * 2; // Jump over the table
+            DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+            printf(" %-12s", opcodeNames[opcode]);
+            break;
 
         default:
-        {
-            int64_t iOp;
-            double  dOp;
-            int     jOp;
-            DWORD   jOp2;
-
-            switch (argKind)
-            {
-                case InlineNone:
-                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
-                    printf(" %-12s", opcodeNames[opcode]);
-                    break;
-
-                case ShortInlineVar:
-                    iOp = getU1LittleEndian(opcodePtr);
-                    goto INT_OP;
-                case ShortInlineI:
-                    iOp = getI1LittleEndian(opcodePtr);
-                    goto INT_OP;
-                case InlineVar:
-                    iOp = getU2LittleEndian(opcodePtr);
-                    goto INT_OP;
-                case InlineTok:
-                case InlineMethod:
-                case InlineField:
-                case InlineType:
-                case InlineString:
-                case InlineSig:
-                case InlineI:
-                    iOp = getI4LittleEndian(opcodePtr);
-                    goto INT_OP;
-                case InlineI8:
-                    iOp = getU4LittleEndian(opcodePtr);
-                    iOp |= static_cast<int64_t>(getU4LittleEndian(opcodePtr + 4)) << 32;
-                    goto INT_OP;
-
-                INT_OP:
-                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
-                    printf(" %-12s 0x%X", opcodeNames[opcode], iOp);
-                    break;
-
-                case ShortInlineR:
-                    dOp = getR4LittleEndian(opcodePtr);
-                    goto FLT_OP;
-                case InlineR:
-                    dOp = getR8LittleEndian(opcodePtr);
-                    goto FLT_OP;
-
-                FLT_OP:
-                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
-                    printf(" %-12s %f", opcodeNames[opcode], dOp);
-                    break;
-
-                case ShortInlineBrTarget:
-                    jOp = getI1LittleEndian(opcodePtr);
-                    goto JMP_OP;
-                case InlineBrTarget:
-                    jOp = getI4LittleEndian(opcodePtr);
-                    goto JMP_OP;
-
-                JMP_OP:
-                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
-                    printf(" %-12s %d (IL_%04x)", opcodeNames[opcode], jOp, (int)(opcodePtr + sz - codeAddr) + jOp);
-                    break;
-
-                case InlineSwitch:
-                    jOp2 = getU4LittleEndian(opcodePtr);
-                    opcodePtr += 4;
-                    opcodePtr += jOp2 * 4; // Jump over the table
-                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
-                    printf(" %-12s", opcodeNames[opcode]);
-                    break;
-
-                case InlinePhi:
-                    jOp2 = getU1LittleEndian(opcodePtr);
-                    opcodePtr += 1;
-                    opcodePtr += jOp2 * 2; // Jump over the table
-                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
-                    printf(" %-12s", opcodeNames[opcode]);
-                    break;
-
-                default:
-                    assert(!"Bad argKind");
-            }
-
-            opcodePtr += sz;
-            break;
+            assert(!"Bad argKind");
         }
+
+        opcodePtr += sz;
+        break;
+    }
     }
 
     printf("\n");
@@ -896,257 +896,257 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
 
     switch (helper)
     {
-        case CORINFO_HELP_LLSH:
-        case CORINFO_HELP_LRSH:
-        case CORINFO_HELP_LRSZ:
-        case CORINFO_HELP_LMUL:
-        case CORINFO_HELP_LNG2DBL:
-        case CORINFO_HELP_ULNG2DBL:
-        case CORINFO_HELP_DBL2INT:
-        case CORINFO_HELP_DBL2LNG:
-        case CORINFO_HELP_DBL2UINT:
-        case CORINFO_HELP_DBL2ULNG:
-        case CORINFO_HELP_FLTREM:
-        case CORINFO_HELP_DBLREM:
-        case CORINFO_HELP_FLTROUND:
-        case CORINFO_HELP_DBLROUND:
-            info.isPure  = true;
-            info.noThrow = true;
-            break;
+    case CORINFO_HELP_LLSH:
+    case CORINFO_HELP_LRSH:
+    case CORINFO_HELP_LRSZ:
+    case CORINFO_HELP_LMUL:
+    case CORINFO_HELP_LNG2DBL:
+    case CORINFO_HELP_ULNG2DBL:
+    case CORINFO_HELP_DBL2INT:
+    case CORINFO_HELP_DBL2LNG:
+    case CORINFO_HELP_DBL2UINT:
+    case CORINFO_HELP_DBL2ULNG:
+    case CORINFO_HELP_FLTREM:
+    case CORINFO_HELP_DBLREM:
+    case CORINFO_HELP_FLTROUND:
+    case CORINFO_HELP_DBLROUND:
+        info.isPure  = true;
+        info.noThrow = true;
+        break;
 
-        case CORINFO_HELP_LMOD:
-        case CORINFO_HELP_MOD:
-        case CORINFO_HELP_UMOD:
-        case CORINFO_HELP_ULMOD:
-        case CORINFO_HELP_UDIV:
-        case CORINFO_HELP_DIV:
-        case CORINFO_HELP_LDIV:
-        case CORINFO_HELP_ULDIV:
-        case CORINFO_HELP_LMUL_OVF:
-        case CORINFO_HELP_ULMUL_OVF:
-        case CORINFO_HELP_DBL2INT_OVF:
-        case CORINFO_HELP_DBL2LNG_OVF:
-        case CORINFO_HELP_DBL2UINT_OVF:
-        case CORINFO_HELP_DBL2ULNG_OVF:
-            info.isPure = true;
-            break;
+    case CORINFO_HELP_LMOD:
+    case CORINFO_HELP_MOD:
+    case CORINFO_HELP_UMOD:
+    case CORINFO_HELP_ULMOD:
+    case CORINFO_HELP_UDIV:
+    case CORINFO_HELP_DIV:
+    case CORINFO_HELP_LDIV:
+    case CORINFO_HELP_ULDIV:
+    case CORINFO_HELP_LMUL_OVF:
+    case CORINFO_HELP_ULMUL_OVF:
+    case CORINFO_HELP_DBL2INT_OVF:
+    case CORINFO_HELP_DBL2LNG_OVF:
+    case CORINFO_HELP_DBL2UINT_OVF:
+    case CORINFO_HELP_DBL2ULNG_OVF:
+        info.isPure = true;
+        break;
 
-        case CORINFO_HELP_ENDCATCH:
-            // This isn't pure, in that it has "VM side effects", but it doesn't mutate the heap.
-            info.noThrow = true;
-            break;
+    case CORINFO_HELP_ENDCATCH:
+        // This isn't pure, in that it has "VM side effects", but it doesn't mutate the heap.
+        info.noThrow = true;
+        break;
 
-        case CORINFO_HELP_BOX:
-            info.isSharedStatic = true;
-            FALLTHROUGH;
-        case CORINFO_HELP_NEWSFAST:
-        case CORINFO_HELP_NEWSFAST_ALIGN8:
-        case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
-        case CORINFO_HELP_NEWFAST:
-        case CORINFO_HELP_NEWSFAST_FINALIZE:
-        case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
-        case CORINFO_HELP_READYTORUN_NEW:
-            info.isAllocator   = true;
-            info.nonNullReturn = true;
-            info.noThrow       = true; // only can throw OutOfMemory
-            break;
+    case CORINFO_HELP_BOX:
+        info.isSharedStatic = true;
+        FALLTHROUGH;
+    case CORINFO_HELP_NEWSFAST:
+    case CORINFO_HELP_NEWSFAST_ALIGN8:
+    case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
+    case CORINFO_HELP_NEWFAST:
+    case CORINFO_HELP_NEWSFAST_FINALIZE:
+    case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
+    case CORINFO_HELP_READYTORUN_NEW:
+        info.isAllocator   = true;
+        info.nonNullReturn = true;
+        info.noThrow       = true; // only can throw OutOfMemory
+        break;
 
-        // These allocation helpers do some checks on the size (and lower bound) inputs,
-        // and can throw exceptions other than OOM.
-        case CORINFO_HELP_NEWARR_1_VC:
-        case CORINFO_HELP_NEWARR_1_ALIGN8:
-        case CORINFO_HELP_NEW_MDARR:
-        case CORINFO_HELP_NEWARR_1_DIRECT:
-        case CORINFO_HELP_NEWARR_1_OBJ:
-        case CORINFO_HELP_READYTORUN_NEWARR_1:
-            info.isAllocator   = true;
-            info.nonNullReturn = true;
-            break;
+    // These allocation helpers do some checks on the size (and lower bound) inputs,
+    // and can throw exceptions other than OOM.
+    case CORINFO_HELP_NEWARR_1_VC:
+    case CORINFO_HELP_NEWARR_1_ALIGN8:
+    case CORINFO_HELP_NEW_MDARR:
+    case CORINFO_HELP_NEWARR_1_DIRECT:
+    case CORINFO_HELP_NEWARR_1_OBJ:
+    case CORINFO_HELP_READYTORUN_NEWARR_1:
+        info.isAllocator   = true;
+        info.nonNullReturn = true;
+        break;
 
-        case CORINFO_HELP_STRCNS:
-            info.isPure         = true;
-            info.isAllocator    = true;
-            info.nonNullReturn  = true;
-            info.noThrow        = true; // only can throw OutOfMemory
-            info.isSharedStatic = true;
-            break;
+    case CORINFO_HELP_STRCNS:
+        info.isPure         = true;
+        info.isAllocator    = true;
+        info.nonNullReturn  = true;
+        info.noThrow        = true; // only can throw OutOfMemory
+        info.isSharedStatic = true;
+        break;
 
-        case CORINFO_HELP_BOX_NULLABLE:
-            // Box Nullable is not a 'pure' function
-            // It has a Byref argument that it reads the contents of.
-            // So two calls to Box Nullable that pass the same address (with the same Value Number)
-            // will produce different results when the contents of the memory pointed to by the Byref changes
-            info.isAllocator = true;
-            info.noThrow     = true; // only can throw OutOfMemory
-            break;
+    case CORINFO_HELP_BOX_NULLABLE:
+        // Box Nullable is not a 'pure' function
+        // It has a Byref argument that it reads the contents of.
+        // So two calls to Box Nullable that pass the same address (with the same Value Number)
+        // will produce different results when the contents of the memory pointed to by the Byref changes
+        info.isAllocator = true;
+        info.noThrow     = true; // only can throw OutOfMemory
+        break;
 
-        case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
-        case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
-        case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
-        case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
-        case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
-            // logging helpers are not technically pure but can be optimized away
-            info.isPure        = true;
-            info.noThrow       = true;
-            info.nonNullReturn = true;
-            break;
+    case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
+    case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
+    case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
+    case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
+    case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
+        // logging helpers are not technically pure but can be optimized away
+        info.isPure        = true;
+        info.noThrow       = true;
+        info.nonNullReturn = true;
+        break;
 
-        // type casting helpers
-        case CORINFO_HELP_ISINSTANCEOFINTERFACE:
-        case CORINFO_HELP_ISINSTANCEOFARRAY:
-        case CORINFO_HELP_ISINSTANCEOFCLASS:
-        case CORINFO_HELP_ISINSTANCEOFANY:
-        case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
-        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
-        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
-            info.isPure  = true;
-            info.noThrow = true; // These return null for a failing cast
-            break;
+    // type casting helpers
+    case CORINFO_HELP_ISINSTANCEOFINTERFACE:
+    case CORINFO_HELP_ISINSTANCEOFARRAY:
+    case CORINFO_HELP_ISINSTANCEOFCLASS:
+    case CORINFO_HELP_ISINSTANCEOFANY:
+    case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
+    case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
+    case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        info.isPure  = true;
+        info.noThrow = true; // These return null for a failing cast
+        break;
 
-        case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
-        case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
-            info.isPure  = true;
-            info.noThrow = true;
-            break;
+    case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
+    case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
+        info.isPure  = true;
+        info.noThrow = true;
+        break;
 
-        case CORINFO_HELP_CHKCASTINTERFACE:
-        case CORINFO_HELP_CHKCASTARRAY:
-        case CORINFO_HELP_CHKCASTCLASS:
-        case CORINFO_HELP_CHKCASTANY:
-        case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
-        case CORINFO_HELP_READYTORUN_CHKCAST:
-            // These throw for a failing cast
-            // But if given a null input arg will return null
-            info.isPure = true;
-            break;
+    case CORINFO_HELP_CHKCASTINTERFACE:
+    case CORINFO_HELP_CHKCASTARRAY:
+    case CORINFO_HELP_CHKCASTCLASS:
+    case CORINFO_HELP_CHKCASTANY:
+    case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
+    case CORINFO_HELP_READYTORUN_CHKCAST:
+        // These throw for a failing cast
+        // But if given a null input arg will return null
+        info.isPure = true;
+        break;
 
-        case CORINFO_HELP_UNBOX:
-        case CORINFO_HELP_LDELEMA_REF:
-            info.isPure = true;
-            break;
+    case CORINFO_HELP_UNBOX:
+    case CORINFO_HELP_LDELEMA_REF:
+        info.isPure = true;
+        break;
 
 #ifndef WINDOWS_AMD64_ABI
-        // On win-x64 this helper has an implicit by ref arg and VN does not handle that,
-        // the resulting call VN depends on the implicit by ref temp address, instead of
-        // the actual arg value. VN could probably be modified to handle this case but
-        // typed references are not commonly used.
-        case CORINFO_HELP_GETREFANY:
-            info.isPure = true;
-            break;
+    // On win-x64 this helper has an implicit by ref arg and VN does not handle that,
+    // the resulting call VN depends on the implicit by ref temp address, instead of
+    // the actual arg value. VN could probably be modified to handle this case but
+    // typed references are not commonly used.
+    case CORINFO_HELP_GETREFANY:
+        info.isPure = true;
+        break;
 #endif
 
-        case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
-        case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
-            info.isPure  = true;
-            info.noThrow = true;
-            break;
+    case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
+    case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
+        info.isPure  = true;
+        info.noThrow = true;
+        break;
 
-        // Helpers that load the base address for static variables.
-        // We divide these between those that may and may not invoke
-        // static class constructors.
-        case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
-        case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
-        case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
-        case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
-        case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+    // Helpers that load the base address for static variables.
+    // We divide these between those that may and may not invoke
+    // static class constructors.
+    case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
+    case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
+    case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
+    case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
+    case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
+    case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+    case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
 #ifdef FEATURE_READYTORUN_COMPILER
-        case CORINFO_HELP_READYTORUN_STATIC_BASE:
-        case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
+    case CORINFO_HELP_READYTORUN_STATIC_BASE:
+    case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
 #endif
-            // These may invoke static class constructors
-            // These can throw InvalidProgram exception if the class can not be constructed
-            info.isPure         = true;
-            info.nonNullReturn  = true;
-            info.mayRunCctor    = true;
-            info.isSharedStatic = true;
-            break;
+        // These may invoke static class constructors
+        // These can throw InvalidProgram exception if the class can not be constructed
+        info.isPure         = true;
+        info.nonNullReturn  = true;
+        info.mayRunCctor    = true;
+        info.isSharedStatic = true;
+        break;
 
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-            // These do not invoke static class constructors
-            info.isPure         = true;
-            info.noThrow        = true;
-            info.nonNullReturn  = true;
-            info.isSharedStatic = true;
-            break;
+    case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+    case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+    case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
+    case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+        // These do not invoke static class constructors
+        info.isPure         = true;
+        info.noThrow        = true;
+        info.nonNullReturn  = true;
+        info.isSharedStatic = true;
+        break;
 
-        case CORINFO_HELP_OVERFLOW:
-        case CORINFO_HELP_VERIFICATION:
-        case CORINFO_HELP_RNGCHKFAIL:
-        case CORINFO_HELP_THROWDIVZERO:
-        case CORINFO_HELP_THROWNULLREF:
-        case CORINFO_HELP_THROW:
-        case CORINFO_HELP_RETHROW:
-        case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
-        case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
-        case CORINFO_HELP_THROW_NOT_IMPLEMENTED:
-        case CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED:
-        case CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED:
-        case CORINFO_HELP_FAIL_FAST:
-        case CORINFO_HELP_METHOD_ACCESS_EXCEPTION:
-        case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
-        case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
-            info.alwaysThrow = true;
-            break;
+    case CORINFO_HELP_OVERFLOW:
+    case CORINFO_HELP_VERIFICATION:
+    case CORINFO_HELP_RNGCHKFAIL:
+    case CORINFO_HELP_THROWDIVZERO:
+    case CORINFO_HELP_THROWNULLREF:
+    case CORINFO_HELP_THROW:
+    case CORINFO_HELP_RETHROW:
+    case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
+    case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
+    case CORINFO_HELP_THROW_NOT_IMPLEMENTED:
+    case CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED:
+    case CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED:
+    case CORINFO_HELP_FAIL_FAST:
+    case CORINFO_HELP_METHOD_ACCESS_EXCEPTION:
+    case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
+    case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
+        info.alwaysThrow = true;
+        break;
 
-        // This is a debugging aid; it simply returns a constant address.
-        case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
-            info.isPure  = true;
-            info.noThrow = true;
-            break;
+    // This is a debugging aid; it simply returns a constant address.
+    case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
+        info.isPure  = true;
+        info.noThrow = true;
+        break;
 
-        case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
-        case CORINFO_HELP_BBT_FCN_ENTER:
-        case CORINFO_HELP_POLL_GC:
-        case CORINFO_HELP_MON_ENTER:
-        case CORINFO_HELP_MON_EXIT:
-        case CORINFO_HELP_MON_ENTER_STATIC:
-        case CORINFO_HELP_JIT_REVERSE_PINVOKE_ENTER:
-        case CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT:
-        case CORINFO_HELP_GETFIELDADDR:
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-        case CORINFO_HELP_JIT_PINVOKE_BEGIN:
-        case CORINFO_HELP_JIT_PINVOKE_END:
-            info.noThrow = true;
-            break;
+    case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
+    case CORINFO_HELP_BBT_FCN_ENTER:
+    case CORINFO_HELP_POLL_GC:
+    case CORINFO_HELP_MON_ENTER:
+    case CORINFO_HELP_MON_EXIT:
+    case CORINFO_HELP_MON_ENTER_STATIC:
+    case CORINFO_HELP_JIT_REVERSE_PINVOKE_ENTER:
+    case CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT:
+    case CORINFO_HELP_GETFIELDADDR:
+    case CORINFO_HELP_INIT_PINVOKE_FRAME:
+    case CORINFO_HELP_JIT_PINVOKE_BEGIN:
+    case CORINFO_HELP_JIT_PINVOKE_END:
+        info.noThrow = true;
+        break;
 
-        case CORINFO_HELP_MON_EXIT_STATIC:
-            break;
+    case CORINFO_HELP_MON_EXIT_STATIC:
+        break;
 
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-        case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
-        case CORINFO_HELP_ASSIGN_BYREF:
-        case CORINFO_HELP_ASSIGN_STRUCT:
-            info.mutatesHeap = true;
-            break;
+    case CORINFO_HELP_ASSIGN_REF:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF:
+    case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
+    case CORINFO_HELP_ASSIGN_BYREF:
+    case CORINFO_HELP_ASSIGN_STRUCT:
+        info.mutatesHeap = true;
+        break;
 
-        case CORINFO_HELP_SETFIELD32:
-        case CORINFO_HELP_SETFIELD64:
-        case CORINFO_HELP_SETFIELDOBJ:
-        case CORINFO_HELP_SETFIELDSTRUCT:
-        case CORINFO_HELP_SETFIELDFLOAT:
-        case CORINFO_HELP_SETFIELDDOUBLE:
-        case CORINFO_HELP_ARRADDR_ST:
-            info.mutatesHeap = true;
-            break;
+    case CORINFO_HELP_SETFIELD32:
+    case CORINFO_HELP_SETFIELD64:
+    case CORINFO_HELP_SETFIELDOBJ:
+    case CORINFO_HELP_SETFIELDSTRUCT:
+    case CORINFO_HELP_SETFIELDFLOAT:
+    case CORINFO_HELP_SETFIELDDOUBLE:
+    case CORINFO_HELP_ARRADDR_ST:
+        info.mutatesHeap = true;
+        break;
 
-        default:
-            // The most pessimistic results are returned for all other helpers
-            info.mutatesHeap = true;
-            break;
+    default:
+        // The most pessimistic results are returned for all other helpers
+        info.mutatesHeap = true;
+        break;
     }
 
     return info;
@@ -2264,16 +2264,16 @@ bool SConv32(int32_t value, var_types type, int32_t* result)
 
     switch (type)
     {
-        case TYP_BYTE:
-            return INT8_MIN <= value && value <= INT8_MAX;
-        case TYP_UBYTE:
-            return 0 <= value && value <= UINT8_MAX;
-        case TYP_SHORT:
-            return INT16_MIN <= value && value <= INT16_MAX;
-        case TYP_USHORT:
-            return 0 <= value && value <= UINT16_MAX;
-        default:
-            unreached();
+    case TYP_BYTE:
+        return INT8_MIN <= value && value <= INT8_MAX;
+    case TYP_UBYTE:
+        return 0 <= value && value <= UINT8_MAX;
+    case TYP_SHORT:
+        return INT16_MIN <= value && value <= INT16_MAX;
+    case TYP_USHORT:
+        return 0 <= value && value <= UINT16_MAX;
+    default:
+        unreached();
     }
 }
 
@@ -2283,16 +2283,16 @@ bool UConv32(int32_t value, var_types type, int32_t* result)
 
     switch (type)
     {
-        case TYP_BYTE:
-            return 0 <= value && value <= INT8_MAX;
-        case TYP_UBYTE:
-            return 0 <= value && value <= UINT8_MAX;
-        case TYP_SHORT:
-            return 0 <= value && value <= INT16_MAX;
-        case TYP_USHORT:
-            return 0 <= value && value <= UINT16_MAX;
-        default:
-            unreached();
+    case TYP_BYTE:
+        return 0 <= value && value <= INT8_MAX;
+    case TYP_UBYTE:
+        return 0 <= value && value <= UINT8_MAX;
+    case TYP_SHORT:
+        return 0 <= value && value <= INT16_MAX;
+    case TYP_USHORT:
+        return 0 <= value && value <= UINT16_MAX;
+    default:
+        unreached();
     }
 }
 
@@ -2302,16 +2302,16 @@ bool SConv64(int64_t value, var_types type, int32_t* result)
 
     switch (type)
     {
-        case TYP_BYTE:
-            return INT8_MIN <= value && value <= INT8_MAX;
-        case TYP_UBYTE:
-            return 0 <= value && value <= UINT8_MAX;
-        case TYP_SHORT:
-            return INT16_MIN <= value && value <= INT16_MAX;
-        case TYP_USHORT:
-            return 0 <= value && value <= UINT16_MAX;
-        default:
-            unreached();
+    case TYP_BYTE:
+        return INT8_MIN <= value && value <= INT8_MAX;
+    case TYP_UBYTE:
+        return 0 <= value && value <= UINT8_MAX;
+    case TYP_SHORT:
+        return INT16_MIN <= value && value <= INT16_MAX;
+    case TYP_USHORT:
+        return 0 <= value && value <= UINT16_MAX;
+    default:
+        unreached();
     }
 }
 
@@ -2321,16 +2321,16 @@ bool UConv64(int64_t value, var_types type, int32_t* result)
 
     switch (type)
     {
-        case TYP_BYTE:
-            return 0 <= value && value <= INT8_MAX;
-        case TYP_UBYTE:
-            return 0 <= value && value <= UINT8_MAX;
-        case TYP_SHORT:
-            return 0 <= value && value <= INT16_MAX;
-        case TYP_USHORT:
-            return 0 <= value && value <= UINT16_MAX;
-        default:
-            unreached();
+    case TYP_BYTE:
+        return 0 <= value && value <= INT8_MAX;
+    case TYP_UBYTE:
+        return 0 <= value && value <= UINT8_MAX;
+    case TYP_SHORT:
+        return 0 <= value && value <= INT16_MAX;
+    case TYP_USHORT:
+        return 0 <= value && value <= UINT16_MAX;
+    default:
+        unreached();
     }
 }
 

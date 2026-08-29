@@ -152,15 +152,15 @@ struct LcIdent
     {
         switch (kind)
         {
-            case Const:
-            case Lcl:
-                return (kind == that.kind) && (constant == that.constant);
-            case ArrLen:
-                return (kind == that.kind) && (arrLen == that.arrLen);
-            case Null:
-                return (kind == that.kind);
-            default:
-                unreached();
+        case Const:
+        case Lcl:
+            return (kind == that.kind) && (constant == that.constant);
+        case ArrLen:
+            return (kind == that.kind) && (arrLen == that.arrLen);
+        case Null:
+            return (kind == that.kind);
+        default:
+            unreached();
         }
     }
 
@@ -171,21 +171,21 @@ struct LcIdent
     {
         switch (kind)
         {
-            case Const:
-                printf("%u", constant);
-                break;
-            case Lcl:
-                printf("V%02u", constant);
-                break;
-            case ArrLen:
-                arrLen.Print();
-                break;
-            case Null:
-                printf("null");
-                break;
-            default:
-                printf("INVALID");
-                break;
+        case Const:
+            printf("%u", constant);
+            break;
+        case Lcl:
+            printf("V%02u", constant);
+            break;
+        case ArrLen:
+            arrLen.Print();
+            break;
+        case Null:
+            printf("null");
+            break;
+        default:
+            printf("INVALID");
+            break;
         }
     }
 #endif
@@ -401,17 +401,17 @@ GenTree* LcIdent::ToGenTree(Compiler* comp) const
 {
     switch (kind)
     {
-        case Const:
-            assert(constant <= INT32_MAX);
-            return comp->gtNewIconNode(constant);
-        case Lcl:
-            return comp->gtNewLclLoad(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
-        case ArrLen:
-            return arrLen.ToGenTree(comp);
-        case Null:
-            return comp->gtNewIconNode(0, TYP_REF);
-        default:
-            unreached();
+    case Const:
+        assert(constant <= INT32_MAX);
+        return comp->gtNewIconNode(constant);
+    case Lcl:
+        return comp->gtNewLclLoad(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
+    case ArrLen:
+        return arrLen.ToGenTree(comp);
+    case Null:
+        return comp->gtNewIconNode(0, TYP_REF);
+    default:
+        unreached();
     }
 }
 
@@ -434,28 +434,28 @@ bool LcCondition::Evaluate(bool* result) const
 {
     switch (oper)
     {
-        case GT_EQ:
-        case GT_GE:
-        case GT_LE:
-            if (op1 == op2)
-            {
-                *result = true;
-                return true;
-            }
-            return false;
+    case GT_EQ:
+    case GT_GE:
+    case GT_LE:
+        if (op1 == op2)
+        {
+            *result = true;
+            return true;
+        }
+        return false;
 
-        case GT_GT:
-        case GT_LT:
-        case GT_NE:
-            if (op1 == op2)
-            {
-                *result = false;
-                return true;
-            }
-            return false;
+    case GT_GT:
+    case GT_LT:
+    case GT_NE:
+        if (op1 == op2)
+        {
+            *result = false;
+            return true;
+        }
+        return false;
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 
@@ -1333,29 +1333,29 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
         // Add predecessor edges for the new successors, as well as the fall-through paths.
         switch (newblk->bbJumpKind)
         {
-            case BBJ_NONE:
-                compiler->fgAddRefPred(newblk->bbNext, newblk);
-                break;
+        case BBJ_NONE:
+            compiler->fgAddRefPred(newblk->bbNext, newblk);
+            break;
 
-            case BBJ_ALWAYS:
-            case BBJ_CALLFINALLY:
-                compiler->fgAddRefPred(newblk->bbJumpDest, newblk);
-                break;
+        case BBJ_ALWAYS:
+        case BBJ_CALLFINALLY:
+            compiler->fgAddRefPred(newblk->bbJumpDest, newblk);
+            break;
 
-            case BBJ_COND:
-                compiler->fgAddRefPred(newblk->bbNext, newblk);
-                compiler->fgAddRefPred(newblk->bbJumpDest, newblk);
-                break;
+        case BBJ_COND:
+            compiler->fgAddRefPred(newblk->bbNext, newblk);
+            compiler->fgAddRefPred(newblk->bbJumpDest, newblk);
+            break;
 
-            case BBJ_SWITCH:
-                for (BasicBlock* const switchDest : newblk->SwitchTargets())
-                {
-                    compiler->fgAddRefPred(switchDest, newblk);
-                }
-                break;
+        case BBJ_SWITCH:
+            for (BasicBlock* const switchDest : newblk->SwitchTargets())
+            {
+                compiler->fgAddRefPred(switchDest, newblk);
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 

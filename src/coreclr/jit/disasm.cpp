@@ -91,88 +91,88 @@ size_t DisAssembler::disCchAddrMember(
 
     switch (terminationType)
     {
-        // int disCallSize;
+    // int disCallSize;
 
-        case DISX86::trmtaJmpShort:
-        case DISX86::trmtaJmpCcShort:
+    case DISX86::trmtaJmpShort:
+    case DISX86::trmtaJmpCcShort:
 
-            /* We have a short jump in the current code block - generate the label to which we jump */
+        /* We have a short jump in the current code block - generate the label to which we jump */
 
-            assert(0 <= disTarget && disTarget < disTotalCodeSize);
+        assert(0 <= disTarget && disTarget < disTotalCodeSize);
+        swprintf_s(wz, cchMax, W("short L_%02u"), disLabels[disTarget]);
+        retval = 1;
+        break;
+
+    case DISX86::trmtaJmpNear:
+    case DISX86::trmtaJmpCcNear:
+
+        /* We have a near jump. Check if is in the current code block.
+         * Otherwise we have no target for it. */
+
+        if (0 <= disTarget && disTarget < disTotalCodeSize)
+        {
+            swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
+            retval = 1;
+        }
+        break;
+
+    case DISX86::trmtaCallNear16:
+    case DISX86::trmtaCallNear32:
+
+        /* check for local calls (i.e. CALL label) */
+
+        if (0 <= disTarget && disTarget < disTotalCodeSize)
+        {
+            /* not a "call ds:[0000]" - go ahead */
+            /* disTarget within block boundary -> local call */
+
             swprintf_s(wz, cchMax, W("short L_%02u"), disLabels[disTarget]);
             retval = 1;
             break;
+        }
 
-        case DISX86::trmtaJmpNear:
-        case DISX86::trmtaJmpCcNear:
+        /* this is a near call - in our case usually VM helper functions */
 
-            /* We have a near jump. Check if is in the current code block.
-             * Otherwise we have no target for it. */
+        /* find the emitter block and the offset of the call fixup */
+        /* for the fixup offset we have to add the opcode size for the call - in the case of a near call is 1 */
 
-            if (0 <= disTarget && disTarget < disTotalCodeSize)
+        // disCallSize = 1;
+
+        {
+            size_t      absoluteTarget = (size_t)disGetLinearAddr(disTarget);
+            const char* name           = disGetMethodFullName(absoluteTarget);
+            if (name != nullptr)
             {
-                swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
-                retval = 1;
-            }
-            break;
-
-        case DISX86::trmtaCallNear16:
-        case DISX86::trmtaCallNear32:
-
-            /* check for local calls (i.e. CALL label) */
-
-            if (0 <= disTarget && disTarget < disTotalCodeSize)
-            {
-                /* not a "call ds:[0000]" - go ahead */
-                /* disTarget within block boundary -> local call */
-
-                swprintf_s(wz, cchMax, W("short L_%02u"), disLabels[disTarget]);
+                swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(absoluteTarget), name);
                 retval = 1;
                 break;
             }
+        }
 
-            /* this is a near call - in our case usually VM helper functions */
+        break;
 
-            /* find the emitter block and the offset of the call fixup */
-            /* for the fixup offset we have to add the opcode size for the call - in the case of a near call is 1 */
-
-            // disCallSize = 1;
-
-            {
-                size_t      absoluteTarget = (size_t)disGetLinearAddr(disTarget);
-                const char* name           = disGetMethodFullName(absoluteTarget);
-                if (name != nullptr)
-                {
-                    swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(absoluteTarget), name);
-                    retval = 1;
-                    break;
-                }
-            }
-
-            break;
-
-        case DISX86::trmtaCallInd:
-            break;
+    case DISX86::trmtaCallInd:
+        break;
 
 #ifdef TARGET_AMD64
 
-        case DISX86::trmtaFallThrough:
+    case DISX86::trmtaFallThrough:
 
-            /* memory indirect case. Could be for an LEA for the base address of a switch table, which is an arbitrary
-             * address, currently of the first block after the prolog. */
+        /* memory indirect case. Could be for an LEA for the base address of a switch table, which is an arbitrary
+         * address, currently of the first block after the prolog. */
 
-            /* find the emitter block and the offset for the fixup
-             * "addr" is the address of the immediate */
+        /* find the emitter block and the offset for the fixup
+         * "addr" is the address of the immediate */
 
-            break;
+        break;
 
 #endif // TARGET_AMD64
 
-        default:
+    default:
 
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
-            break;
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
+        break;
     }
 
 #elif defined(TARGET_ARM64)
@@ -183,101 +183,101 @@ size_t DisAssembler::disCchAddrMember(
 
     switch (terminationType)
     {
-        // int disCallSize;
+    // int disCallSize;
 
-        case DISARM64::TRMTA::trmtaBra:
-        case DISARM64::TRMTA::trmtaBraCase:
-        case DISARM64::TRMTA::trmtaBraCc:
-        case DISARM64::TRMTA::trmtaBraCcCase:
-        case DISARM64::TRMTA::trmtaBraCcInd:
-        case DISARM64::TRMTA::trmtaBraInd:
+    case DISARM64::TRMTA::trmtaBra:
+    case DISARM64::TRMTA::trmtaBraCase:
+    case DISARM64::TRMTA::trmtaBraCc:
+    case DISARM64::TRMTA::trmtaBraCcCase:
+    case DISARM64::TRMTA::trmtaBraCcInd:
+    case DISARM64::TRMTA::trmtaBraInd:
 
-            /* We have a jump. Check if is in the current code block.
-             * Otherwise we have no target for it. */
+        /* We have a jump. Check if is in the current code block.
+         * Otherwise we have no target for it. */
 
-            if (0 <= disTarget && disTarget < disTotalCodeSize)
-            {
-                swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
-                retval = 1;
-            }
+        if (0 <= disTarget && disTarget < disTotalCodeSize)
+        {
+            swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
+            retval = 1;
+        }
+        break;
+
+    case DISARM64::trmtaCall:
+    case DISARM64::trmtaCallCc:
+    case DISARM64::trmtaCallCcInd:
+    case DISARM64::trmtaCallInd:
+
+        /* check for local calls (i.e. CALL label) */
+
+        if (0 <= disTarget && disTarget < disTotalCodeSize)
+        {
+            /* not a "call [0000]" - go ahead */
+            /* disTarget within block boundary -> local call */
+
+            swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
+            retval = 1;
             break;
+        }
 
-        case DISARM64::trmtaCall:
-        case DISARM64::trmtaCallCc:
-        case DISARM64::trmtaCallCcInd:
-        case DISARM64::trmtaCallInd:
+        /* this is a near call - in our case usually VM helper functions */
 
-            /* check for local calls (i.e. CALL label) */
+        /* find the emitter block and the offset of the call fixup */
+        /* for the fixup offset we have to add the opcode size for the call - in the case of a near call is 1 */
 
-            if (0 <= disTarget && disTarget < disTotalCodeSize)
+        // disCallSize = 1;
+
+        {
+            size_t      absoluteTarget = (size_t)disGetLinearAddr(disTarget);
+            const char* name           = disGetMethodFullName(absoluteTarget);
+            if (name != nullptr)
             {
-                /* not a "call [0000]" - go ahead */
-                /* disTarget within block boundary -> local call */
-
-                swprintf_s(wz, cchMax, W("L_%02u"), disLabels[disTarget]);
+                swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(absoluteTarget), name);
                 retval = 1;
                 break;
             }
+        }
 
-            /* this is a near call - in our case usually VM helper functions */
+        break;
 
-            /* find the emitter block and the offset of the call fixup */
-            /* for the fixup offset we have to add the opcode size for the call - in the case of a near call is 1 */
+    case DISARM64::trmtaFallThrough:
 
-            // disCallSize = 1;
+        /* memory indirect case. Could be for an LEA for the base address of a switch table, which is an arbitrary
+         * address, currently of the first block after the prolog. */
 
+        /* find the emitter block and the offset for the fixup
+         * "addr" is the address of the immediate */
+
+        {
+            DIS::INSTRUCTION instr;
+            DIS::OPERAND     ops[DISARM64::coperandMax];
+            bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
+            if (ok)
             {
-                size_t      absoluteTarget = (size_t)disGetLinearAddr(disTarget);
-                const char* name           = disGetMethodFullName(absoluteTarget);
-                if (name != nullptr)
+                bool isAddress = false;
+                switch ((DISARM64::OPA)instr.opa)
                 {
-                    swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(absoluteTarget), name);
-                    retval = 1;
+                case DISARM64::opaAdr:
+                case DISARM64::opaAdrp:
+                    isAddress = true;
+                    break;
+                default:
                     break;
                 }
-            }
 
-            break;
-
-        case DISARM64::trmtaFallThrough:
-
-            /* memory indirect case. Could be for an LEA for the base address of a switch table, which is an arbitrary
-             * address, currently of the first block after the prolog. */
-
-            /* find the emitter block and the offset for the fixup
-             * "addr" is the address of the immediate */
-
-            {
-                DIS::INSTRUCTION instr;
-                DIS::OPERAND     ops[DISARM64::coperandMax];
-                bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
-                if (ok)
+                if (isAddress && 0 <= addr && addr < disTotalCodeSize)
                 {
-                    bool isAddress = false;
-                    switch ((DISARM64::OPA)instr.opa)
-                    {
-                        case DISARM64::opaAdr:
-                        case DISARM64::opaAdrp:
-                            isAddress = true;
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (isAddress && 0 <= addr && addr < disTotalCodeSize)
-                    {
-                        swprintf_s(wz, cchMax, W("L_%02u"), disLabels[addr]);
-                        retval = 1;
-                    }
+                    swprintf_s(wz, cchMax, W("L_%02u"), disLabels[addr]);
+                    retval = 1;
                 }
             }
-            break;
+        }
+        break;
 
-        default:
+    default:
 
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
-            break;
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
+        break;
     }
 
 #else // TARGET*
@@ -335,88 +335,88 @@ size_t DisAssembler::disCchFixupMember(
     {
         DIS::ADDR disCallSize;
 
-        case DISX86::trmtaFallThrough:
+    case DISX86::trmtaFallThrough:
 
-            /* memory indirect case */
+        /* memory indirect case */
 
-            assert(addr > pdis->Addr());
+        assert(addr > pdis->Addr());
 
-            /* find the emitter block and the offset for the fixup
-             * "addr" is the address of the immediate */
+        /* find the emitter block and the offset for the fixup
+         * "addr" is the address of the immediate */
 
-            if (anyReloc)
+        if (anyReloc)
+        {
+            // Make instructions like "mov rcx, 7FE8247A638h" diffable.
+            swprintf_s(wz, cchMax, W("%IXh"), dspAddr(targetAddr));
+            break;
+        }
+
+        return 0;
+
+    case DISX86::trmtaJmpInd:
+
+        /* pretty rare case - something like "jmp [eax*4]"
+         * not a function call or anything worth annotating */
+
+        return 0;
+
+    case DISX86::trmtaTrap:
+    case DISX86::trmtaTrapCc:
+
+        /* some instructions like division have a TRAP termination type - ignore it */
+
+        return 0;
+
+    case DISX86::trmtaJmpShort:
+    case DISX86::trmtaJmpCcShort:
+
+    case DISX86::trmtaJmpNear:
+    case DISX86::trmtaJmpCcNear:
+
+        /* these are treated by the CchAddr callback - skip them */
+
+        return 0;
+
+    case DISX86::trmtaCallNear16:
+    case DISX86::trmtaCallNear32:
+
+        if (anyReloc)
+        {
+            const char* name = disGetMethodFullName(targetAddr);
+            if (name != nullptr)
             {
-                // Make instructions like "mov rcx, 7FE8247A638h" diffable.
-                swprintf_s(wz, cchMax, W("%IXh"), dspAddr(targetAddr));
+                swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(targetAddr), name);
                 break;
             }
+        }
 
-            return 0;
+        /* these are treated by the CchAddr callback - skip them */
 
-        case DISX86::trmtaJmpInd:
+        return 0;
 
-            /* pretty rare case - something like "jmp [eax*4]"
-             * not a function call or anything worth annotating */
+    case DISX86::trmtaCallInd:
 
-            return 0;
+        /* here we have an indirect call - find the indirect address */
 
-        case DISX86::trmtaTrap:
-        case DISX86::trmtaTrapCc:
+        // BYTE * code = disGetLinearAddr((size_t)addr);
+        // disIndAddr = (DIS::ADDR) (code+0);
 
-            /* some instructions like division have a TRAP termination type - ignore it */
+        /* find the size of the call opcode - less the immediate */
+        /* for the fixup offset we have to add the opcode size for the call */
+        /* addr is the address of the immediate, pdis->Addr() returns the address of the disassembled instruction */
 
-            return 0;
+        assert(addr > pdis->Addr());
+        disCallSize = addr - pdis->Addr();
 
-        case DISX86::trmtaJmpShort:
-        case DISX86::trmtaJmpCcShort:
+        /* find the emitter block and the offset of the call fixup */
 
-        case DISX86::trmtaJmpNear:
-        case DISX86::trmtaJmpCcNear:
+        return 0;
 
-            /* these are treated by the CchAddr callback - skip them */
+    default:
 
-            return 0;
-
-        case DISX86::trmtaCallNear16:
-        case DISX86::trmtaCallNear32:
-
-            if (anyReloc)
-            {
-                const char* name = disGetMethodFullName(targetAddr);
-                if (name != nullptr)
-                {
-                    swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(targetAddr), name);
-                    break;
-                }
-            }
-
-            /* these are treated by the CchAddr callback - skip them */
-
-            return 0;
-
-        case DISX86::trmtaCallInd:
-
-            /* here we have an indirect call - find the indirect address */
-
-            // BYTE * code = disGetLinearAddr((size_t)addr);
-            // disIndAddr = (DIS::ADDR) (code+0);
-
-            /* find the size of the call opcode - less the immediate */
-            /* for the fixup offset we have to add the opcode size for the call */
-            /* addr is the address of the immediate, pdis->Addr() returns the address of the disassembled instruction */
-
-            assert(addr > pdis->Addr());
-            disCallSize = addr - pdis->Addr();
-
-            /* find the emitter block and the offset of the call fixup */
-
-            return 0;
-
-        default:
-
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
-            break;
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
+        break;
     }
 
 #elif defined(TARGET_ARM64)
@@ -437,92 +437,92 @@ size_t DisAssembler::disCchFixupMember(
     {
         DIS::ADDR disCallSize;
 
-        case DISARM64::TRMTA::trmtaUnknown:
-            return 0;
+    case DISARM64::TRMTA::trmtaUnknown:
+        return 0;
 
-        case DISARM64::TRMTA::trmtaFallThrough:
+    case DISARM64::TRMTA::trmtaFallThrough:
 
-            if (anyReloc)
-            {
-                /* memory indirect case */
-
-                assert(addr > pdis->Addr());
-
-                /* find the emitter block and the offset for the fixup
-                 * "addr" is the address of the immediate */
-
-                // Make instructions like "mov rcx, 7FE8247A638h" diffable.
-                swprintf_s(wz, cchMax, W("%IXh"), dspAddr(targetAddr));
-                break;
-            }
-
-            return 0;
-
-        case DISARM64::TRMTA::trmtaBraInd:
-        case DISARM64::TRMTA::trmtaBraCcInd:
-
-            /* pretty rare case - something like "jmp [eax*4]"
-             * not a function call or anything worth annotating */
-
-            return 0;
-
-        case DISARM64::TRMTA::trmtaTrap:
-        case DISARM64::TRMTA::trmtaTrapCc:
-
-            /* some instructions like division have a TRAP termination type - ignore it */
-
-            return 0;
-
-        case DISARM64::TRMTA::trmtaBra:
-        case DISARM64::TRMTA::trmtaBraCase:
-        case DISARM64::TRMTA::trmtaBraCc:
-        case DISARM64::TRMTA::trmtaBraCcCase:
-
-            /* these are treated by the CchAddr callback - skip them */
-
-            return 0;
-
-        case DISARM64::TRMTA::trmtaCall:
-        case DISARM64::TRMTA::trmtaCallCc:
-
-            if (anyReloc)
-            {
-                const char* name = disGetMethodFullName(targetAddr);
-                if (name != nullptr)
-                {
-                    swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(targetAddr), name);
-                    break;
-                }
-            }
-
-            /* these are treated by the CchAddr callback - skip them */
-
-            return 0;
-
-        case DISARM64::TRMTA::trmtaCallInd:
-        case DISARM64::TRMTA::trmtaCallCcInd:
-
-            /* here we have an indirect call - find the indirect address */
-
-            // BYTE * code = disGetLinearAddr((size_t)addr);
-            // disIndAddr = (DIS::ADDR) (code+0);
-
-            /* find the size of the call opcode - less the immediate */
-            /* for the fixup offset we have to add the opcode size for the call */
-            /* addr is the address of the immediate, pdis->Addr() returns the address of the disassembled instruction */
+        if (anyReloc)
+        {
+            /* memory indirect case */
 
             assert(addr > pdis->Addr());
-            disCallSize = addr - pdis->Addr();
 
-            /* find the emitter block and the offset of the call fixup */
+            /* find the emitter block and the offset for the fixup
+             * "addr" is the address of the immediate */
 
-            return 0;
-
-        default:
-
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
+            // Make instructions like "mov rcx, 7FE8247A638h" diffable.
+            swprintf_s(wz, cchMax, W("%IXh"), dspAddr(targetAddr));
             break;
+        }
+
+        return 0;
+
+    case DISARM64::TRMTA::trmtaBraInd:
+    case DISARM64::TRMTA::trmtaBraCcInd:
+
+        /* pretty rare case - something like "jmp [eax*4]"
+         * not a function call or anything worth annotating */
+
+        return 0;
+
+    case DISARM64::TRMTA::trmtaTrap:
+    case DISARM64::TRMTA::trmtaTrapCc:
+
+        /* some instructions like division have a TRAP termination type - ignore it */
+
+        return 0;
+
+    case DISARM64::TRMTA::trmtaBra:
+    case DISARM64::TRMTA::trmtaBraCase:
+    case DISARM64::TRMTA::trmtaBraCc:
+    case DISARM64::TRMTA::trmtaBraCcCase:
+
+        /* these are treated by the CchAddr callback - skip them */
+
+        return 0;
+
+    case DISARM64::TRMTA::trmtaCall:
+    case DISARM64::TRMTA::trmtaCallCc:
+
+        if (anyReloc)
+        {
+            const char* name = disGetMethodFullName(targetAddr);
+            if (name != nullptr)
+            {
+                swprintf_s(wz, cchMax, W("%zx %S"), dspAddr(targetAddr), name);
+                break;
+            }
+        }
+
+        /* these are treated by the CchAddr callback - skip them */
+
+        return 0;
+
+    case DISARM64::TRMTA::trmtaCallInd:
+    case DISARM64::TRMTA::trmtaCallCcInd:
+
+        /* here we have an indirect call - find the indirect address */
+
+        // BYTE * code = disGetLinearAddr((size_t)addr);
+        // disIndAddr = (DIS::ADDR) (code+0);
+
+        /* find the size of the call opcode - less the immediate */
+        /* for the fixup offset we have to add the opcode size for the call */
+        /* addr is the address of the immediate, pdis->Addr() returns the address of the disassembled instruction */
+
+        assert(addr > pdis->Addr());
+        disCallSize = addr - pdis->Addr();
+
+        /* find the emitter block and the offset of the call fixup */
+
+        return 0;
+
+    default:
+
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
+        break;
     }
 
 #else // TARGET*
@@ -565,88 +565,88 @@ size_t DisAssembler::disCchRegRelMember(
         int         disOpcodeSize;
         const char* var;
 
-        case DISX86::trmtaFallThrough:
+    case DISX86::trmtaFallThrough:
 
-        /* some instructions like division have a TRAP termination type - ignore it */
+    /* some instructions like division have a TRAP termination type - ignore it */
 
-        case DISX86::trmtaTrap:
-        case DISX86::trmtaTrapCc:
+    case DISX86::trmtaTrap:
+    case DISX86::trmtaTrapCc:
 
-            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
-            if (var)
-            {
-                swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
-                *pdwDisp = 0;
+        var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+        if (var)
+        {
+            swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
+            *pdwDisp = 0;
 
-                return 1;
-            }
+            return 1;
+        }
 
-            /* This case consists of non-static members */
+        /* This case consists of non-static members */
 
-            /* find the emitter block and the offset for the fixup
-             * fixup is emited after the coding of the instruction - size = word (2 bytes)
-             * GRRRR!!! - for the 16 bit case we have to check for the address size prefix = 0x66
-             */
+        /* find the emitter block and the offset for the fixup
+         * fixup is emited after the coding of the instruction - size = word (2 bytes)
+         * GRRRR!!! - for the 16 bit case we have to check for the address size prefix = 0x66
+         */
 
-            if (*disGetLinearAddr(disCurOffset) == 0x66)
-            {
-                disOpcodeSize = 3;
-            }
-            else
-            {
-                disOpcodeSize = 2;
-            }
+        if (*disGetLinearAddr(disCurOffset) == 0x66)
+        {
+            disOpcodeSize = 3;
+        }
+        else
+        {
+            disOpcodeSize = 2;
+        }
+
+        return 0;
+
+    case DISX86::trmtaCallNear16:
+    case DISX86::trmtaCallNear32:
+    case DISX86::trmtaJmpInd:
+
+        break;
+
+    case DISX86::trmtaCallInd:
+
+        /* check if this is a one byte displacement */
+
+        if ((signed char)disp == (int)disp)
+        {
+            /* we have a one byte displacement -> there were no previous callbacks */
+
+            /* find the size of the call opcode - less the immediate */
+            /* this is a call R/M indirect -> opcode size is 2 */
+
+            disOpcodeSize = 2;
+
+            /* find the emitter block and the offset of the call fixup */
 
             return 0;
+        }
+        else
+        {
+            /* check if we already have a symbol name as replacement */
 
-        case DISX86::trmtaCallNear16:
-        case DISX86::trmtaCallNear32:
-        case DISX86::trmtaJmpInd:
-
-            break;
-
-        case DISX86::trmtaCallInd:
-
-            /* check if this is a one byte displacement */
-
-            if ((signed char)disp == (int)disp)
+            if (disHasName)
             {
-                /* we have a one byte displacement -> there were no previous callbacks */
+                /* CchFixup has been called before - we have a symbol name saved in global var disFuncTempBuf */
 
-                /* find the size of the call opcode - less the immediate */
-                /* this is a call R/M indirect -> opcode size is 2 */
-
-                disOpcodeSize = 2;
-
-                /* find the emitter block and the offset of the call fixup */
-
-                return 0;
+                swprintf_s(wz, cchMax, W("%hs+%u '%hs'"), getRegName(reg), disp, disFuncTempBuf);
+                *pdwDisp   = 0;
+                disHasName = false;
+                return 1;
             }
             else
             {
-                /* check if we already have a symbol name as replacement */
-
-                if (disHasName)
-                {
-                    /* CchFixup has been called before - we have a symbol name saved in global var disFuncTempBuf */
-
-                    swprintf_s(wz, cchMax, W("%hs+%u '%hs'"), getRegName(reg), disp, disFuncTempBuf);
-                    *pdwDisp   = 0;
-                    disHasName = false;
-                    return 1;
-                }
-                else
-                {
-                    return 0;
-                }
+                return 0;
             }
+        }
 
-        default:
+    default:
 
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
 
-            break;
+        break;
     }
 
 #elif defined(TARGET_ARM64)
@@ -660,78 +660,78 @@ size_t DisAssembler::disCchRegRelMember(
         int         disOpcodeSize;
         const char* var;
 
-        case DISARM64::TRMTA::trmtaFallThrough:
+    case DISARM64::TRMTA::trmtaFallThrough:
 
-        /* some instructions like division have a TRAP termination type - ignore it */
+    /* some instructions like division have a TRAP termination type - ignore it */
 
-        case DISARM64::TRMTA::trmtaTrap:
-        case DISARM64::TRMTA::trmtaTrapCc:
+    case DISARM64::TRMTA::trmtaTrap:
+    case DISARM64::TRMTA::trmtaTrapCc:
 
-            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
-            if (var)
-            {
-                swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
-                *pdwDisp = 0;
+        var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+        if (var)
+        {
+            swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
+            *pdwDisp = 0;
 
-                return 1;
-            }
+            return 1;
+        }
 
-            /* This case consists of non-static members */
+        /* This case consists of non-static members */
+
+        // TODO-ARM64-Bug?: Is this correct?
+        disOpcodeSize = 2;
+        return 0;
+
+    case DISARM64::TRMTA::trmtaCall:
+    case DISARM64::TRMTA::trmtaCallCc:
+    case DISARM64::TRMTA::trmtaBraInd:
+    case DISARM64::TRMTA::trmtaBraCcInd:
+        break;
+
+    case DISARM64::TRMTA::trmtaCallInd:
+    case DISARM64::TRMTA::trmtaCallCcInd:
+
+        /* check if this is a one byte displacement */
+
+        if ((signed char)disp == (int)disp)
+        {
+            /* we have a one byte displacement -> there were no previous callbacks */
+
+            /* find the size of the call opcode - less the immediate */
+            /* this is a call R/M indirect -> opcode size is 2 */
 
             // TODO-ARM64-Bug?: Is this correct?
             disOpcodeSize = 2;
+
+            /* find the emitter block and the offset of the call fixup */
+
             return 0;
+        }
+        else
+        {
+            /* check if we already have a symbol name as replacement */
 
-        case DISARM64::TRMTA::trmtaCall:
-        case DISARM64::TRMTA::trmtaCallCc:
-        case DISARM64::TRMTA::trmtaBraInd:
-        case DISARM64::TRMTA::trmtaBraCcInd:
-            break;
-
-        case DISARM64::TRMTA::trmtaCallInd:
-        case DISARM64::TRMTA::trmtaCallCcInd:
-
-            /* check if this is a one byte displacement */
-
-            if ((signed char)disp == (int)disp)
+            if (disHasName)
             {
-                /* we have a one byte displacement -> there were no previous callbacks */
+                /* CchFixup has been called before - we have a symbol name saved in global var disFuncTempBuf */
 
-                /* find the size of the call opcode - less the immediate */
-                /* this is a call R/M indirect -> opcode size is 2 */
-
-                // TODO-ARM64-Bug?: Is this correct?
-                disOpcodeSize = 2;
-
-                /* find the emitter block and the offset of the call fixup */
-
-                return 0;
+                swprintf_s(wz, cchMax, W("%hs+%u '%hs'"), getRegName(reg), disp, disFuncTempBuf);
+                *pdwDisp   = 0;
+                disHasName = false;
+                return 1;
             }
             else
             {
-                /* check if we already have a symbol name as replacement */
-
-                if (disHasName)
-                {
-                    /* CchFixup has been called before - we have a symbol name saved in global var disFuncTempBuf */
-
-                    swprintf_s(wz, cchMax, W("%hs+%u '%hs'"), getRegName(reg), disp, disFuncTempBuf);
-                    *pdwDisp   = 0;
-                    disHasName = false;
-                    return 1;
-                }
-                else
-                {
-                    return 0;
-                }
+                return 0;
             }
+        }
 
-        default:
+    default:
 
-            printf("Termination type is %d\n", (int)terminationType);
-            assert(!"treat this case\n");
+        printf("Termination type is %d\n", (int)terminationType);
+        assert(!"treat this case\n");
 
-            break;
+        break;
     }
 
 #else // TARGET*
@@ -857,56 +857,56 @@ size_t DisAssembler::CbDisassemble(DIS*        pdis,
 
         switch (terminationType)
         {
-            case DISX86::trmtaCallNear16:
-            case DISX86::trmtaCallNear32:
-            case DISX86::trmtaCallFar:
+        case DISX86::trmtaCallNear16:
+        case DISX86::trmtaCallNear32:
+        case DISX86::trmtaCallFar:
 
+        {
+            // Don't count addresses in the relocation table
+            size_t targetAddr;
+            size_t absoluteAddr =
+                (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
+                                                                        // call target address (the address the
+                                                                        // reloc is applied to).
+            if (relocationMap.Lookup(absoluteAddr, &targetAddr))
             {
-                // Don't count addresses in the relocation table
-                size_t targetAddr;
-                size_t absoluteAddr =
-                    (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
-                                                                            // call target address (the address the
-                                                                            // reloc is applied to).
-                if (relocationMap.Lookup(absoluteAddr, &targetAddr))
+                break;
+            }
+        }
+
+            FALLTHROUGH;
+
+        case DISX86::trmtaJmpShort:
+        case DISX86::trmtaJmpNear:
+        case DISX86::trmtaJmpFar:
+        case DISX86::trmtaJmpCcShort:
+        case DISX86::trmtaJmpCcNear:
+
+            /* a CALL is local iff the disTarget is within the block boundary */
+
+            /* mark the jump label in the disTarget vector and return */
+
+            if (disTarget != DIS::addrNil) // There seems to be an assumption that you can't branch to the first
+                                           // address of the function (prolog).
+            {
+                if (0 <= disTarget && disTarget < disTotalCodeSize)
                 {
-                    break;
+                    /* we're OK, disTarget within block boundary */
+
+                    disLabels[disTarget] = 1;
                 }
             }
+            break;
 
-                FALLTHROUGH;
+        case DISX86::trmtaFallThrough:
+            // We'd like to be able to get a label for code like "lea rcx, [4]" that we use for jump tables, but I
+            // can't figure out how.
+            break;
 
-            case DISX86::trmtaJmpShort:
-            case DISX86::trmtaJmpNear:
-            case DISX86::trmtaJmpFar:
-            case DISX86::trmtaJmpCcShort:
-            case DISX86::trmtaJmpCcNear:
+        default:
 
-                /* a CALL is local iff the disTarget is within the block boundary */
-
-                /* mark the jump label in the disTarget vector and return */
-
-                if (disTarget != DIS::addrNil) // There seems to be an assumption that you can't branch to the first
-                                               // address of the function (prolog).
-                {
-                    if (0 <= disTarget && disTarget < disTotalCodeSize)
-                    {
-                        /* we're OK, disTarget within block boundary */
-
-                        disLabels[disTarget] = 1;
-                    }
-                }
-                break;
-
-            case DISX86::trmtaFallThrough:
-                // We'd like to be able to get a label for code like "lea rcx, [4]" that we use for jump tables, but I
-                // can't figure out how.
-                break;
-
-            default:
-
-                /* jump is not in the current code block */
-                break;
+            /* jump is not in the current code block */
+            break;
 
         } // end switch
 #elif defined(TARGET_ARM64)
@@ -916,80 +916,80 @@ size_t DisAssembler::CbDisassemble(DIS*        pdis,
 
         switch (terminationType)
         {
-            case DISARM64::TRMTA::trmtaCall:
-            case DISARM64::TRMTA::trmtaCallCc:
+        case DISARM64::TRMTA::trmtaCall:
+        case DISARM64::TRMTA::trmtaCallCc:
 
+        {
+            // Don't count addresses in the relocation table
+            size_t targetAddr;
+            size_t absoluteAddr =
+                (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
+                                                                        // call target address (the address the
+                                                                        // reloc is applied to).
+            if (relocationMap.Lookup(absoluteAddr, &targetAddr))
             {
-                // Don't count addresses in the relocation table
-                size_t targetAddr;
-                size_t absoluteAddr =
-                    (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
-                                                                            // call target address (the address the
-                                                                            // reloc is applied to).
-                if (relocationMap.Lookup(absoluteAddr, &targetAddr))
-                {
-                    break;
-                }
-            }
-
-                FALLTHROUGH;
-
-            case DISARM64::TRMTA::trmtaBra:
-            case DISARM64::TRMTA::trmtaBraCase:
-            case DISARM64::TRMTA::trmtaBraCc:
-            case DISARM64::TRMTA::trmtaBraCcCase:
-
-                /* a CALL is local iff the disTarget is within the block boundary */
-
-                /* mark the jump label in the disTarget vector and return */
-
-                if (disTarget != DIS::addrNil) // There seems to be an assumption that you can't branch to the first
-                                               // address of the function (prolog).
-                {
-                    if (0 <= disTarget && disTarget < disTotalCodeSize)
-                    {
-                        /* we're OK, disTarget within block boundary */
-
-                        disLabels[disTarget] = 1;
-                    }
-                }
                 break;
+            }
+        }
 
-            case DISARM64::TRMTA::trmtaFallThrough:
+            FALLTHROUGH;
+
+        case DISARM64::TRMTA::trmtaBra:
+        case DISARM64::TRMTA::trmtaBraCase:
+        case DISARM64::TRMTA::trmtaBraCc:
+        case DISARM64::TRMTA::trmtaBraCcCase:
+
+            /* a CALL is local iff the disTarget is within the block boundary */
+
+            /* mark the jump label in the disTarget vector and return */
+
+            if (disTarget != DIS::addrNil) // There seems to be an assumption that you can't branch to the first
+                                           // address of the function (prolog).
             {
-                DIS::INSTRUCTION instr;
-                DIS::OPERAND     ops[DISARM64::coperandMax];
-                bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
-                if (ok)
+                if (0 <= disTarget && disTarget < disTotalCodeSize)
                 {
-                    switch ((DISARM64::OPA)instr.opa)
-                    {
-                        case DISARM64::opaAdr:
-                        case DISARM64::opaAdrp:
-                            // operand 1 is an address
-                            assert(instr.coperand >= 2);
-                            assert(ops[1].opcls == DIS::opclsImmediate);
-                            assert(ops[1].imcls == DIS::imclsAddress);
-                            disTarget = ops[1].dwl;
-                            break;
-                        default:
-                            break;
-                    }
+                    /* we're OK, disTarget within block boundary */
 
-                    if (0 <= disTarget && disTarget < disTotalCodeSize)
-                    {
-                        /* we're OK, disTarget within block boundary */
-
-                        disLabels[disTarget] = 1;
-                    }
+                    disLabels[disTarget] = 1;
                 }
             }
             break;
 
-            default:
+        case DISARM64::TRMTA::trmtaFallThrough:
+        {
+            DIS::INSTRUCTION instr;
+            DIS::OPERAND     ops[DISARM64::coperandMax];
+            bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
+            if (ok)
+            {
+                switch ((DISARM64::OPA)instr.opa)
+                {
+                case DISARM64::opaAdr:
+                case DISARM64::opaAdrp:
+                    // operand 1 is an address
+                    assert(instr.coperand >= 2);
+                    assert(ops[1].opcls == DIS::opclsImmediate);
+                    assert(ops[1].imcls == DIS::imclsAddress);
+                    disTarget = ops[1].dwl;
+                    break;
+                default:
+                    break;
+                }
 
-                /* jump is not in the current code block */
-                break;
+                if (0 <= disTarget && disTarget < disTotalCodeSize)
+                {
+                    /* we're OK, disTarget within block boundary */
+
+                    disLabels[disTarget] = 1;
+                }
+            }
+        }
+        break;
+
+        default:
+
+            /* jump is not in the current code block */
+            break;
 
         } // end switch
 #else // TARGET*

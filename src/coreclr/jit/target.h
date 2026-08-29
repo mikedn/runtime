@@ -247,16 +247,16 @@ inline RegNum MapVarargsParamFloatRegToIntReg(RegNum floatReg)
 {
     switch (floatReg)
     {
-        case REG_XMM0:
-            return REG_RCX;
-        case REG_XMM1:
-            return REG_RDX;
-        case REG_XMM2:
-            return REG_R8;
-        case REG_XMM3:
-            return REG_R9;
-        default:
-            unreached();
+    case REG_XMM0:
+        return REG_RCX;
+    case REG_XMM1:
+        return REG_RDX;
+    case REG_XMM2:
+        return REG_R8;
+    case REG_XMM3:
+        return REG_R9;
+    default:
+        unreached();
     }
 }
 
@@ -264,16 +264,16 @@ inline RegNum MapVarargsParamIntRegToFloatReg(RegNum intReg)
 {
     switch (intReg)
     {
-        case REG_RCX:
-            return REG_XMM0;
-        case REG_RDX:
-            return REG_XMM1;
-        case REG_R8:
-            return REG_XMM2;
-        case REG_R9:
-            return REG_XMM3;
-        default:
-            unreached();
+    case REG_RCX:
+        return REG_XMM0;
+    case REG_RDX:
+        return REG_XMM1;
+    case REG_R8:
+        return REG_XMM2;
+    case REG_R9:
+        return REG_XMM3;
+    default:
+        unreached();
     }
 }
 #endif // WINDOWS_AMD64_ABI

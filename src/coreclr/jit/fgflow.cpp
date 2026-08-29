@@ -371,98 +371,98 @@ void Compiler::fgRemoveBlockAsPred(BasicBlock* block)
 
     switch (block->bbJumpKind)
     {
-        case BBJ_CALLFINALLY:
-            if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
-            {
-                assert(block->isBBCallAlwaysPair());
-
-                /* The block after the BBJ_CALLFINALLY block is not reachable */
-                bNext = block->bbNext;
-
-                /* bNext is an unreachable BBJ_ALWAYS block */
-                noway_assert(bNext->bbJumpKind == BBJ_ALWAYS);
-
-                while (bNext->countOfInEdges() > 0)
-                {
-                    fgRemoveRefPred(bNext, bNext->bbPreds->getBlock());
-                }
-            }
-
-            FALLTHROUGH;
-
-        case BBJ_COND:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-
-            /* Update the predecessor list for 'block->bbJumpDest' and 'block->bbNext' */
-            fgRemoveRefPred(block->bbJumpDest, block);
-
-            if (block->bbJumpKind != BBJ_COND)
-            {
-                break;
-            }
-
-            /* If BBJ_COND fall through */
-            FALLTHROUGH;
-
-        case BBJ_NONE:
-
-            /* Update the predecessor list for 'block->bbNext' */
-            fgRemoveRefPred(block->bbNext, block);
-            break;
-
-        case BBJ_EHFILTERRET:
-
-            block->bbJumpDest->bbRefs++; // To compensate the bbRefs-- inside fgRemoveRefPred
-            fgRemoveRefPred(block->bbJumpDest, block);
-            break;
-
-        case BBJ_EHFINALLYRET:
+    case BBJ_CALLFINALLY:
+        if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
         {
-            /* Remove block as the predecessor of the bbNext of all
-               BBJ_CALLFINALLY blocks calling this finally. No need
-               to look for BBJ_CALLFINALLY for fault handlers. */
+            assert(block->isBBCallAlwaysPair());
 
-            unsigned  hndIndex = block->getHndIndex();
-            EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
+            /* The block after the BBJ_CALLFINALLY block is not reachable */
+            bNext = block->bbNext;
 
-            if (ehDsc->HasFinallyHandler())
+            /* bNext is an unreachable BBJ_ALWAYS block */
+            noway_assert(bNext->bbJumpKind == BBJ_ALWAYS);
+
+            while (bNext->countOfInEdges() > 0)
             {
-                BasicBlock* begBlk;
-                BasicBlock* endBlk;
-                ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
-
-                BasicBlock* finBeg = ehDsc->ebdHndBeg;
-
-                for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
-                {
-                    if ((bcall->bbFlags & BBF_REMOVED) || bcall->bbJumpKind != BBJ_CALLFINALLY ||
-                        bcall->bbJumpDest != finBeg)
-                    {
-                        continue;
-                    }
-
-                    assert(bcall->isBBCallAlwaysPair());
-                    fgRemoveRefPred(bcall->bbNext, block);
-                }
+                fgRemoveRefPred(bNext, bNext->bbPreds->getBlock());
             }
+        }
+
+        FALLTHROUGH;
+
+    case BBJ_COND:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+
+        /* Update the predecessor list for 'block->bbJumpDest' and 'block->bbNext' */
+        fgRemoveRefPred(block->bbJumpDest, block);
+
+        if (block->bbJumpKind != BBJ_COND)
+        {
+            break;
+        }
+
+        /* If BBJ_COND fall through */
+        FALLTHROUGH;
+
+    case BBJ_NONE:
+
+        /* Update the predecessor list for 'block->bbNext' */
+        fgRemoveRefPred(block->bbNext, block);
+        break;
+
+    case BBJ_EHFILTERRET:
+
+        block->bbJumpDest->bbRefs++; // To compensate the bbRefs-- inside fgRemoveRefPred
+        fgRemoveRefPred(block->bbJumpDest, block);
+        break;
+
+    case BBJ_EHFINALLYRET:
+    {
+        /* Remove block as the predecessor of the bbNext of all
+           BBJ_CALLFINALLY blocks calling this finally. No need
+           to look for BBJ_CALLFINALLY for fault handlers. */
+
+        unsigned  hndIndex = block->getHndIndex();
+        EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
+
+        if (ehDsc->HasFinallyHandler())
+        {
+            BasicBlock* begBlk;
+            BasicBlock* endBlk;
+            ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
+
+            BasicBlock* finBeg = ehDsc->ebdHndBeg;
+
+            for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
+            {
+                if ((bcall->bbFlags & BBF_REMOVED) || bcall->bbJumpKind != BBJ_CALLFINALLY ||
+                    bcall->bbJumpDest != finBeg)
+                {
+                    continue;
+                }
+
+                assert(bcall->isBBCallAlwaysPair());
+                fgRemoveRefPred(bcall->bbNext, block);
+            }
+        }
+    }
+    break;
+
+    case BBJ_THROW:
+    case BBJ_RETURN:
+        break;
+
+    case BBJ_SWITCH:
+        for (BasicBlock* const bTarget : block->SwitchTargets())
+        {
+            fgRemoveRefPred(bTarget, block);
         }
         break;
 
-        case BBJ_THROW:
-        case BBJ_RETURN:
-            break;
-
-        case BBJ_SWITCH:
-            for (BasicBlock* const bTarget : block->SwitchTargets())
-            {
-                fgRemoveRefPred(bTarget, block);
-            }
-            break;
-
-        default:
-            noway_assert(!"Block doesn't have a valid bbJumpKind!!!!");
-            break;
+    default:
+        noway_assert(!"Block doesn't have a valid bbJumpKind!!!!");
+        break;
     }
 }
 
@@ -502,50 +502,50 @@ void Compiler::fgComputeCheapPreds()
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
+        case BBJ_COND:
+            fgAddCheapPred(block->bbJumpDest, block);
+            fgAddCheapPred(block->bbNext, block);
+            break;
+
+        case BBJ_CALLFINALLY:
+        case BBJ_LEAVE: // If fgComputeCheapPreds is called before all blocks are imported, BBJ_LEAVE blocks are
+                        // still in the BB list.
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+            fgAddCheapPred(block->bbJumpDest, block);
+            break;
+
+        case BBJ_NONE:
+            fgAddCheapPred(block->bbNext, block);
+            break;
+
+        case BBJ_EHFILTERRET:
+            // Connect end of filter to catch handler.
+            // In a well-formed program, this cannot be null. Tolerate here, so that we can call
+            // fgComputeCheapPreds before import on an ill-formed program; the problem will be
+            // detected during import.
+            if (block->bbJumpDest != nullptr)
+            {
                 fgAddCheapPred(block->bbJumpDest, block);
-                fgAddCheapPred(block->bbNext, block);
-                break;
+            }
+            break;
 
-            case BBJ_CALLFINALLY:
-            case BBJ_LEAVE: // If fgComputeCheapPreds is called before all blocks are imported, BBJ_LEAVE blocks are
-                            // still in the BB list.
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                fgAddCheapPred(block->bbJumpDest, block);
-                break;
+        case BBJ_SWITCH:
+            for (BasicBlock* const bTarget : block->SwitchTargets())
+            {
+                fgAddCheapPred(bTarget, block);
+            }
+            break;
 
-            case BBJ_NONE:
-                fgAddCheapPred(block->bbNext, block);
-                break;
+        case BBJ_EHFINALLYRET: // It's expensive to compute the preds for this case, so we don't for the cheap
+                               // preds.
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            break;
 
-            case BBJ_EHFILTERRET:
-                // Connect end of filter to catch handler.
-                // In a well-formed program, this cannot be null. Tolerate here, so that we can call
-                // fgComputeCheapPreds before import on an ill-formed program; the problem will be
-                // detected during import.
-                if (block->bbJumpDest != nullptr)
-                {
-                    fgAddCheapPred(block->bbJumpDest, block);
-                }
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    fgAddCheapPred(bTarget, block);
-                }
-                break;
-
-            case BBJ_EHFINALLYRET: // It's expensive to compute the preds for this case, so we don't for the cheap
-                                   // preds.
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                break;
-
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+        default:
+            noway_assert(!"Unexpected bbJumpKind");
+            break;
         }
     }
 
@@ -723,107 +723,107 @@ void Compiler::fgComputePreds()
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_CALLFINALLY:
-                if (!(block->bbFlags & BBF_RETLESS_CALL))
-                {
-                    assert(block->isBBCallAlwaysPair());
-                    // Mark the next block as being a jump target,
-                    // since the call target will return there */
-                    assert(block->bbNext != nullptr);
-                }
-
-                FALLTHROUGH;
-
-            case BBJ_LEAVE: // Sometimes fgComputePreds is called before all blocks are imported, so BBJ_LEAVE
-                            // blocks are still in the BB list.
-            case BBJ_COND:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-
-                fgAddRefPred(block->bbJumpDest, block, nullptr, true);
-
-                /* Is the next block reachable? */
-
-                if (block->bbJumpKind != BBJ_COND)
-                {
-                    break;
-                }
-
-                noway_assert(block->bbNext);
-
-                /* Fall through, the next block is also reachable */
-                FALLTHROUGH;
-
-            case BBJ_NONE:
-
-                fgAddRefPred(block->bbNext, block, nullptr, true);
-                break;
-
-            case BBJ_EHFILTERRET:
-                // Connect end of filter to catch handler.
-                // In a well-formed program, this cannot be null. Tolerate here, so that we can call
-                // fgComputePreds before import on an ill-formed program; the problem will be detected
-                // during import.
-                if (block->bbJumpDest != nullptr)
-                {
-                    fgAddRefPred(block->bbJumpDest, block, nullptr, true);
-                }
-                break;
-
-            case BBJ_EHFINALLYRET:
+        case BBJ_CALLFINALLY:
+            if (!(block->bbFlags & BBF_RETLESS_CALL))
             {
-                /* Connect the end of the finally to the successor of
-                  the call to this finally */
+                assert(block->isBBCallAlwaysPair());
+                // Mark the next block as being a jump target,
+                // since the call target will return there */
+                assert(block->bbNext != nullptr);
+            }
 
-                if (!block->hasHndIndex())
-                {
-                    NO_WAY("endfinally outside a finally/fault block.");
-                }
+            FALLTHROUGH;
 
-                unsigned  hndIndex = block->getHndIndex();
-                EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
+        case BBJ_LEAVE: // Sometimes fgComputePreds is called before all blocks are imported, so BBJ_LEAVE
+                        // blocks are still in the BB list.
+        case BBJ_COND:
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
 
-                if (!ehDsc->HasFinallyOrFaultHandler())
-                {
-                    NO_WAY("endfinally outside a finally/fault block.");
-                }
+            fgAddRefPred(block->bbJumpDest, block, nullptr, true);
 
-                if (ehDsc->HasFinallyHandler())
-                {
-                    // Find all BBJ_CALLFINALLY that branched to this finally handler.
-                    BasicBlock* begBlk;
-                    BasicBlock* endBlk;
-                    ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
+            /* Is the next block reachable? */
 
-                    BasicBlock* finBeg = ehDsc->ebdHndBeg;
-                    for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
-                    {
-                        if (bcall->bbJumpKind != BBJ_CALLFINALLY || bcall->bbJumpDest != finBeg)
-                        {
-                            continue;
-                        }
+            if (block->bbJumpKind != BBJ_COND)
+            {
+                break;
+            }
 
-                        noway_assert(bcall->isBBCallAlwaysPair());
-                        fgAddRefPred(bcall->bbNext, block, nullptr, true);
-                    }
-                }
+            noway_assert(block->bbNext);
+
+            /* Fall through, the next block is also reachable */
+            FALLTHROUGH;
+
+        case BBJ_NONE:
+
+            fgAddRefPred(block->bbNext, block, nullptr, true);
+            break;
+
+        case BBJ_EHFILTERRET:
+            // Connect end of filter to catch handler.
+            // In a well-formed program, this cannot be null. Tolerate here, so that we can call
+            // fgComputePreds before import on an ill-formed program; the problem will be detected
+            // during import.
+            if (block->bbJumpDest != nullptr)
+            {
+                fgAddRefPred(block->bbJumpDest, block, nullptr, true);
             }
             break;
 
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                break;
+        case BBJ_EHFINALLYRET:
+        {
+            /* Connect the end of the finally to the successor of
+              the call to this finally */
 
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
+            if (!block->hasHndIndex())
+            {
+                NO_WAY("endfinally outside a finally/fault block.");
+            }
+
+            unsigned  hndIndex = block->getHndIndex();
+            EHblkDsc* ehDsc    = ehGetDsc(hndIndex);
+
+            if (!ehDsc->HasFinallyOrFaultHandler())
+            {
+                NO_WAY("endfinally outside a finally/fault block.");
+            }
+
+            if (ehDsc->HasFinallyHandler())
+            {
+                // Find all BBJ_CALLFINALLY that branched to this finally handler.
+                BasicBlock* begBlk;
+                BasicBlock* endBlk;
+                ehGetCallFinallyBlockRange(hndIndex, &begBlk, &endBlk);
+
+                BasicBlock* finBeg = ehDsc->ebdHndBeg;
+                for (BasicBlock* bcall = begBlk; bcall != endBlk; bcall = bcall->bbNext)
                 {
-                    fgAddRefPred(bTarget, block, nullptr, true);
-                }
-                break;
+                    if (bcall->bbJumpKind != BBJ_CALLFINALLY || bcall->bbJumpDest != finBeg)
+                    {
+                        continue;
+                    }
 
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+                    noway_assert(bcall->isBBCallAlwaysPair());
+                    fgAddRefPred(bcall->bbNext, block, nullptr, true);
+                }
+            }
+        }
+        break;
+
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            break;
+
+        case BBJ_SWITCH:
+            for (BasicBlock* const bTarget : block->SwitchTargets())
+            {
+                fgAddRefPred(bTarget, block, nullptr, true);
+            }
+            break;
+
+        default:
+            noway_assert(!"Unexpected bbJumpKind");
+            break;
         }
     }
 

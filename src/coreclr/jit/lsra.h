@@ -1723,23 +1723,23 @@ public:
     {
         switch (refType)
         {
-            case RefTypeDef:
-            case RefTypeUse:
+        case RefTypeDef:
+        case RefTypeUse:
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            case RefTypeUpperVectorSave:
-            case RefTypeUpperVectorRestore:
+        case RefTypeUpperVectorSave:
+        case RefTypeUpperVectorRestore:
 #endif
-                return true;
+            return true;
 
-            // These must always be marked RegOptional.
-            case RefTypeExpUse:
-            case RefTypeParamDef:
-            case RefTypeDummyDef:
-            case RefTypeZeroInit:
-                assert(RegOptional());
-                FALLTHROUGH;
-            default:
-                return false;
+        // These must always be marked RegOptional.
+        case RefTypeExpUse:
+        case RefTypeParamDef:
+        case RefTypeDummyDef:
+        case RefTypeZeroInit:
+            assert(RegOptional());
+            FALLTHROUGH;
+        default:
+            return false;
         }
     }
 

@@ -1497,57 +1497,57 @@ inline BasicBlock::BBSuccList::BBSuccList(const BasicBlock* block)
     assert(block != nullptr);
     switch (block->bbJumpKind)
     {
-        case BBJ_THROW:
-        case BBJ_RETURN:
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-            // We don't need m_succs.
-            m_begin = nullptr;
-            m_end   = nullptr;
-            break;
+    case BBJ_THROW:
+    case BBJ_RETURN:
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHFILTERRET:
+        // We don't need m_succs.
+        m_begin = nullptr;
+        m_end   = nullptr;
+        break;
 
-        case BBJ_CALLFINALLY:
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-            m_succs[0] = block->bbJumpDest;
-            m_begin    = &m_succs[0];
-            m_end      = &m_succs[1];
-            break;
+    case BBJ_CALLFINALLY:
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_LEAVE:
+        m_succs[0] = block->bbJumpDest;
+        m_begin    = &m_succs[0];
+        m_end      = &m_succs[1];
+        break;
 
-        case BBJ_NONE:
-            m_succs[0] = block->bbNext;
-            m_begin    = &m_succs[0];
-            m_end      = &m_succs[1];
-            break;
+    case BBJ_NONE:
+        m_succs[0] = block->bbNext;
+        m_begin    = &m_succs[0];
+        m_end      = &m_succs[1];
+        break;
 
-        case BBJ_COND:
-            m_succs[0] = block->bbNext;
-            m_begin    = &m_succs[0];
+    case BBJ_COND:
+        m_succs[0] = block->bbNext;
+        m_begin    = &m_succs[0];
 
-            // If both fall-through and branch successors are identical, then only include
-            // them once in the iteration (this is the same behavior as NumSucc()/GetSucc()).
-            if (block->bbJumpDest == block->bbNext)
-            {
-                m_end = &m_succs[1];
-            }
-            else
-            {
-                m_succs[1] = block->bbJumpDest;
-                m_end      = &m_succs[2];
-            }
-            break;
+        // If both fall-through and branch successors are identical, then only include
+        // them once in the iteration (this is the same behavior as NumSucc()/GetSucc()).
+        if (block->bbJumpDest == block->bbNext)
+        {
+            m_end = &m_succs[1];
+        }
+        else
+        {
+            m_succs[1] = block->bbJumpDest;
+            m_end      = &m_succs[2];
+        }
+        break;
 
-        case BBJ_SWITCH:
-            // We don't use the m_succs in-line data for switches; use the existing jump table in the block.
-            assert(block->bbJumpSwt != nullptr);
-            assert(block->bbJumpSwt->bbsDstTab != nullptr);
-            m_begin = block->bbJumpSwt->bbsDstTab;
-            m_end   = block->bbJumpSwt->bbsDstTab + block->bbJumpSwt->bbsCount;
-            break;
+    case BBJ_SWITCH:
+        // We don't use the m_succs in-line data for switches; use the existing jump table in the block.
+        assert(block->bbJumpSwt != nullptr);
+        assert(block->bbJumpSwt->bbsDstTab != nullptr);
+        m_begin = block->bbJumpSwt->bbsDstTab;
+        m_end   = block->bbJumpSwt->bbsDstTab + block->bbJumpSwt->bbsCount;
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     assert(m_end >= m_begin);

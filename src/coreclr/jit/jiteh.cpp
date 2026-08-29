@@ -2742,21 +2742,21 @@ void Compiler::dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& claus
     const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
     switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
     {
-        case CORINFO_EH_CLAUSE_NONE:
-            printf(" (catch)");
-            break;
-        case CORINFO_EH_CLAUSE_FILTER:
-            printf(" (filter)");
-            break;
-        case CORINFO_EH_CLAUSE_FINALLY:
-            printf(" (finally)");
-            break;
-        case CORINFO_EH_CLAUSE_FAULT:
-            printf(" (fault)");
-            break;
-        default:
-            printf(" (UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
-            break;
+    case CORINFO_EH_CLAUSE_NONE:
+        printf(" (catch)");
+        break;
+    case CORINFO_EH_CLAUSE_FILTER:
+        printf(" (filter)");
+        break;
+    case CORINFO_EH_CLAUSE_FINALLY:
+        printf(" (finally)");
+        break;
+    case CORINFO_EH_CLAUSE_FAULT:
+        printf(" (fault)");
+        break;
+    default:
+        printf(" (UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
+        break;
     }
     if (clause.Flags & ~CORINFO_EH_CLAUSE_TYPE_MASK)
     {

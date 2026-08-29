@@ -61,71 +61,71 @@ void CodeGen::genMarkLabelsForCodegen()
 
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
+        case BBJ_COND:
 #if FEATURE_LOOP_ALIGN
-                if (block->bbJumpDest->isLoopAlign() && (block->bbNext != nullptr))
-                {
-                    // In the emitter, we need to calculate the loop size from `block->bbJumpDest` through
-                    // `block` (inclusive). Thus, we need to ensure there is a label on the lexical fall-through
-                    // block, even if one is not otherwise needed, to be able to calculate the size of this
-                    // loop (loop size is calculated by walking the instruction groups; see emitter::GetLoopSize()).
+            if (block->bbJumpDest->isLoopAlign() && (block->bbNext != nullptr))
+            {
+                // In the emitter, we need to calculate the loop size from `block->bbJumpDest` through
+                // `block` (inclusive). Thus, we need to ensure there is a label on the lexical fall-through
+                // block, even if one is not otherwise needed, to be able to calculate the size of this
+                // loop (loop size is calculated by walking the instruction groups; see emitter::GetLoopSize()).
 
-                    JITDUMP("  " FMT_BB ": alignment end-of-loop\n", block->bbNext->bbNum);
-                    block->bbNext->bbFlags |= BBF_HAS_LABEL;
-                }
-                FALLTHROUGH;
+                JITDUMP("  " FMT_BB ": alignment end-of-loop\n", block->bbNext->bbNum);
+                block->bbNext->bbFlags |= BBF_HAS_LABEL;
+            }
+            FALLTHROUGH;
 #endif
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                JITDUMP("  " FMT_BB ": branch target\n", block->bbJumpDest->bbNum);
-                block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
-                break;
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+            JITDUMP("  " FMT_BB ": branch target\n", block->bbJumpDest->bbNum);
+            block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
+            break;
 
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    JITDUMP("  " FMT_BB ": switch case\n", bTarget->bbNum);
-                    bTarget->bbFlags |= BBF_HAS_LABEL;
-                }
+        case BBJ_SWITCH:
+            for (BasicBlock* const bTarget : block->SwitchTargets())
+            {
+                JITDUMP("  " FMT_BB ": switch case\n", bTarget->bbNum);
+                bTarget->bbFlags |= BBF_HAS_LABEL;
+            }
 
-                // The current implementation of switch tables requires the first block
-                // to have a label so it can generate offsets to the switch label targets.
-                // TODO-CQ: remove this when switches have been re-implemented to not use this.
-                JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
-                compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
-                break;
+            // The current implementation of switch tables requires the first block
+            // to have a label so it can generate offsets to the switch label targets.
+            // TODO-CQ: remove this when switches have been re-implemented to not use this.
+            JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
+            compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
+            break;
 
-            case BBJ_CALLFINALLY:
+        case BBJ_CALLFINALLY:
 #if FEATURE_EH_CALLFINALLY_THUNKS
-                // For callfinally thunks, we need to mark the block following the callfinally/always pair,
-                // as that's needed for identifying the range of the "duplicate finally" region in EH data.
-                BasicBlock* bbToLabel;
-                bbToLabel = block->bbNext;
+            // For callfinally thunks, we need to mark the block following the callfinally/always pair,
+            // as that's needed for identifying the range of the "duplicate finally" region in EH data.
+            BasicBlock* bbToLabel;
+            bbToLabel = block->bbNext;
 
-                if (block->IsCallFinallyAlwaysPairHead())
-                {
-                    bbToLabel = bbToLabel->bbNext;
-                }
+            if (block->IsCallFinallyAlwaysPairHead())
+            {
+                bbToLabel = bbToLabel->bbNext;
+            }
 
-                if (bbToLabel != nullptr)
-                {
-                    JITDUMP("  " FMT_BB ": callfinally thunk region end\n", bbToLabel->bbNum);
-                    bbToLabel->bbFlags |= BBF_HAS_LABEL;
-                }
+            if (bbToLabel != nullptr)
+            {
+                JITDUMP("  " FMT_BB ": callfinally thunk region end\n", bbToLabel->bbNum);
+                bbToLabel->bbFlags |= BBF_HAS_LABEL;
+            }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-                // The finally target itself will get marked by walking the EH table, below, and marking
-                // all handler begins.
-                break;
+            // The finally target itself will get marked by walking the EH table, below, and marking
+            // all handler begins.
+            break;
 
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-            case BBJ_RETURN:
-            case BBJ_THROW:
-            case BBJ_NONE:
-                break;
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+        case BBJ_RETURN:
+        case BBJ_THROW:
+        case BBJ_NONE:
+            break;
 
-            default:
-                unreached();
+        default:
+            unreached();
         }
 
         if (BasicBlock* prevBlock = block->bbPrev)
@@ -463,173 +463,173 @@ void CodeGen::genCodeForBBlist()
 
         switch (block->GetKind())
         {
-            case BBJ_RETURN:
-                genExitCode(block);
-                hasEpilog = true;
-                break;
+        case BBJ_RETURN:
+            genExitCode(block);
+            hasEpilog = true;
+            break;
 
 #ifdef FEATURE_EH_FUNCLETS
-            case BBJ_EHCATCHRET:
-                genEHCatchRet(block);
-                FALLTHROUGH;
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-                hasEpilog = true;
-                break;
+        case BBJ_EHCATCHRET:
+            genEHCatchRet(block);
+            FALLTHROUGH;
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+            hasEpilog = true;
+            break;
 #else
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-                genEHFinallyOrFilterRet(block);
-                break;
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+            genEHFinallyOrFilterRet(block);
+            break;
 #endif
 
-            case BBJ_NONE:
+        case BBJ_NONE:
 #ifdef TARGET_AMD64
-                // On AMD64, we need to generate a NOP after a call that is the last instruction of the block,
-                // in several situations, to support proper exception handling semantics. This is mostly to
-                // ensure that when the stack walker computes an instruction pointer for a frame, that the
-                // instruction pointer is in the correct EH region.
-                //
-                // 1. If the call instruction is in a different EH region as the instruction that follows it.
-                // 2. If the call immediately precedes an OS epilog. Note that what the JIT or VM consider
-                //    an epilog might be slightly different from what the OS considers an epilog, and it is
-                //    the OS-reported epilog that matters here.
-                //
-                // We handle case #1 here, and case #2 when handling return blocks.
+            // On AMD64, we need to generate a NOP after a call that is the last instruction of the block,
+            // in several situations, to support proper exception handling semantics. This is mostly to
+            // ensure that when the stack walker computes an instruction pointer for a frame, that the
+            // instruction pointer is in the correct EH region.
+            //
+            // 1. If the call instruction is in a different EH region as the instruction that follows it.
+            // 2. If the call immediately precedes an OS epilog. Note that what the JIT or VM consider
+            //    an epilog might be slightly different from what the OS considers an epilog, and it is
+            //    the OS-reported epilog that matters here.
+            //
+            // We handle case #1 here, and case #2 when handling return blocks.
 
-                // Note: we may be generating a few too many NOPs for the case of call preceding an epilog.
-                // Technically, if the next block is a BBJ_RETURN, an epilog will be generated, but there
-                // may be some instructions generated before the OS epilog starts, such as a GS cookie check.
-                // We only need the NOP if we're not going to generate any more code as part of the block end.
+            // Note: we may be generating a few too many NOPs for the case of call preceding an epilog.
+            // Technically, if the next block is a BBJ_RETURN, an epilog will be generated, but there
+            // may be some instructions generated before the OS epilog starts, such as a GS cookie check.
+            // We only need the NOP if we're not going to generate any more code as part of the block end.
 
-                if (GetEmitter()->IsLastInsCall())
+            if (GetEmitter()->IsLastInsCall())
+            {
+                if (block->bbNext == nullptr)
                 {
-                    if (block->bbNext == nullptr)
-                    {
-                        // Call immediately before the end of the code; we should never get here.
-                        GetEmitter()->emitIns(INS_BREAKPOINT);
-                    }
-                    else if (!BasicBlock::sameEHRegion(block, block->bbNext))
-                    {
-                        // We need the NOP for EH.
-                        GetEmitter()->emitIns(INS_nop);
-                    }
+                    // Call immediately before the end of the code; we should never get here.
+                    GetEmitter()->emitIns(INS_BREAKPOINT);
                 }
+                else if (!BasicBlock::sameEHRegion(block, block->bbNext))
+                {
+                    // We need the NOP for EH.
+                    GetEmitter()->emitIns(INS_nop);
+                }
+            }
 #endif // TARGET_AMD64
-                break;
+            break;
 
-            case BBJ_THROW:
-                // If we have a throw at the end of a function or funclet, we need to emit another instruction
-                // afterwards to help the OS unwinder determine the correct context during unwind. We insert an
-                // unexecuted breakpoint instruction in several situations following a throw instruction:
-                // 1. If the throw is the last instruction of the function or funclet. This helps
-                //    the OS unwinder determine the correct context during an unwind from the
-                //    thrown exception.
-                // 2. If this is this is the last block of the hot section.
-                // 3. If the subsequent block is a special throw block.
-                // 4. On AMD64, if the next block is in a different EH region.
+        case BBJ_THROW:
+            // If we have a throw at the end of a function or funclet, we need to emit another instruction
+            // afterwards to help the OS unwinder determine the correct context during unwind. We insert an
+            // unexecuted breakpoint instruction in several situations following a throw instruction:
+            // 1. If the throw is the last instruction of the function or funclet. This helps
+            //    the OS unwinder determine the correct context during an unwind from the
+            //    thrown exception.
+            // 2. If this is this is the last block of the hot section.
+            // 3. If the subsequent block is a special throw block.
+            // 4. On AMD64, if the next block is in a different EH region.
 
-                if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
-                    !BasicBlock::sameEHRegion(block, block->bbNext) ||
-                    (!isFramePointerUsed() && block->bbNext->IsThrowHelperBlock()) ||
-                    block->bbNext == compiler->fgFirstColdBlock)
+            if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
+                !BasicBlock::sameEHRegion(block, block->bbNext) ||
+                (!isFramePointerUsed() && block->bbNext->IsThrowHelperBlock()) ||
+                block->bbNext == compiler->fgFirstColdBlock)
+            {
+                GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
+            }
+            // Do likewise for blocks that end in DOES_NOT_RETURN calls
+            // that were not caught by the above rules. This ensures that
+            // gc register liveness doesn't change across call instructions
+            // in fully-interruptible mode.
+            else
+            {
+                GenTree* call = block->GetLastLIRNode();
+
+                if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
                 {
                     GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
                 }
-                // Do likewise for blocks that end in DOES_NOT_RETURN calls
-                // that were not caught by the above rules. This ensures that
-                // gc register liveness doesn't change across call instructions
-                // in fully-interruptible mode.
-                else
-                {
-                    GenTree* call = block->GetLastLIRNode();
+            }
+            break;
 
-                    if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
-                    {
-                        GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
-                    }
-                }
-                break;
-
-            case BBJ_CALLFINALLY:
-                GenCallFinally(block);
+        case BBJ_CALLFINALLY:
+            GenCallFinally(block);
 
 #ifdef TARGET_ARM
-                assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
+            assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
 #else
-                if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
+            if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
 #endif
-                {
-                    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
-                    // jump target using bbJumpDest - that is already used to point
-                    // to the finally block. So just skip past the BBJ_ALWAYS unless the
-                    // block is RETLESS.
-                    assert(block->IsCallFinallyAlwaysPairHead());
-                    block = block->bbNext;
+            {
+                // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
+                // jump target using bbJumpDest - that is already used to point
+                // to the finally block. So just skip past the BBJ_ALWAYS unless the
+                // block is RETLESS.
+                assert(block->IsCallFinallyAlwaysPairHead());
+                block = block->bbNext;
 
-                    JITDUMP("\n=============== Skipping finally return ");
-                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true, true));
-                }
-                break;
+                JITDUMP("\n=============== Skipping finally return ");
+                DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true, true));
+            }
+            break;
 
-            case BBJ_SWITCH:
+        case BBJ_SWITCH:
 #ifdef TARGET_AMD64
-                assert(!GetEmitter()->IsLastInsCall());
+            assert(!GetEmitter()->IsLastInsCall());
 #endif
-                break;
+            break;
 
-            case BBJ_ALWAYS:
-                assert(!block->IsThrowHelperBlock());
+        case BBJ_ALWAYS:
+            assert(!block->IsThrowHelperBlock());
 
-                if (block->bbJumpDest == block->bbNext)
-                {
+            if (block->bbJumpDest == block->bbNext)
+            {
 #ifdef TARGET_AMD64
-                    // We need to have another instruction after a call if a different EH region follows,
-                    // but we can't properly check the EH region in this case because the next block may
-                    // be in the same EH region and also be a "jump to next" block which goes into another
-                    // EH region, or an empty block that falls through to another EH region, or perhaps a
-                    // block that isn't empty but becomes empty due to redundant mov elimination in the
-                    // emitter etc. Such cases are rare but they do happen, at least in minopts, where the
-                    // front end doesn't optimize the flow graph. And such failures can be rather subtle
-                    // and not easily caught by tests. So just insert a nop anytime EH is present in the
-                    // method. Anyway it's better than the old code, which kept a useless "jump to next".
-                    if (GetEmitter()->IsLastInsCall() && compiler->fgHasEH())
-                    {
-                        GetEmitter()->emitIns(INS_nop);
-                    }
+                // We need to have another instruction after a call if a different EH region follows,
+                // but we can't properly check the EH region in this case because the next block may
+                // be in the same EH region and also be a "jump to next" block which goes into another
+                // EH region, or an empty block that falls through to another EH region, or perhaps a
+                // block that isn't empty but becomes empty due to redundant mov elimination in the
+                // emitter etc. Such cases are rare but they do happen, at least in minopts, where the
+                // front end doesn't optimize the flow graph. And such failures can be rather subtle
+                // and not easily caught by tests. So just insert a nop anytime EH is present in the
+                // method. Anyway it's better than the old code, which kept a useless "jump to next".
+                if (GetEmitter()->IsLastInsCall() && compiler->fgHasEH())
+                {
+                    GetEmitter()->emitIns(INS_nop);
+                }
 #endif
 
-                    break;
-                }
+                break;
+            }
 
 #ifdef TARGET_ARMARCH
-                GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
+            GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 #else
-                GetEmitter()->Ins_J(INS_jmp, block->bbJumpDest->emitLabel);
+            GetEmitter()->Ins_J(INS_jmp, block->bbJumpDest->emitLabel);
 #endif
-                FALLTHROUGH;
-            case BBJ_COND:
+            FALLTHROUGH;
+        case BBJ_COND:
 #ifdef TARGET_AMD64
-                assert(!GetEmitter()->IsLastInsCall());
+            assert(!GetEmitter()->IsLastInsCall());
 #endif
 #if FEATURE_LOOP_ALIGN
-                // This is the last place where we operate on blocks and after this, we operate
-                // on IG. Hence, if we know that the destination of "block" is the first block
-                // of a loop and needs alignment (it has BBF_LOOP_ALIGN), then "block" represents
-                // end of the loop. Propagate that information on the IG through "igLoopBackEdge".
-                //
-                // During emitter, this information will be used to calculate the loop size.
-                // Depending on the loop size, decision of whether to align a loop or not will be taken.
+            // This is the last place where we operate on blocks and after this, we operate
+            // on IG. Hence, if we know that the destination of "block" is the first block
+            // of a loop and needs alignment (it has BBF_LOOP_ALIGN), then "block" represents
+            // end of the loop. Propagate that information on the IG through "igLoopBackEdge".
+            //
+            // During emitter, this information will be used to calculate the loop size.
+            // Depending on the loop size, decision of whether to align a loop or not will be taken.
 
-                if (block->bbJumpDest->isLoopAlign() && block->bbJumpDest->emitLabel->IsDefined())
-                {
-                    GetEmitter()->SetLoopBackEdge(block->bbJumpDest->emitLabel);
-                }
+            if (block->bbJumpDest->isLoopAlign() && block->bbJumpDest->emitLabel->IsDefined())
+            {
+                GetEmitter()->SetLoopBackEdge(block->bbJumpDest->emitLabel);
+            }
 #endif // FEATURE_LOOP_ALIGN
-                break;
+            break;
 
-            default:
-                unreached();
+        default:
+            unreached();
         }
 
         if (hasEpilog)
@@ -709,352 +709,352 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
     switch (node->GetOper())
     {
 #ifndef JIT32_GCENCODER
-        case GT_START_NONGC:
-            GenStartNoGC();
-            break;
+    case GT_START_NONGC:
+        GenStartNoGC();
+        break;
 #endif
-        case GT_START_PREEMPTGC:
-            GenStartPreemptGC();
-            break;
-        case GT_PROF_HOOK:
-            GenProfHook();
-            break;
-        case GT_LCLHEAP:
-            GenLclAlloc(node->AsUnOp());
-            break;
-        case GT_CNS_INT:
-            GenIntCon(node->AsIntCon());
-            break;
-        case GT_CNS_DBL:
-            GenDblCon(node->AsDblCon());
-            break;
+    case GT_START_PREEMPTGC:
+        GenStartPreemptGC();
+        break;
+    case GT_PROF_HOOK:
+        GenProfHook();
+        break;
+    case GT_LCLHEAP:
+        GenLclAlloc(node->AsUnOp());
+        break;
+    case GT_CNS_INT:
+        GenIntCon(node->AsIntCon());
+        break;
+    case GT_CNS_DBL:
+        GenDblCon(node->AsDblCon());
+        break;
 #ifndef TARGET_ARM64
-        case GT_FNEG:
-            GenFloatNegate(node->AsUnOp());
-            break;
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            GenFloatBinaryOp(node->AsOp());
-            break;
+    case GT_FNEG:
+        GenFloatNegate(node->AsUnOp());
+        break;
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+        GenFloatBinaryOp(node->AsOp());
+        break;
 #endif
-        case GT_NOT:
-        case GT_NEG:
-            GenNegNot(node->AsUnOp());
-            break;
+    case GT_NOT:
+    case GT_NEG:
+        GenNegNot(node->AsUnOp());
+        break;
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_BSWAP:
-        case GT_BSWAP16:
-            GenBswap(node->AsUnOp());
-            break;
+    case GT_BSWAP:
+    case GT_BSWAP16:
+        GenBswap(node->AsUnOp());
+        break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_SDIV:
-        case GT_UDIV:
+    case GT_SDIV:
+    case GT_UDIV:
 #ifdef TARGET_XARCH
-        case GT_SREM:
-        case GT_UREM:
+    case GT_SREM:
+    case GT_UREM:
 #endif
-            GenDivRem(node->AsOp());
-            break;
+        GenDivRem(node->AsOp());
+        break;
 #endif
-        case GT_ADD:
-        case GT_SUB:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
+    case GT_ADD:
+    case GT_SUB:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
 #ifndef TARGET_64BIT
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
+    case GT_ADD_LO:
+    case GT_ADD_HI:
+    case GT_SUB_LO:
+    case GT_SUB_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
 #endif
-            GenAddSubBitwise(node->AsOp());
-            break;
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
+        GenAddSubBitwise(node->AsOp());
+        break;
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
 #ifdef TARGET_XARCH
-        case GT_ROL:
+    case GT_ROL:
 #endif
-        case GT_ROR:
-            GenShift(node->AsOp());
-            break;
+    case GT_ROR:
+        GenShift(node->AsOp());
+        break;
 #ifndef TARGET_64BIT
-        case GT_LSH_HI:
-        case GT_RSH_LO:
-            GenShiftLong(node->AsOp());
-            break;
+    case GT_LSH_HI:
+    case GT_RSH_LO:
+        GenShiftLong(node->AsOp());
+        break;
 #endif
-        case GT_MUL:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            GenMul(node->AsOp());
-            break;
+    case GT_MUL:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        GenMul(node->AsOp());
+        break;
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_SMULH:
-        case GT_UMULH:
-            GenMulLong(node->AsOp());
-            break;
+    case GT_SMULH:
+    case GT_UMULH:
+        GenMulLong(node->AsOp());
+        break;
 #endif
 #ifndef TARGET_64BIT
-        case GT_SMULL:
-        case GT_UMULL:
-            GenMulLong(node->AsOp());
-            break;
+    case GT_SMULL:
+    case GT_UMULL:
+        GenMulLong(node->AsOp());
+        break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_INC_SATURATE:
-            GenSatInc(node->AsUnOp());
-            break;
+    case GT_INC_SATURATE:
+        GenSatInc(node->AsUnOp());
+        break;
 #endif
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            GenOvfTruncate(node->AsUnOp());
-            break;
-        case GT_OVF_U:
-            GenOvfUnsigned(node->AsUnOp());
-            break;
-        case GT_CONV:
-            GenConv(node->AsUnOp());
-            break;
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            GenOvfConv(node->AsUnOp());
-            break;
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+        GenOvfTruncate(node->AsUnOp());
+        break;
+    case GT_OVF_U:
+        GenOvfUnsigned(node->AsUnOp());
+        break;
+    case GT_CONV:
+        GenConv(node->AsUnOp());
+        break;
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        GenOvfConv(node->AsUnOp());
+        break;
 #ifndef TARGET_ARM64
-        case GT_STOF:
-        case GT_UTOF:
-            GenIntToFloat(node->AsUnOp());
-            break;
-        case GT_FTOS:
-        case GT_FTOU:
-            GenFloatToInt(node->AsUnOp());
-            break;
-        case GT_FTRUNC:
-            GenFloatTruncate(node->AsUnOp());
-            break;
-        case GT_FXT:
-            GenFloatExtend(node->AsUnOp());
-            break;
+    case GT_STOF:
+    case GT_UTOF:
+        GenIntToFloat(node->AsUnOp());
+        break;
+    case GT_FTOS:
+    case GT_FTOU:
+        GenFloatToInt(node->AsUnOp());
+        break;
+    case GT_FTRUNC:
+        GenFloatTruncate(node->AsUnOp());
+        break;
+    case GT_FXT:
+        GenFloatExtend(node->AsUnOp());
+        break;
 #endif
 #ifdef TARGET_64BIT
-        case GT_TRUNC:
-            GenTruncate(node->AsUnOp());
-            break;
-        case GT_SXT:
-            GenSignExtend(node->AsUnOp());
-            break;
-        case GT_UXT:
-            GenUnsignedExtend(node->AsUnOp());
-            break;
+    case GT_TRUNC:
+        GenTruncate(node->AsUnOp());
+        break;
+    case GT_SXT:
+        GenSignExtend(node->AsUnOp());
+        break;
+    case GT_UXT:
+        GenUnsignedExtend(node->AsUnOp());
+        break;
 #endif
-        case GT_BITCAST:
-            GenBitCast(node->AsOp());
-            break;
-        case GT_LCL_ADDR:
-            GenLclAddr(node->AsLclAddr());
-            break;
-        case GT_LCL_LOAD:
-            GenLclLoad(node->AsLclLoad());
-            break;
-        case GT_LCL_STORE:
-            GenLclStore(node->AsLclStore());
-            break;
-        case GT_LCL_LOAD_FLD:
-            GenLclLoadFld(node->AsLclLoadFld());
-            break;
-        case GT_LCL_STORE_FLD:
-            GenLclStoreFld(node->AsLclStoreFld());
-            break;
-        case GT_NULLCHECK:
-            GenNullCheck(node->AsNullCheck());
-            break;
-        case GT_IND_LOAD:
-            GenIndLoad(node->AsIndLoad());
-            break;
-        case GT_IND_STORE:
-            GenIndStore(node->AsIndStore());
-            break;
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
-            GenStructStore(node->AsBlk(), node->AsBlk()->GetKind(), node->AsBlk()->GetLayout());
-            break;
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            GenDynBlk(node->AsDynBlk());
-            break;
-        case GT_RETFILT:
-            GenRetFilt(node, block);
-            break;
-        case GT_RETURN:
-            GenReturn(node, block);
-            break;
-        case GT_LEA:
-            GenLea(node->AsAddrMode());
-            break;
-        case GT_BOUNDS_CHECK:
-            GenBoundsCheck(node->AsBoundsChk());
-            break;
-        case GT_INDEX_ADDR:
-            GenIndexAddr(node->AsIndexAddr());
-            break;
+    case GT_BITCAST:
+        GenBitCast(node->AsOp());
+        break;
+    case GT_LCL_ADDR:
+        GenLclAddr(node->AsLclAddr());
+        break;
+    case GT_LCL_LOAD:
+        GenLclLoad(node->AsLclLoad());
+        break;
+    case GT_LCL_STORE:
+        GenLclStore(node->AsLclStore());
+        break;
+    case GT_LCL_LOAD_FLD:
+        GenLclLoadFld(node->AsLclLoadFld());
+        break;
+    case GT_LCL_STORE_FLD:
+        GenLclStoreFld(node->AsLclStoreFld());
+        break;
+    case GT_NULLCHECK:
+        GenNullCheck(node->AsNullCheck());
+        break;
+    case GT_IND_LOAD:
+        GenIndLoad(node->AsIndLoad());
+        break;
+    case GT_IND_STORE:
+        GenIndStore(node->AsIndStore());
+        break;
+    case GT_IND_STORE_OBJ:
+    case GT_IND_STORE_BLK:
+        GenStructStore(node->AsBlk(), node->AsBlk()->GetKind(), node->AsBlk()->GetLayout());
+        break;
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        GenDynBlk(node->AsDynBlk());
+        break;
+    case GT_RETFILT:
+        GenRetFilt(node, block);
+        break;
+    case GT_RETURN:
+        GenReturn(node, block);
+        break;
+    case GT_LEA:
+        GenLea(node->AsAddrMode());
+        break;
+    case GT_BOUNDS_CHECK:
+        GenBoundsCheck(node->AsBoundsChk());
+        break;
+    case GT_INDEX_ADDR:
+        GenIndexAddr(node->AsIndexAddr());
+        break;
 #ifndef TARGET_ARM64
-        case GT_INTRINSIC:
-            GenIntrinsic(node->AsIntrinsic());
-            break;
+    case GT_INTRINSIC:
+        GenIntrinsic(node->AsIntrinsic());
+        break;
 #endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        case GT_SIMD_UPPER_SPILL:
-            GenVectorUpperSpill(node->AsUnOp());
-            break;
-        case GT_SIMD_UPPER_UNSPILL:
-            GenVectorUpperUnspill(node->AsUnOp());
-            break;
+    case GT_SIMD_UPPER_SPILL:
+        GenVectorUpperSpill(node->AsUnOp());
+        break;
+    case GT_SIMD_UPPER_UNSPILL:
+        GenVectorUpperUnspill(node->AsUnOp());
+        break;
 #endif
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            GenHWIntrinsic(node->AsHWIntrinsic());
-            break;
+    case GT_HWINTRINSIC:
+        GenHWIntrinsic(node->AsHWIntrinsic());
+        break;
 #endif
-        case GT_CKFINITE:
-            GenCkfinite(node);
-            break;
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_CMP:
+    case GT_CKFINITE:
+        GenCkfinite(node);
+        break;
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_CMP:
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
+    case GT_TEST_EQ:
+    case GT_TEST_NE:
 #endif
-            GenCompare(node->AsOp());
-            break;
-        case GT_JTRUE:
-            GenJTrue(node->AsUnOp(), block);
-            break;
+        GenCompare(node->AsOp());
+        break;
+    case GT_JTRUE:
+        GenJTrue(node->AsUnOp(), block);
+        break;
 #ifdef TARGET_ARM64
-        case GT_JCMP:
-            GenJCmp(node->AsOp(), block);
-            break;
+    case GT_JCMP:
+        GenJCmp(node->AsOp(), block);
+        break;
 #endif
-        case GT_JCC:
-            GenJCC(node->AsCC(), block);
-            break;
-        case GT_SETCC:
-            GenSetCC(node->AsCC());
-            break;
+    case GT_JCC:
+        GenJCC(node->AsCC(), block);
+        break;
+    case GT_SETCC:
+        GenSetCC(node->AsCC());
+        break;
 #ifdef TARGET_XARCH
-        case GT_BT:
-            GenBitTest(node->AsOp());
-            break;
+    case GT_BT:
+        GenBitTest(node->AsOp());
+        break;
 #endif
-        case GT_RETURNTRAP:
-            GenReturnTrap(node->AsOp());
-            break;
-        case GT_RELOAD:
-        case GT_COPY:
-            // These are handled by UseReg
-            break;
+    case GT_RETURNTRAP:
+        GenReturnTrap(node->AsOp());
+        break;
+    case GT_RELOAD:
+    case GT_COPY:
+        // These are handled by UseReg
+        break;
 #ifdef TARGET_XARCH
-        case GT_SWAP:
-            GenRegSwap(node->AsOp());
-            break;
+    case GT_SWAP:
+        GenRegSwap(node->AsOp());
+        break;
 #endif
-        case GT_ARG_STORE:
-            GenArgStore(node->AsArgStore());
-            break;
-        case GT_PUTARG_REG:
-            GenPutArgReg(node->AsUnOp());
-            break;
-        case GT_CALL:
-            GenCall(node->AsCall());
-            break;
-        case GT_JMP:
-            GenJmp(node->AsJmp());
-            break;
-        case GT_MEMORYBARRIER:
-            GenMemoryBarrier(node);
-            break;
+    case GT_ARG_STORE:
+        GenArgStore(node->AsArgStore());
+        break;
+    case GT_PUTARG_REG:
+        GenPutArgReg(node->AsUnOp());
+        break;
+    case GT_CALL:
+        GenCall(node->AsCall());
+        break;
+    case GT_JMP:
+        GenJmp(node->AsJmp());
+        break;
+    case GT_MEMORYBARRIER:
+        GenMemoryBarrier(node);
+        break;
 #ifdef TARGET_XARCH
-        case GT_LOCKADD:
-            GenLockAdd(node->AsOp());
-            break;
+    case GT_LOCKADD:
+        GenLockAdd(node->AsOp());
+        break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_XCHG:
-        case GT_XADD:
+    case GT_XCHG:
+    case GT_XADD:
 #ifdef TARGET_ARM64
-        case GT_XORR:
-        case GT_XAND:
+    case GT_XORR:
+    case GT_XAND:
 #endif
-            GenInterlocked(node->AsOp());
-            break;
+        GenInterlocked(node->AsOp());
+        break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_CMPXCHG:
-            GenCmpXchg(node->AsCmpXchg());
-            break;
+    case GT_CMPXCHG:
+        GenCmpXchg(node->AsCmpXchg());
+        break;
 #endif
-        case GT_NOP:
-            break;
-        case GT_NO_OP:
+    case GT_NOP:
+        break;
+    case GT_NO_OP:
 #ifdef TARGET_XARCH
-            GetEmitter()->Ins_Nop(1);
+        GetEmitter()->Ins_Nop(1);
 #else
-            GetEmitter()->emitIns(INS_nop);
+        GetEmitter()->emitIns(INS_nop);
 #endif
-            break;
-        case GT_KEEPALIVE:
-            GenKeepAlive(node->AsUnOp());
-            break;
-        case GT_REG_USE:
-            GenRegUse(node->AsRegUse());
-            break;
-        case GT_CATCH_ARG:
-            GenCatchArg(node, block);
-            break;
+        break;
+    case GT_KEEPALIVE:
+        GenKeepAlive(node->AsUnOp());
+        break;
+    case GT_REG_USE:
+        GenRegUse(node->AsRegUse());
+        break;
+    case GT_CATCH_ARG:
+        GenCatchArg(node, block);
+        break;
 #ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
-            GenEndLFin(node->AsEndLFin());
-            break;
+    case GT_END_LFIN:
+        GenEndLFin(node->AsEndLFin());
+        break;
 #endif
-        case GT_PINVOKE_PROLOG:
-            GenPInvokeProlog();
-            break;
-        case GT_LABEL:
-            GenLabel(node);
-            break;
-        case GT_JMPTABLE:
-            GenJmpTable(node, block->GetSwitchDesc());
-            break;
-        case GT_SWITCH_TABLE:
-            GenSwitchTable(node->AsOp());
-            break;
+    case GT_PINVOKE_PROLOG:
+        GenPInvokeProlog();
+        break;
+    case GT_LABEL:
+        GenLabel(node);
+        break;
+    case GT_JMPTABLE:
+        GenJmpTable(node, block->GetSwitchDesc());
+        break;
+    case GT_SWITCH_TABLE:
+        GenSwitchTable(node->AsOp());
+        break;
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_CONST_ADDR:
-            GenConstAddr(node->AsConstAddr());
-            break;
+    case GT_CONST_ADDR:
+        GenConstAddr(node->AsConstAddr());
+        break;
 #endif
-        case GT_INSTR:
-            GenInstr(node->AsInstr());
-            break;
-        default:
-            assert(!GenTree::OpName(node->GetOper()));
-            break;
+    case GT_INSTR:
+        GenInstr(node->AsInstr());
+        break;
+    default:
+        assert(!GenTree::OpName(node->GetOper()));
+        break;
     }
 }
 

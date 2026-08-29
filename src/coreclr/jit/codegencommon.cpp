@@ -118,76 +118,76 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 {
     switch (helper)
     {
-        case CORINFO_HELP_ASSIGN_BYREF:
+    case CORINFO_HELP_ASSIGN_BYREF:
 #if defined(TARGET_AMD64)
-            return RBM_RSI | RBM_RDI | RBM_CALLEE_TRASH_NOGC;
+        return RBM_RSI | RBM_RDI | RBM_CALLEE_TRASH_NOGC;
 #elif defined(TARGET_ARMARCH)
-            return RBM_CALLEE_TRASH_WRITEBARRIER_BYREF;
+        return RBM_CALLEE_TRASH_WRITEBARRIER_BYREF;
 #elif defined(TARGET_X86)
-            return RBM_ESI | RBM_EDI | RBM_ECX;
+        return RBM_ESI | RBM_EDI | RBM_ECX;
 #else
-            NYI("Model kill set for CORINFO_HELP_ASSIGN_BYREF on target arch");
-            return RBM_CALLEE_TRASH;
+        NYI("Model kill set for CORINFO_HELP_ASSIGN_BYREF on target arch");
+        return RBM_CALLEE_TRASH;
 #endif
 
 #if defined(TARGET_ARMARCH)
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            return RBM_CALLEE_TRASH_WRITEBARRIER;
+    case CORINFO_HELP_ASSIGN_REF:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        return RBM_CALLEE_TRASH_WRITEBARRIER;
 #endif
 
-        case CORINFO_HELP_PROF_FCN_ENTER:
+    case CORINFO_HELP_PROF_FCN_ENTER:
 #ifdef RBM_PROFILER_ENTER_TRASH
-            return RBM_PROFILER_ENTER_TRASH;
+        return RBM_PROFILER_ENTER_TRASH;
 #else
-            NYI("Model kill set for CORINFO_HELP_PROF_FCN_ENTER on target arch");
+        NYI("Model kill set for CORINFO_HELP_PROF_FCN_ENTER on target arch");
 #endif
 
-        case CORINFO_HELP_PROF_FCN_LEAVE:
+    case CORINFO_HELP_PROF_FCN_LEAVE:
 #ifdef RBM_PROFILER_LEAVE_TRASH
-            return RBM_PROFILER_LEAVE_TRASH;
+        return RBM_PROFILER_LEAVE_TRASH;
 #else
-            NYI("Model kill set for CORINFO_HELP_PROF_FCN_LEAVE on target arch");
+        NYI("Model kill set for CORINFO_HELP_PROF_FCN_LEAVE on target arch");
 #endif
 
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
+    case CORINFO_HELP_PROF_FCN_TAILCALL:
 #ifdef RBM_PROFILER_TAILCALL_TRASH
-            return RBM_PROFILER_TAILCALL_TRASH;
+        return RBM_PROFILER_TAILCALL_TRASH;
 #else
-            NYI("Model kill set for CORINFO_HELP_PROF_FCN_TAILCALL on target arch");
+        NYI("Model kill set for CORINFO_HELP_PROF_FCN_TAILCALL on target arch");
 #endif
 
 #ifdef TARGET_X86
-        case CORINFO_HELP_ASSIGN_REF_EAX:
-        case CORINFO_HELP_ASSIGN_REF_ECX:
-        case CORINFO_HELP_ASSIGN_REF_EBX:
-        case CORINFO_HELP_ASSIGN_REF_EBP:
-        case CORINFO_HELP_ASSIGN_REF_ESI:
-        case CORINFO_HELP_ASSIGN_REF_EDI:
+    case CORINFO_HELP_ASSIGN_REF_EAX:
+    case CORINFO_HELP_ASSIGN_REF_ECX:
+    case CORINFO_HELP_ASSIGN_REF_EBX:
+    case CORINFO_HELP_ASSIGN_REF_EBP:
+    case CORINFO_HELP_ASSIGN_REF_ESI:
+    case CORINFO_HELP_ASSIGN_REF_EDI:
 
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
-            return RBM_EDX;
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
+        return RBM_EDX;
 
 #ifdef FEATURE_USE_ASM_GC_WRITE_BARRIERS
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            return RBM_EAX | RBM_EDX;
+    case CORINFO_HELP_ASSIGN_REF:
+    case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        return RBM_EAX | RBM_EDX;
 #endif // FEATURE_USE_ASM_GC_WRITE_BARRIERS
 #endif
 
-        case CORINFO_HELP_STOP_FOR_GC:
-            return RBM_STOP_FOR_GC_TRASH;
+    case CORINFO_HELP_STOP_FOR_GC:
+        return RBM_STOP_FOR_GC_TRASH;
 
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            return RBM_INIT_PINVOKE_FRAME_TRASH;
+    case CORINFO_HELP_INIT_PINVOKE_FRAME:
+        return RBM_INIT_PINVOKE_FRAME_TRASH;
 
-        default:
-            return RBM_CALLEE_TRASH;
+    default:
+        return RBM_CALLEE_TRASH;
     }
 }
 
@@ -1215,30 +1215,30 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
     const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
     switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
     {
-        case CORINFO_EH_CLAUSE_NONE:
-            printf("(class: %04X)", clause.ClassToken);
-            break;
-        case CORINFO_EH_CLAUSE_FILTER:
-            if (compiler->opts.dspDiffable)
-            {
-                printf("filter at [%s..%s)", GetEmitter()->GetOffsetToLabelString(clause.ClassToken),
-                       GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset));
-            }
-            else
-            {
-                printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
-            }
-            break;
-        case CORINFO_EH_CLAUSE_FINALLY:
-            printf("(finally)");
-            break;
-        case CORINFO_EH_CLAUSE_FAULT:
-            printf("(fault)");
-            break;
-        default:
-            printf("(UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
-            assert(!"unknown type");
-            break;
+    case CORINFO_EH_CLAUSE_NONE:
+        printf("(class: %04X)", clause.ClassToken);
+        break;
+    case CORINFO_EH_CLAUSE_FILTER:
+        if (compiler->opts.dspDiffable)
+        {
+            printf("filter at [%s..%s)", GetEmitter()->GetOffsetToLabelString(clause.ClassToken),
+                   GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset));
+        }
+        else
+        {
+            printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
+        }
+        break;
+    case CORINFO_EH_CLAUSE_FINALLY:
+        printf("(finally)");
+        break;
+    case CORINFO_EH_CLAUSE_FAULT:
+        printf("(fault)");
+        break;
+    default:
+        printf("(UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
+        assert(!"unknown type");
+        break;
     }
 
     if ((clause.TryOffset == clause.TryLength) && (clause.TryOffset == clause.HandlerOffset) &&
@@ -1431,25 +1431,25 @@ static unsigned genGetParamRegIndex(RegNum regNum)
 #elif defined(TARGET_XARCH)
     switch (regNum)
     {
-        case REG_ARG_0:
-            return 0;
-        case REG_ARG_1:
-            return 1;
+    case REG_ARG_0:
+        return 0;
+    case REG_ARG_1:
+        return 1;
 #ifdef TARGET_AMD64
-        case REG_ARG_2:
-            return 2;
-        case REG_ARG_3:
-            return 3;
+    case REG_ARG_2:
+        return 2;
+    case REG_ARG_3:
+        return 3;
 #endif
 #ifdef UNIX_AMD64_ABI
-        case REG_ARG_4:
-            return 4;
-        case REG_ARG_5:
-            return 5;
+    case REG_ARG_4:
+        return 4;
+    case REG_ARG_5:
+        return 5;
 #endif
-        default:
-            assert(!"Invalid int param reg");
-            return UINT32_MAX;
+    default:
+        assert(!"Invalid int param reg");
+        return UINT32_MAX;
     }
 #endif // TARGET_XARCH
 }
@@ -4353,75 +4353,75 @@ static void PrintDbgInfoVar(const ICorDebugInfo::NativeVarInfo& var)
 
     switch (var.loc.vlType)
     {
-        case ICorDebugInfo::VLT_REG:
-        case ICorDebugInfo::VLT_REG_BYREF:
-        case ICorDebugInfo::VLT_REG_FP:
-            printf("%s", getRegName(var.loc.vlReg.vlrReg));
-            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
-            {
-                printf(" byref");
-            }
-            break;
+    case ICorDebugInfo::VLT_REG:
+    case ICorDebugInfo::VLT_REG_BYREF:
+    case ICorDebugInfo::VLT_REG_FP:
+        printf("%s", getRegName(var.loc.vlReg.vlrReg));
+        if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+        {
+            printf(" byref");
+        }
+        break;
 
-        case ICorDebugInfo::VLT_STK:
-        case ICorDebugInfo::VLT_STK_BYREF:
-            if ((int)var.loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
-            {
-                printf("%s[%d] (1 slot)", getRegName(var.loc.vlStk.vlsBaseReg), var.loc.vlStk.vlsOffset);
-            }
-            else
-            {
-                printf(STR_SPBASE "'[%d] (1 slot)", var.loc.vlStk.vlsOffset);
-            }
-            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
-            {
-                printf(" byref");
-            }
-            break;
+    case ICorDebugInfo::VLT_STK:
+    case ICorDebugInfo::VLT_STK_BYREF:
+        if ((int)var.loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+        {
+            printf("%s[%d] (1 slot)", getRegName(var.loc.vlStk.vlsBaseReg), var.loc.vlStk.vlsOffset);
+        }
+        else
+        {
+            printf(STR_SPBASE "'[%d] (1 slot)", var.loc.vlStk.vlsOffset);
+        }
+        if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+        {
+            printf(" byref");
+        }
+        break;
 
-        case ICorDebugInfo::VLT_REG_REG:
-            printf("%s-%s", getRegName(var.loc.vlRegReg.vlrrReg1), getRegName(var.loc.vlRegReg.vlrrReg2));
-            break;
+    case ICorDebugInfo::VLT_REG_REG:
+        printf("%s-%s", getRegName(var.loc.vlRegReg.vlrrReg1), getRegName(var.loc.vlRegReg.vlrrReg2));
+        break;
 
 #ifndef TARGET_AMD64
-        case ICorDebugInfo::VLT_REG_STK:
-            if ((int)var.loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
-            {
-                printf("%s-%s[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
-                       getRegName(var.loc.vlRegStk.vlrsStk.vlrssBaseReg), var.loc.vlRegStk.vlrsStk.vlrssOffset);
-            }
-            else
-            {
-                printf("%s-" STR_SPBASE "'[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
-                       var.loc.vlRegStk.vlrsStk.vlrssOffset);
-            }
-            break;
+    case ICorDebugInfo::VLT_REG_STK:
+        if ((int)var.loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+        {
+            printf("%s-%s[%d]", getRegName(var.loc.vlRegStk.vlrsReg), getRegName(var.loc.vlRegStk.vlrsStk.vlrssBaseReg),
+                   var.loc.vlRegStk.vlrsStk.vlrssOffset);
+        }
+        else
+        {
+            printf("%s-" STR_SPBASE "'[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
+                   var.loc.vlRegStk.vlrsStk.vlrssOffset);
+        }
+        break;
 
-        case ICorDebugInfo::VLT_STK_REG:
-            unreached(); // unexpected
+    case ICorDebugInfo::VLT_STK_REG:
+        unreached(); // unexpected
 
-        case ICorDebugInfo::VLT_STK2:
-            if ((int)var.loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
-            {
-                printf("%s[%d] (2 slots)", getRegName(var.loc.vlStk2.vls2BaseReg), var.loc.vlStk2.vls2Offset);
-            }
-            else
-            {
-                printf(STR_SPBASE "'[%d] (2 slots)", var.loc.vlStk2.vls2Offset);
-            }
-            break;
+    case ICorDebugInfo::VLT_STK2:
+        if ((int)var.loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+        {
+            printf("%s[%d] (2 slots)", getRegName(var.loc.vlStk2.vls2BaseReg), var.loc.vlStk2.vls2Offset);
+        }
+        else
+        {
+            printf(STR_SPBASE "'[%d] (2 slots)", var.loc.vlStk2.vls2Offset);
+        }
+        break;
 
-        case ICorDebugInfo::VLT_FPSTK:
-            printf("ST(L-%d)", var.loc.vlFPstk.vlfReg);
-            break;
+    case ICorDebugInfo::VLT_FPSTK:
+        printf("ST(L-%d)", var.loc.vlFPstk.vlfReg);
+        break;
 
-        case ICorDebugInfo::VLT_FIXED_VA:
-            printf("fxd_va[%d]", var.loc.vlFixedVarArg.vlfvOffset);
-            break;
+    case ICorDebugInfo::VLT_FIXED_VA:
+        printf("fxd_va[%d]", var.loc.vlFixedVarArg.vlfvOffset);
+        break;
 #endif // !TARGET_AMD64
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     printf("\n");
@@ -4477,12 +4477,12 @@ struct ILMapping
     {
         switch (static_cast<ICorDebugInfo::MappingTypes>(ilOffsetX))
         {
-            case ICorDebugInfo::NO_MAPPING:
-            case ICorDebugInfo::PROLOG:
-            case ICorDebugInfo::EPILOG:
-                return true;
-            default:
-                return false;
+        case ICorDebugInfo::NO_MAPPING:
+        case ICorDebugInfo::PROLOG:
+        case ICorDebugInfo::EPILOG:
+            return true;
+        default:
+            return false;
         }
     }
 
@@ -5197,17 +5197,17 @@ instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool 
 
     switch (varTypeSize(dstType))
     {
-        case 4:
-            dstTypeForStore = srcIsFloatReg ? TYP_FLOAT : TYP_INT;
-            break;
+    case 4:
+        dstTypeForStore = srcIsFloatReg ? TYP_FLOAT : TYP_INT;
+        break;
 #ifdef TARGET_64BIT
-        case 8:
-            dstTypeForStore = srcIsFloatReg ? TYP_DOUBLE : TYP_LONG;
-            break;
+    case 8:
+        dstTypeForStore = srcIsFloatReg ? TYP_DOUBLE : TYP_LONG;
+        break;
 #endif
-        default:
-            assert(!"unexpected write to the stack.");
-            break;
+    default:
+        assert(!"unexpected write to the stack.");
+        break;
     }
 
     return ins_Store(dstTypeForStore, aligned);
@@ -5307,27 +5307,26 @@ bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
 {
     switch (varActualType(instrType))
     {
-        case TYP_INT:
-        case TYP_LONG:
-        case TYP_REF:
-        case TYP_BYREF:
-            return varTypeIsIntegralOrI(sourceType) &&
-                   (varTypeSize(varActualType(sourceType)) >= varTypeSize(instrType));
+    case TYP_INT:
+    case TYP_LONG:
+    case TYP_REF:
+    case TYP_BYREF:
+        return varTypeIsIntegralOrI(sourceType) && (varTypeSize(varActualType(sourceType)) >= varTypeSize(instrType));
 
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return sourceType == instrType;
+    case TYP_FLOAT:
+    case TYP_DOUBLE:
+        return sourceType == instrType;
 
 #ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
-            return varTypeIsSIMD(sourceType) && (varTypeSize(sourceType) >= varTypeSize(instrType));
+    case TYP_SIMD8:
+    case TYP_SIMD12:
+    case TYP_SIMD16:
+    case TYP_SIMD32:
+        return varTypeIsSIMD(sourceType) && (varTypeSize(sourceType) >= varTypeSize(instrType));
 #endif
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 #endif

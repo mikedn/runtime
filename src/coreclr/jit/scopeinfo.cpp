@@ -44,33 +44,33 @@ void DbgInfoVarLoc::InitStackLocation(const LclVarDsc* lcl, RegNum baseReg, int 
 
     switch (varActualType(lcl->GetType()))
     {
-        case TYP_LONG:
-        case TYP_DOUBLE:
+    case TYP_LONG:
+    case TYP_DOUBLE:
 #ifndef TARGET_64BIT
-            vlType             = VLT_STK2;
-            vlStk2.vls2BaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
-            vlStk2.vls2Offset  = offset;
-            break;
+        vlType             = VLT_STK2;
+        vlStk2.vls2BaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
+        vlStk2.vls2Offset  = offset;
+        break;
 #endif
-        case TYP_INT:
-        case TYP_REF:
-        case TYP_BYREF:
-        case TYP_FLOAT:
-        case TYP_STRUCT:
-        case TYP_BLK: // Needed because of the TYP_BLK stress mode
+    case TYP_INT:
+    case TYP_REF:
+    case TYP_BYREF:
+    case TYP_FLOAT:
+    case TYP_STRUCT:
+    case TYP_BLK: // Needed because of the TYP_BLK stress mode
 #ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
+    case TYP_SIMD8:
+    case TYP_SIMD12:
+    case TYP_SIMD16:
+    case TYP_SIMD32:
 #endif
-            vlType           = lcl->IsImplicitByRefParam() ? VLT_STK_BYREF : VLT_STK;
-            vlStk.vlsBaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
-            vlStk.vlsOffset  = offset;
-            break;
+        vlType           = lcl->IsImplicitByRefParam() ? VLT_STK_BYREF : VLT_STK;
+        vlStk.vlsBaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
+        vlStk.vlsOffset  = offset;
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -91,46 +91,46 @@ void DbgInfoVarLoc::InitRegLocation(const LclVarDsc* lcl, RegNum baseReg, int of
 
     switch (lcl->GetActualRegisterType())
     {
-        case TYP_LONG:
+    case TYP_LONG:
 #ifndef TARGET_64BIT // TODO-MIKE-Review: This code is either dead or completely messed up.
-            vlType                        = VLT_REG_STK;
-            vlRegStk.vlrsReg              = reg;
-            vlRegStk.vlrsStk.vlrssBaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
-            vlRegStk.vlrsStk.vlrssOffset  = offset + 4;
-            break;
+        vlType                        = VLT_REG_STK;
+        vlRegStk.vlrsReg              = reg;
+        vlRegStk.vlrsStk.vlrssBaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
+        vlRegStk.vlrsStk.vlrssOffset  = offset + 4;
+        break;
 #endif
-        case TYP_INT:
-        case TYP_REF:
-        case TYP_BYREF:
-            vlType       = VLT_REG;
-            vlReg.vlrReg = reg;
-            break;
+    case TYP_INT:
+    case TYP_REF:
+    case TYP_BYREF:
+        vlType       = VLT_REG;
+        vlReg.vlrReg = reg;
+        break;
 
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
+    case TYP_FLOAT:
+    case TYP_DOUBLE:
 #ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
+    case TYP_SIMD8:
+    case TYP_SIMD12:
+    case TYP_SIMD16:
+    case TYP_SIMD32:
 #endif
 #ifdef TARGET_X86
-            // TODO-MIKE-Review: Debugger doesn't support VLT_REG_FP on x86 so we use VLT_FPSTK,
-            // even if the variable is not actually on the x87 FP stack. It doesn't really matter
-            // as the debugger returns CORDBG_E_IL_VAR_NOT_AVAILABLE for VLT_FPSTK anyway.
-            vlType         = VLT_FPSTK;
-            vlFPstk.vlfReg = reg;
+        // TODO-MIKE-Review: Debugger doesn't support VLT_REG_FP on x86 so we use VLT_FPSTK,
+        // even if the variable is not actually on the x87 FP stack. It doesn't really matter
+        // as the debugger returns CORDBG_E_IL_VAR_NOT_AVAILABLE for VLT_FPSTK anyway.
+        vlType         = VLT_FPSTK;
+        vlFPstk.vlfReg = reg;
 #else
-            // TODO-MIKE-Review: It looks like for VLT_REG_FP the debugger expects
-            // the 0 based index of the vector register in vlrReg (e.g. reg - REG_XMM0).
-            // Also note that on ARM the debugger always returns E_NOTIMPL.
-            vlType       = VLT_REG_FP;
-            vlReg.vlrReg = reg;
+        // TODO-MIKE-Review: It looks like for VLT_REG_FP the debugger expects
+        // the 0 based index of the vector register in vlrReg (e.g. reg - REG_XMM0).
+        // Also note that on ARM the debugger always returns E_NOTIMPL.
+        vlType       = VLT_REG_FP;
+        vlReg.vlrReg = reg;
 #endif
-            break;
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -168,34 +168,34 @@ bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
 
     switch (x.vlType)
     {
-        case DbgInfoVarLoc::VLT_STK:
-        case DbgInfoVarLoc::VLT_STK_BYREF:
-            return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
-        case DbgInfoVarLoc::VLT_STK2:
-            return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
-        case DbgInfoVarLoc::VLT_REG:
-        case DbgInfoVarLoc::VLT_REG_FP:
-        case DbgInfoVarLoc::VLT_REG_BYREF:
-            return x.vlReg.vlrReg == y.vlReg.vlrReg;
-        case DbgInfoVarLoc::VLT_REG_REG:
-            return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
-        case DbgInfoVarLoc::VLT_REG_STK:
-            return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
-                   (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
-                   (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
-        case DbgInfoVarLoc::VLT_STK_REG:
-            return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
-                   (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
-                   (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
-        case DbgInfoVarLoc::VLT_FPSTK:
-            return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
-        case DbgInfoVarLoc::VLT_FIXED_VA:
-            return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
-        case DbgInfoVarLoc::VLT_COUNT:
-        case DbgInfoVarLoc::VLT_INVALID:
-            return true;
-        default:
-            unreached();
+    case DbgInfoVarLoc::VLT_STK:
+    case DbgInfoVarLoc::VLT_STK_BYREF:
+        return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
+    case DbgInfoVarLoc::VLT_STK2:
+        return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
+    case DbgInfoVarLoc::VLT_REG:
+    case DbgInfoVarLoc::VLT_REG_FP:
+    case DbgInfoVarLoc::VLT_REG_BYREF:
+        return x.vlReg.vlrReg == y.vlReg.vlrReg;
+    case DbgInfoVarLoc::VLT_REG_REG:
+        return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
+    case DbgInfoVarLoc::VLT_REG_STK:
+        return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
+               (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
+               (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
+    case DbgInfoVarLoc::VLT_STK_REG:
+        return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
+               (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
+               (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
+    case DbgInfoVarLoc::VLT_FPSTK:
+        return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
+    case DbgInfoVarLoc::VLT_FIXED_VA:
+        return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
+    case DbgInfoVarLoc::VLT_COUNT:
+    case DbgInfoVarLoc::VLT_INVALID:
+        return true;
+    default:
+        unreached();
     }
 }
 
@@ -209,76 +209,76 @@ void DbgInfoVarLoc::Dump(const char* suffix) const
 {
     switch (vlType)
     {
-        case VLT_REG:
-        case VLT_REG_BYREF:
-        case VLT_REG_FP:
-            printf("%s", getRegName(vlReg.vlrReg));
+    case VLT_REG:
+    case VLT_REG_BYREF:
+    case VLT_REG_FP:
+        printf("%s", getRegName(vlReg.vlrReg));
 
-            if (vlType == VLT_REG_BYREF)
-            {
-                printf(" byref");
-            }
-            break;
+        if (vlType == VLT_REG_BYREF)
+        {
+            printf(" byref");
+        }
+        break;
 
-        case VLT_STK:
-        case VLT_STK_BYREF:
-            if (IsAmbientSP(vlStk.vlsBaseReg))
-            {
-                printf(STR_SPBASE "'[%d] (1 slot)", vlStk.vlsOffset);
-            }
-            else
-            {
-                printf("%s[%d] (1 slot)", getRegName(vlStk.vlsBaseReg), vlStk.vlsOffset);
-            }
+    case VLT_STK:
+    case VLT_STK_BYREF:
+        if (IsAmbientSP(vlStk.vlsBaseReg))
+        {
+            printf(STR_SPBASE "'[%d] (1 slot)", vlStk.vlsOffset);
+        }
+        else
+        {
+            printf("%s[%d] (1 slot)", getRegName(vlStk.vlsBaseReg), vlStk.vlsOffset);
+        }
 
-            if (vlType == VLT_REG_BYREF)
-            {
-                printf(" byref");
-            }
-            break;
+        if (vlType == VLT_REG_BYREF)
+        {
+            printf(" byref");
+        }
+        break;
 
-        case VLT_REG_REG:
-            printf("%s-%s", getRegName(vlRegReg.vlrrReg1), getRegName(vlRegReg.vlrrReg2));
-            break;
+    case VLT_REG_REG:
+        printf("%s-%s", getRegName(vlRegReg.vlrrReg1), getRegName(vlRegReg.vlrrReg2));
+        break;
 
 #ifndef TARGET_AMD64
-        case VLT_REG_STK:
-            if (IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg))
-            {
-                printf("%s-" STR_SPBASE "'[%d]", getRegName(vlRegStk.vlrsReg), vlRegStk.vlrsStk.vlrssOffset);
-            }
-            else
-            {
-                printf("%s-%s[%d]", getRegName(vlRegStk.vlrsReg), getRegName(vlRegStk.vlrsStk.vlrssBaseReg),
-                       vlRegStk.vlrsStk.vlrssOffset);
-            }
-            break;
+    case VLT_REG_STK:
+        if (IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg))
+        {
+            printf("%s-" STR_SPBASE "'[%d]", getRegName(vlRegStk.vlrsReg), vlRegStk.vlrsStk.vlrssOffset);
+        }
+        else
+        {
+            printf("%s-%s[%d]", getRegName(vlRegStk.vlrsReg), getRegName(vlRegStk.vlrsStk.vlrssBaseReg),
+                   vlRegStk.vlrsStk.vlrssOffset);
+        }
+        break;
 
-        case VLT_STK_REG:
-            unreached();
+    case VLT_STK_REG:
+        unreached();
 
-        case VLT_STK2:
-            if (IsAmbientSP(vlStk2.vls2BaseReg))
-            {
-                printf(STR_SPBASE "'[%d] (2 slots)", vlStk2.vls2Offset);
-            }
-            else
-            {
-                printf("%s[%d] (2 slots)", getRegName(vlStk2.vls2BaseReg), vlStk2.vls2Offset);
-            }
-            break;
+    case VLT_STK2:
+        if (IsAmbientSP(vlStk2.vls2BaseReg))
+        {
+            printf(STR_SPBASE "'[%d] (2 slots)", vlStk2.vls2Offset);
+        }
+        else
+        {
+            printf("%s[%d] (2 slots)", getRegName(vlStk2.vls2BaseReg), vlStk2.vls2Offset);
+        }
+        break;
 
-        case VLT_FPSTK:
-            printf("%s", getRegName(vlFPstk.vlfReg));
-            break;
+    case VLT_FPSTK:
+        printf("%s", getRegName(vlFPstk.vlfReg));
+        break;
 
-        case VLT_FIXED_VA:
-            printf("fxd_va[%d]", vlFixedVarArg.vlfvOffset);
-            break;
+    case VLT_FIXED_VA:
+        printf("fxd_va[%d]", vlFixedVarArg.vlfvOffset);
+        break;
 #endif // !TARGET_AMD64
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     if (suffix != nullptr)
@@ -293,20 +293,20 @@ bool DbgInfoVarLoc::IsInReg(RegNum reg) const
 {
     switch (vlType)
     {
-        case VLT_STK:
-        case VLT_STK2:
-        case VLT_FPSTK:
-            return false;
-        case VLT_REG:
-            return vlReg.vlrReg == reg;
-        case VLT_REG_REG:
-            return (vlRegReg.vlrrReg1 == reg) || (vlRegReg.vlrrReg2 == reg);
-        case VLT_REG_STK:
-            return vlRegStk.vlrsReg == reg;
-        case VLT_STK_REG:
-            return vlStkReg.vlsrReg == reg;
-        default:
-            return false;
+    case VLT_STK:
+    case VLT_STK2:
+    case VLT_FPSTK:
+        return false;
+    case VLT_REG:
+        return vlReg.vlrReg == reg;
+    case VLT_REG_REG:
+        return (vlRegReg.vlrrReg1 == reg) || (vlRegReg.vlrrReg2 == reg);
+    case VLT_REG_STK:
+        return vlRegStk.vlrsReg == reg;
+    case VLT_STK_REG:
+        return vlStkReg.vlsrReg == reg;
+    default:
+        return false;
     }
 }
 
@@ -316,26 +316,26 @@ bool DbgInfoVarLoc::IsOnStack(RegNum reg, int offset) const
 
     switch (vlType)
     {
-        case VLT_REG:
-        case VLT_REG_FP:
-        case VLT_REG_REG:
-        case VLT_FPSTK:
-            return false;
-        case VLT_REG_STK:
-            actualReg = IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg) ? REG_SPBASE : vlRegStk.vlrsStk.vlrssBaseReg;
-            return (actualReg == reg) && (vlRegStk.vlrsStk.vlrssOffset == offset);
-        case VLT_STK_REG:
-            actualReg = IsAmbientSP(vlStkReg.vlsrStk.vlsrsBaseReg) ? REG_SPBASE : vlStkReg.vlsrStk.vlsrsBaseReg;
-            return (actualReg == reg) && (vlStkReg.vlsrStk.vlsrsOffset == offset);
-        case VLT_STK:
-        case VLT_STK_BYREF:
-            actualReg = IsAmbientSP(vlStk.vlsBaseReg) ? REG_SPBASE : vlStk.vlsBaseReg;
-            return (actualReg == reg) && (vlStk.vlsOffset == offset);
-        case VLT_STK2:
-            actualReg = IsAmbientSP(vlStk2.vls2BaseReg) ? REG_SPBASE : vlStk2.vls2BaseReg;
-            return (actualReg == reg) && ((vlStk2.vls2Offset == offset) || (vlStk2.vls2Offset == (offset - 4)));
-        default:
-            return false;
+    case VLT_REG:
+    case VLT_REG_FP:
+    case VLT_REG_REG:
+    case VLT_FPSTK:
+        return false;
+    case VLT_REG_STK:
+        actualReg = IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg) ? REG_SPBASE : vlRegStk.vlrsStk.vlrssBaseReg;
+        return (actualReg == reg) && (vlRegStk.vlrsStk.vlrssOffset == offset);
+    case VLT_STK_REG:
+        actualReg = IsAmbientSP(vlStkReg.vlsrStk.vlsrsBaseReg) ? REG_SPBASE : vlStkReg.vlsrStk.vlsrsBaseReg;
+        return (actualReg == reg) && (vlStkReg.vlsrStk.vlsrsOffset == offset);
+    case VLT_STK:
+    case VLT_STK_BYREF:
+        actualReg = IsAmbientSP(vlStk.vlsBaseReg) ? REG_SPBASE : vlStk.vlsBaseReg;
+        return (actualReg == reg) && (vlStk.vlsOffset == offset);
+    case VLT_STK2:
+        actualReg = IsAmbientSP(vlStk2.vls2BaseReg) ? REG_SPBASE : vlStk2.vls2BaseReg;
+        return (actualReg == reg) && ((vlStk2.vls2Offset == offset) || (vlStk2.vls2Offset == (offset - 4)));
+    default:
+        return false;
     }
 }
 #endif // LATE_DISASM

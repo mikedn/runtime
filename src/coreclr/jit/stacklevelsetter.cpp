@@ -103,44 +103,44 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
 
     switch (node->GetOper())
     {
-        case GT_BOUNDS_CHECK:
-            SetThrowHelperBlockStackLevel(node->AsBoundsChk()->GetThrowKind(), throwBlock);
-            break;
+    case GT_BOUNDS_CHECK:
+        SetThrowHelperBlockStackLevel(node->AsBoundsChk()->GetThrowKind(), throwBlock);
+        break;
 
-        case GT_INDEX_ADDR:
-        case GT_ARR_ELEM:
-            SetThrowHelperBlockStackLevel(ThrowHelperKind::IndexOutOfRange, throwBlock);
-            break;
+    case GT_INDEX_ADDR:
+    case GT_ARR_ELEM:
+        SetThrowHelperBlockStackLevel(ThrowHelperKind::IndexOutOfRange, throwBlock);
+        break;
 
-        case GT_CKFINITE:
-            SetThrowHelperBlockStackLevel(ThrowHelperKind::Arithmetic, throwBlock);
-            break;
+    case GT_CKFINITE:
+        SetThrowHelperBlockStackLevel(ThrowHelperKind::Arithmetic, throwBlock);
+        break;
 
-        case GT_OVF_U:
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-        case GT_OVF_FTOS:
-        case GT_OVF_FTOU:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
+    case GT_OVF_U:
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+    case GT_OVF_FTOS:
+    case GT_OVF_FTOU:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
 #ifndef TARGET_64BIT
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
 #endif
-            SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
-            break;
+        SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 

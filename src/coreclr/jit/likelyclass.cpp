@@ -176,69 +176,69 @@ extern "C" DLLEXPORT CORINFO_CLASS_HANDLE WINAPI getLikelyClass(ICorJitInfo::Pgo
             //
             switch (*pNumberOfClasses)
             {
-                case 0:
+            case 0:
+            {
+                return NULL;
+            }
+            break;
+
+            case 1:
+            {
+                if (ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(0).m_mt))
                 {
                     return NULL;
                 }
-                break;
+                *pLikelihood = 100;
+                return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(0).m_mt;
+            }
+            break;
 
-                case 1:
+            case 2:
+            {
+                if ((h.HistogramEntryAt(0).m_count >= h.HistogramEntryAt(1).m_count) &&
+                    !ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(0).m_mt))
                 {
-                    if (ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(0).m_mt))
-                    {
-                        return NULL;
-                    }
-                    *pLikelihood = 100;
+                    *pLikelihood = (100 * h.HistogramEntryAt(0).m_count) / h.m_totalCount;
                     return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(0).m_mt;
                 }
-                break;
-
-                case 2:
+                else if (!ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(1).m_mt))
                 {
-                    if ((h.HistogramEntryAt(0).m_count >= h.HistogramEntryAt(1).m_count) &&
-                        !ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(0).m_mt))
-                    {
-                        *pLikelihood = (100 * h.HistogramEntryAt(0).m_count) / h.m_totalCount;
-                        return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(0).m_mt;
-                    }
-                    else if (!ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(1).m_mt))
-                    {
-                        *pLikelihood = (100 * h.HistogramEntryAt(1).m_count) / h.m_totalCount;
-                        return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(1).m_mt;
-                    }
-                    else
-                    {
-                        return NULL;
-                    }
+                    *pLikelihood = (100 * h.HistogramEntryAt(1).m_count) / h.m_totalCount;
+                    return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(1).m_mt;
                 }
-                break;
-
-                default:
+                else
                 {
-                    // Find maximum entry and return it
-                    //
-                    unsigned maxKnownIndex = 0;
-                    unsigned maxKnownCount = 0;
-
-                    for (unsigned m = 0; m < h.countHistogramElements; m++)
-                    {
-                        if ((h.HistogramEntryAt(m).m_count > maxKnownCount) &&
-                            !ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(m).m_mt))
-                        {
-                            maxKnownIndex = m;
-                            maxKnownCount = h.HistogramEntryAt(m).m_count;
-                        }
-                    }
-
-                    if (maxKnownCount > 0)
-                    {
-                        *pLikelihood = (100 * maxKnownCount) / h.m_totalCount;
-                        return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(maxKnownIndex).m_mt;
-                    }
-
                     return NULL;
                 }
-                break;
+            }
+            break;
+
+            default:
+            {
+                // Find maximum entry and return it
+                //
+                unsigned maxKnownIndex = 0;
+                unsigned maxKnownCount = 0;
+
+                for (unsigned m = 0; m < h.countHistogramElements; m++)
+                {
+                    if ((h.HistogramEntryAt(m).m_count > maxKnownCount) &&
+                        !ICorJitInfo::IsUnknownTypeHandle(h.HistogramEntryAt(m).m_mt))
+                    {
+                        maxKnownIndex = m;
+                        maxKnownCount = h.HistogramEntryAt(m).m_count;
+                    }
+                }
+
+                if (maxKnownCount > 0)
+                {
+                    *pLikelihood = (100 * maxKnownCount) / h.m_totalCount;
+                    return (CORINFO_CLASS_HANDLE)h.HistogramEntryAt(maxKnownIndex).m_mt;
+                }
+
+                return NULL;
+            }
+            break;
             }
         }
     }

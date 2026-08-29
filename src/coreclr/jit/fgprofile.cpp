@@ -86,11 +86,11 @@ bool Compiler::fgHaveTrustedProfileData() const
     //
     switch (fgPgoSource)
     {
-        case ICorJitInfo::PgoSource::Dynamic:
-        case ICorJitInfo::PgoSource::Text:
-            return true;
-        default:
-            return false;
+    case ICorJitInfo::PgoSource::Dynamic:
+    case ICorJitInfo::PgoSource::Text:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -640,137 +640,81 @@ void Compiler::WalkSpanningTree(SpanningTreeVisitor* visitor)
 
         switch (block->bbJumpKind)
         {
-            case BBJ_CALLFINALLY:
+        case BBJ_CALLFINALLY:
+        {
+            // Just queue up the continuation block,
+            // unless the finally doesn't return, in which
+            // case we really should treat this block as a throw,
+            // and so this block would get instrumented.
+            //
+            // Since our keying scheme is IL based and this
+            // block has no IL offset, we'd need to invent
+            // some new keying scheme. For now we just
+            // ignore this (rare) case.
+            //
+            if (block->isBBCallAlwaysPair())
             {
-                // Just queue up the continuation block,
-                // unless the finally doesn't return, in which
-                // case we really should treat this block as a throw,
-                // and so this block would get instrumented.
+                // This block should be the only pred of the continuation.
                 //
-                // Since our keying scheme is IL based and this
-                // block has no IL offset, we'd need to invent
-                // some new keying scheme. For now we just
-                // ignore this (rare) case.
+                BasicBlock* const target = block->bbNext;
+                assert(!BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
+                visitor->VisitTreeEdge(block, target);
+                stack.Push(target);
+                BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
+            }
+        }
+        break;
+
+        case BBJ_RETURN:
+        case BBJ_THROW:
+        {
+            // Pseudo-edge back to method entry.
+            //
+            // Note if the throw is caught locally this will over-state the profile
+            // count for method entry. But we likely don't care too much about
+            // profiles for methods that throw lots of exceptions.
+            //
+            BasicBlock* const target = fgFirstBB;
+            assert(BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
+            visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::PostdominatesSource);
+        }
+        break;
+
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHCATCHRET:
+        case BBJ_EHFILTERRET:
+        case BBJ_LEAVE:
+        {
+            // See if we're leaving an EH handler region.
+            //
+            bool           isInTry     = false;
+            unsigned const regionIndex = ehGetMostNestedRegionIndex(block, &isInTry);
+
+            if (isInTry)
+            {
+                // No, we're leaving a try or catch, not a handler.
+                // Treat this as a normal edge.
                 //
-                if (block->isBBCallAlwaysPair())
+                BasicBlock* const target = block->bbJumpDest;
+
+                // In some bad IL cases we may not have a target.
+                // In others we may see something other than LEAVE be most-nested in a try.
+                //
+                if (target == nullptr)
                 {
-                    // This block should be the only pred of the continuation.
-                    //
-                    BasicBlock* const target = block->bbNext;
-                    assert(!BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
-                    visitor->VisitTreeEdge(block, target);
-                    stack.Push(target);
-                    BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
+                    JITDUMP("No jump dest for " FMT_BB ", suspect bad code\n", block->bbNum);
+                    visitor->Badcode();
                 }
-            }
-            break;
-
-            case BBJ_RETURN:
-            case BBJ_THROW:
-            {
-                // Pseudo-edge back to method entry.
-                //
-                // Note if the throw is caught locally this will over-state the profile
-                // count for method entry. But we likely don't care too much about
-                // profiles for methods that throw lots of exceptions.
-                //
-                BasicBlock* const target = fgFirstBB;
-                assert(BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
-                visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::PostdominatesSource);
-            }
-            break;
-
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHCATCHRET:
-            case BBJ_EHFILTERRET:
-            case BBJ_LEAVE:
-            {
-                // See if we're leaving an EH handler region.
-                //
-                bool           isInTry     = false;
-                unsigned const regionIndex = ehGetMostNestedRegionIndex(block, &isInTry);
-
-                if (isInTry)
+                else if (block->bbJumpKind != BBJ_LEAVE)
                 {
-                    // No, we're leaving a try or catch, not a handler.
-                    // Treat this as a normal edge.
-                    //
-                    BasicBlock* const target = block->bbJumpDest;
-
-                    // In some bad IL cases we may not have a target.
-                    // In others we may see something other than LEAVE be most-nested in a try.
-                    //
-                    if (target == nullptr)
-                    {
-                        JITDUMP("No jump dest for " FMT_BB ", suspect bad code\n", block->bbNum);
-                        visitor->Badcode();
-                    }
-                    else if (block->bbJumpKind != BBJ_LEAVE)
-                    {
-                        JITDUMP("EH RET in " FMT_BB " most-nested in try, suspect bad code\n", block->bbNum);
-                        visitor->Badcode();
-                    }
-                    else
-                    {
-                        if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
-                        {
-                            visitor->VisitNonTreeEdge(block, target,
-                                                      SpanningTreeVisitor::EdgeKind::PostdominatesSource);
-                        }
-                        else
-                        {
-                            visitor->VisitTreeEdge(block, target);
-                            stack.Push(target);
-                            BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
-                        }
-                    }
+                    JITDUMP("EH RET in " FMT_BB " most-nested in try, suspect bad code\n", block->bbNum);
+                    visitor->Badcode();
                 }
                 else
                 {
-                    // Pseudo-edge back to handler entry.
-                    //
-                    EHblkDsc* const   dsc    = ehGetBlockHndDsc(block);
-                    BasicBlock* const target = dsc->ebdHndBeg;
-                    assert(BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
-                    visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::PostdominatesSource);
-                }
-            }
-            break;
-
-            default:
-            {
-                // If this block is a control flow fork, we want to
-                // preferentially visit critical edges first; if these
-                // edges end up in the DFST then instrumentation will
-                // require edge splitting.
-                //
-                // We also want to preferentially visit edges to rare
-                // successors last, if this block is non-rare.
-                //
-                // It's not immediately clear if we should pass comp or this
-                // to NumSucc here (for inlinees).
-                //
-                // It matters for FINALLYRET and for SWITCHES. Currently
-                // we handle the first one specially, and it seems possible
-                // things will just work for switches either way, but it
-                // might work a bit better using the root compiler.
-                //
-                const unsigned numSucc = block->NumSucc(comp);
-
-                if (numSucc == 1)
-                {
-                    // Not a fork. Just visit the sole successor.
-                    //
-                    BasicBlock* const target = block->GetSucc(0, comp);
                     if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
                     {
-                        // We can't instrument in the call always pair tail block
-                        // so treat this as a critical edge.
-                        //
-                        visitor->VisitNonTreeEdge(block, target,
-                                                  block->isBBCallAlwaysPairTail()
-                                                      ? SpanningTreeVisitor::EdgeKind::CriticalEdge
-                                                      : SpanningTreeVisitor::EdgeKind::PostdominatesSource);
+                        visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::PostdominatesSource);
                     }
                     else
                     {
@@ -779,121 +723,174 @@ void Compiler::WalkSpanningTree(SpanningTreeVisitor* visitor)
                         BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
                     }
                 }
+            }
+            else
+            {
+                // Pseudo-edge back to handler entry.
+                //
+                EHblkDsc* const   dsc    = ehGetBlockHndDsc(block);
+                BasicBlock* const target = dsc->ebdHndBeg;
+                assert(BitVecOps::IsMember(blockSetTraits, marked, target->bbNum));
+                visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::PostdominatesSource);
+            }
+        }
+        break;
+
+        default:
+        {
+            // If this block is a control flow fork, we want to
+            // preferentially visit critical edges first; if these
+            // edges end up in the DFST then instrumentation will
+            // require edge splitting.
+            //
+            // We also want to preferentially visit edges to rare
+            // successors last, if this block is non-rare.
+            //
+            // It's not immediately clear if we should pass comp or this
+            // to NumSucc here (for inlinees).
+            //
+            // It matters for FINALLYRET and for SWITCHES. Currently
+            // we handle the first one specially, and it seems possible
+            // things will just work for switches either way, but it
+            // might work a bit better using the root compiler.
+            //
+            const unsigned numSucc = block->NumSucc(comp);
+
+            if (numSucc == 1)
+            {
+                // Not a fork. Just visit the sole successor.
+                //
+                BasicBlock* const target = block->GetSucc(0, comp);
+                if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
+                {
+                    // We can't instrument in the call always pair tail block
+                    // so treat this as a critical edge.
+                    //
+                    visitor->VisitNonTreeEdge(block, target, block->isBBCallAlwaysPairTail()
+                                                                 ? SpanningTreeVisitor::EdgeKind::CriticalEdge
+                                                                 : SpanningTreeVisitor::EdgeKind::PostdominatesSource);
+                }
                 else
                 {
-                    // A block with multiple successors.
-                    //
-                    // Because we're using a stack up above, we work in reverse
-                    // order of "cost" here --  so we first consider rare,
-                    // then normal, then critical.
-                    //
-                    // That is, all things being equal we'd prefer to
-                    // have critical edges be tree edges, and
-                    // edges from non-rare to rare be non-tree edges.
-                    //
-                    scratch.Clear();
-                    BitVecOps::ClearD(blockSetTraits, processed);
-
-                    for (unsigned i = 0; i < numSucc; i++)
-                    {
-                        BasicBlock* const succ = block->GetSucc(i, comp);
-                        scratch.Push(succ);
-                    }
-
-                    // Rare successors of non-rare blocks
-                    //
-                    for (unsigned i = 0; i < numSucc; i++)
-                    {
-                        BasicBlock* const target = scratch.Top(i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, processed, i))
-                        {
-                            continue;
-                        }
-
-                        if (block->isRunRarely() || !target->isRunRarely())
-                        {
-                            continue;
-                        }
-
-                        BitVecOps::AddElemD(blockSetTraits, processed, i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
-                        {
-                            visitor->VisitNonTreeEdge(block, target,
-                                                      target->bbRefs > 1
-                                                          ? SpanningTreeVisitor::EdgeKind::CriticalEdge
-                                                          : SpanningTreeVisitor::EdgeKind::DominatesTarget);
-                        }
-                        else
-                        {
-                            visitor->VisitTreeEdge(block, target);
-                            stack.Push(target);
-                            BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
-                        }
-                    }
-
-                    // Non-critical edges
-                    //
-                    for (unsigned i = 0; i < numSucc; i++)
-                    {
-                        BasicBlock* const target = scratch.Top(i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, processed, i))
-                        {
-                            continue;
-                        }
-
-                        if (target->bbRefs != 1)
-                        {
-                            continue;
-                        }
-
-                        BitVecOps::AddElemD(blockSetTraits, processed, i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
-                        {
-                            visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::DominatesTarget);
-                        }
-                        else
-                        {
-                            visitor->VisitTreeEdge(block, target);
-                            stack.Push(target);
-                            BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
-                        }
-                    }
-
-                    // Critical edges
-                    //
-                    for (unsigned i = 0; i < numSucc; i++)
-                    {
-                        BasicBlock* const target = scratch.Top(i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, processed, i))
-                        {
-                            continue;
-                        }
-
-                        BitVecOps::AddElemD(blockSetTraits, processed, i);
-
-                        if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
-                        {
-                            visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::CriticalEdge);
-                        }
-                        else
-                        {
-                            visitor->VisitTreeEdge(block, target);
-                            stack.Push(target);
-                            BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
-                        }
-                    }
-
-                    // Verify we processed each successor.
-                    //
-                    assert(numSucc == BitVecOps::Count(blockSetTraits, processed));
+                    visitor->VisitTreeEdge(block, target);
+                    stack.Push(target);
+                    BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
                 }
             }
-            break;
+            else
+            {
+                // A block with multiple successors.
+                //
+                // Because we're using a stack up above, we work in reverse
+                // order of "cost" here --  so we first consider rare,
+                // then normal, then critical.
+                //
+                // That is, all things being equal we'd prefer to
+                // have critical edges be tree edges, and
+                // edges from non-rare to rare be non-tree edges.
+                //
+                scratch.Clear();
+                BitVecOps::ClearD(blockSetTraits, processed);
+
+                for (unsigned i = 0; i < numSucc; i++)
+                {
+                    BasicBlock* const succ = block->GetSucc(i, comp);
+                    scratch.Push(succ);
+                }
+
+                // Rare successors of non-rare blocks
+                //
+                for (unsigned i = 0; i < numSucc; i++)
+                {
+                    BasicBlock* const target = scratch.Top(i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, processed, i))
+                    {
+                        continue;
+                    }
+
+                    if (block->isRunRarely() || !target->isRunRarely())
+                    {
+                        continue;
+                    }
+
+                    BitVecOps::AddElemD(blockSetTraits, processed, i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
+                    {
+                        visitor->VisitNonTreeEdge(block, target, target->bbRefs > 1
+                                                                     ? SpanningTreeVisitor::EdgeKind::CriticalEdge
+                                                                     : SpanningTreeVisitor::EdgeKind::DominatesTarget);
+                    }
+                    else
+                    {
+                        visitor->VisitTreeEdge(block, target);
+                        stack.Push(target);
+                        BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
+                    }
+                }
+
+                // Non-critical edges
+                //
+                for (unsigned i = 0; i < numSucc; i++)
+                {
+                    BasicBlock* const target = scratch.Top(i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, processed, i))
+                    {
+                        continue;
+                    }
+
+                    if (target->bbRefs != 1)
+                    {
+                        continue;
+                    }
+
+                    BitVecOps::AddElemD(blockSetTraits, processed, i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
+                    {
+                        visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::DominatesTarget);
+                    }
+                    else
+                    {
+                        visitor->VisitTreeEdge(block, target);
+                        stack.Push(target);
+                        BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
+                    }
+                }
+
+                // Critical edges
+                //
+                for (unsigned i = 0; i < numSucc; i++)
+                {
+                    BasicBlock* const target = scratch.Top(i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, processed, i))
+                    {
+                        continue;
+                    }
+
+                    BitVecOps::AddElemD(blockSetTraits, processed, i);
+
+                    if (BitVecOps::IsMember(blockSetTraits, marked, target->bbNum))
+                    {
+                        visitor->VisitNonTreeEdge(block, target, SpanningTreeVisitor::EdgeKind::CriticalEdge);
+                    }
+                    else
+                    {
+                        visitor->VisitTreeEdge(block, target);
+                        stack.Push(target);
+                        BitVecOps::AddElemD(blockSetTraits, marked, target->bbNum);
+                    }
+                }
+
+                // Verify we processed each successor.
+                //
+                assert(numSucc == BitVecOps::Count(blockSetTraits, processed));
+            }
+        }
+        break;
         }
     }
 }
@@ -995,18 +992,18 @@ public:
     {
         switch (kind)
         {
-            case EdgeKind::PostdominatesSource:
-                NewSourceProbe(source, target);
-                break;
-            case EdgeKind::DominatesTarget:
-                NewTargetProbe(source, target);
-                break;
-            case EdgeKind::CriticalEdge:
-                NewEdgeProbe(source, target);
-                break;
-            default:
-                assert(!"unexpected kind");
-                break;
+        case EdgeKind::PostdominatesSource:
+            NewSourceProbe(source, target);
+            break;
+        case EdgeKind::DominatesTarget:
+            NewTargetProbe(source, target);
+            break;
+        case EdgeKind::CriticalEdge:
+            NewEdgeProbe(source, target);
+            break;
+        default:
+            assert(!"unexpected kind");
+            break;
         }
     }
 };
@@ -1150,35 +1147,35 @@ void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schem
 
         switch (probe->kind)
         {
-            case EdgeKind::PostdominatesSource:
-                instrumentedBlock = block;
-                break;
-            case EdgeKind::DominatesTarget:
-                instrumentedBlock = probe->target;
-                break;
-            case EdgeKind::CriticalEdge:
-            {
-#ifdef DEBUG
-                // Verify the edge still exists.
-                //
-                bool found = false;
-                for (BasicBlock* const succ : block->Succs(comp))
-                {
-                    if (target == succ)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                assert(found);
-#endif
-                instrumentedBlock = m_comp->fgSplitEdge(block, probe->target);
-                instrumentedBlock->bbFlags |= BBF_IMPORTED;
-            }
+        case EdgeKind::PostdominatesSource:
+            instrumentedBlock = block;
             break;
+        case EdgeKind::DominatesTarget:
+            instrumentedBlock = probe->target;
+            break;
+        case EdgeKind::CriticalEdge:
+        {
+#ifdef DEBUG
+            // Verify the edge still exists.
+            //
+            bool found = false;
+            for (BasicBlock* const succ : block->Succs(comp))
+            {
+                if (target == succ)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            assert(found);
+#endif
+            instrumentedBlock = m_comp->fgSplitEdge(block, probe->target);
+            instrumentedBlock->bbFlags |= BBF_IMPORTED;
+        }
+        break;
 
-            default:
-                unreached();
+        default:
+            unreached();
         }
 
         assert(instrumentedBlock != nullptr);
@@ -1714,32 +1711,32 @@ PhaseStatus Compiler::phIncorporateProfileData()
     {
         switch (schema[iSchema].InstrumentationKind)
         {
-            case ICorJitInfo::PgoInstrumentationKind::NumRuns:
-                fgNumProfileRuns += schema[iSchema].Other;
-                break;
+        case ICorJitInfo::PgoInstrumentationKind::NumRuns:
+            fgNumProfileRuns += schema[iSchema].Other;
+            break;
 
-            case ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount:
-            case ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount:
-                blockCounts++;
-                break;
+        case ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount:
+        case ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount:
+            blockCounts++;
+            break;
 
-            case ICorJitInfo::PgoInstrumentationKind::EdgeIntCount:
-            case ICorJitInfo::PgoInstrumentationKind::EdgeLongCount:
-                edgeCounts++;
-                break;
+        case ICorJitInfo::PgoInstrumentationKind::EdgeIntCount:
+        case ICorJitInfo::PgoInstrumentationKind::EdgeLongCount:
+            edgeCounts++;
+            break;
 
-            case ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramIntCount:
-            case ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramLongCount:
-            case ICorJitInfo::PgoInstrumentationKind::GetLikelyClass:
-                fgPgoClassProfiles++;
-                break;
+        case ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramIntCount:
+        case ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramLongCount:
+        case ICorJitInfo::PgoInstrumentationKind::GetLikelyClass:
+            fgPgoClassProfiles++;
+            break;
 
-            default:
-                JITDUMP("Unknown PGO record type 0x%x in schema entry %u (offset 0x%x count 0x%x other 0x%x)\n",
-                        schema[iSchema].InstrumentationKind, iSchema, schema[iSchema].ILOffset, schema[iSchema].Count,
-                        schema[iSchema].Other);
-                otherRecords++;
-                break;
+        default:
+            JITDUMP("Unknown PGO record type 0x%x in schema entry %u (offset 0x%x count 0x%x other 0x%x)\n",
+                    schema[iSchema].InstrumentationKind, iSchema, schema[iSchema].ILOffset, schema[iSchema].Count,
+                    schema[iSchema].Other);
+            otherRecords++;
+            break;
         }
     }
 
@@ -2128,62 +2125,62 @@ void EfficientEdgeCountReconstructor::Prepare()
         const ICorJitInfo::PgoInstrumentationSchema& schemaEntry = m_comp->fgPgoSchema[iSchema];
         switch (schemaEntry.InstrumentationKind)
         {
-            case ICorJitInfo::PgoInstrumentationKind::EdgeIntCount:
-            case ICorJitInfo::PgoInstrumentationKind::EdgeLongCount:
+        case ICorJitInfo::PgoInstrumentationKind::EdgeIntCount:
+        case ICorJitInfo::PgoInstrumentationKind::EdgeLongCount:
+        {
+            // Optimization TODO: if profileCount is zero, we can just ignore this edge
+            // and the right things will happen.
+            //
+            uint64_t const profileCount =
+                schemaEntry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount
+                    ? *(uint32_t*)(m_comp->fgPgoData + schemaEntry.Offset)
+                    : *(uint64_t*)(m_comp->fgPgoData + schemaEntry.Offset);
+            BasicBlock::weight_t const weight = (BasicBlock::weight_t)profileCount;
+
+            m_allWeightsZero &= (profileCount == 0);
+
+            // Find the blocks.
+            //
+            BasicBlock* sourceBlock = nullptr;
+
+            if (!m_keyToBlockMap.Find(schemaEntry.ILOffset, &sourceBlock))
             {
-                // Optimization TODO: if profileCount is zero, we can just ignore this edge
-                // and the right things will happen.
-                //
-                uint64_t const profileCount =
-                    schemaEntry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount
-                        ? *(uint32_t*)(m_comp->fgPgoData + schemaEntry.Offset)
-                        : *(uint64_t*)(m_comp->fgPgoData + schemaEntry.Offset);
-                BasicBlock::weight_t const weight = (BasicBlock::weight_t)profileCount;
-
-                m_allWeightsZero &= (profileCount == 0);
-
-                // Find the blocks.
-                //
-                BasicBlock* sourceBlock = nullptr;
-
-                if (!m_keyToBlockMap.Find(schemaEntry.ILOffset, &sourceBlock))
-                {
-                    JITDUMP("Could not find source block for schema entry %d (IL offset/key %08x\n", iSchema,
-                            schemaEntry.ILOffset);
-                }
-
-                BasicBlock* targetBlock = nullptr;
-
-                if (!m_keyToBlockMap.Find(schemaEntry.Other, &targetBlock))
-                {
-                    JITDUMP("Could not find target block for schema entry %d (IL offset/key %08x\n", iSchema,
-                            schemaEntry.ILOffset);
-                }
-
-                if ((sourceBlock == nullptr) || (targetBlock == nullptr))
-                {
-                    // Looks like there is skew between schema and graph.
-                    //
-                    Mismatch();
-                    continue;
-                }
-
-                Edge* const edge = new (m_allocator) Edge(sourceBlock, targetBlock);
-
-                JITDUMP("... adding known edge " FMT_BB " -> " FMT_BB ": weight " FMT_WT "\n",
-                        edge->m_sourceBlock->bbNum, edge->m_targetBlock->bbNum, weight);
-
-                edge->m_weightKnown = true;
-                edge->m_weight      = weight;
-
-                m_edgeKeyToEdgeMap.Add({schemaEntry.ILOffset, schemaEntry.Other}, edge);
-
-                m_edges++;
+                JITDUMP("Could not find source block for schema entry %d (IL offset/key %08x\n", iSchema,
+                        schemaEntry.ILOffset);
             }
-            break;
 
-            default:
-                break;
+            BasicBlock* targetBlock = nullptr;
+
+            if (!m_keyToBlockMap.Find(schemaEntry.Other, &targetBlock))
+            {
+                JITDUMP("Could not find target block for schema entry %d (IL offset/key %08x\n", iSchema,
+                        schemaEntry.ILOffset);
+            }
+
+            if ((sourceBlock == nullptr) || (targetBlock == nullptr))
+            {
+                // Looks like there is skew between schema and graph.
+                //
+                Mismatch();
+                continue;
+            }
+
+            Edge* const edge = new (m_allocator) Edge(sourceBlock, targetBlock);
+
+            JITDUMP("... adding known edge " FMT_BB " -> " FMT_BB ": weight " FMT_WT "\n", edge->m_sourceBlock->bbNum,
+                    edge->m_targetBlock->bbNum, weight);
+
+            edge->m_weightKnown = true;
+            edge->m_weight      = weight;
+
+            m_edgeKeyToEdgeMap.Add({schemaEntry.ILOffset, schemaEntry.Other}, edge);
+
+            m_edges++;
+        }
+        break;
+
+        default:
+            break;
         }
     }
 }
@@ -2506,12 +2503,12 @@ void EfficientEdgeCountReconstructor::MarkInterestingBlocks(BasicBlock* block, B
 {
     switch (block->bbJumpKind)
     {
-        case BBJ_SWITCH:
-            MarkInterestingSwitches(block, info);
-            break;
+    case BBJ_SWITCH:
+        MarkInterestingSwitches(block, info);
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 
@@ -3190,30 +3187,30 @@ void Compiler::phComputeEdgeWeights()
             slop = BasicBlock::GetSlopFraction(bSrc, bDst) + 1;
             switch (bSrc->bbJumpKind)
             {
-                case BBJ_ALWAYS:
-                case BBJ_EHCATCHRET:
-                case BBJ_NONE:
-                case BBJ_CALLFINALLY:
-                    // We know the exact edge weight
-                    assignOK &= edge->setEdgeWeightMinChecked(bSrc->bbWeight, bDst, slop, &usedSlop);
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+            case BBJ_NONE:
+            case BBJ_CALLFINALLY:
+                // We know the exact edge weight
+                assignOK &= edge->setEdgeWeightMinChecked(bSrc->bbWeight, bDst, slop, &usedSlop);
+                assignOK &= edge->setEdgeWeightMaxChecked(bSrc->bbWeight, bDst, slop, &usedSlop);
+                break;
+
+            case BBJ_COND:
+            case BBJ_SWITCH:
+            case BBJ_EHFINALLYRET:
+            case BBJ_EHFILTERRET:
+                if (edge->edgeWeightMax() > bSrc->bbWeight)
+                {
+                    // The maximum edge weight to block can't be greater than the weight of bSrc
                     assignOK &= edge->setEdgeWeightMaxChecked(bSrc->bbWeight, bDst, slop, &usedSlop);
-                    break;
+                }
+                break;
 
-                case BBJ_COND:
-                case BBJ_SWITCH:
-                case BBJ_EHFINALLYRET:
-                case BBJ_EHFILTERRET:
-                    if (edge->edgeWeightMax() > bSrc->bbWeight)
-                    {
-                        // The maximum edge weight to block can't be greater than the weight of bSrc
-                        assignOK &= edge->setEdgeWeightMaxChecked(bSrc->bbWeight, bDst, slop, &usedSlop);
-                    }
-                    break;
-
-                default:
-                    // We should never have an edge that starts from one of these jump kinds
-                    noway_assert(!"Unexpected bbJumpKind");
-                    break;
+            default:
+                // We should never have an edge that starts from one of these jump kinds
+                noway_assert(!"Unexpected bbJumpKind");
+                break;
             }
 
             // The maximum edge weight to block can't be greater than the weight of bDst
@@ -3856,26 +3853,26 @@ const char* Compiler::pgoSourceToString(ICorJitInfo::PgoSource p)
     const char* pgoSource = "unknown";
     switch (fgPgoSource)
     {
-        case ICorJitInfo::PgoSource::Dynamic:
-            pgoSource = "dynamic";
-            break;
-        case ICorJitInfo::PgoSource::Static:
-            pgoSource = "static";
-            break;
-        case ICorJitInfo::PgoSource::Text:
-            pgoSource = "text";
-            break;
-        case ICorJitInfo::PgoSource::Blend:
-            pgoSource = "static+dynamic";
-            break;
-        case ICorJitInfo::PgoSource::IBC:
-            pgoSource = "IBC";
-            break;
-        case ICorJitInfo::PgoSource::Sampling:
-            pgoSource = "Sampling";
-            break;
-        default:
-            break;
+    case ICorJitInfo::PgoSource::Dynamic:
+        pgoSource = "dynamic";
+        break;
+    case ICorJitInfo::PgoSource::Static:
+        pgoSource = "static";
+        break;
+    case ICorJitInfo::PgoSource::Text:
+        pgoSource = "text";
+        break;
+    case ICorJitInfo::PgoSource::Blend:
+        pgoSource = "static+dynamic";
+        break;
+    case ICorJitInfo::PgoSource::IBC:
+        pgoSource = "IBC";
+        break;
+    case ICorJitInfo::PgoSource::Sampling:
+        pgoSource = "Sampling";
+        break;
+    default:
+        break;
     }
 
     return pgoSource;

@@ -87,14 +87,14 @@ const char* InlGetTargetString(InlineObservation obs)
     InlineTarget t = InlGetTarget(obs);
     switch (t)
     {
-        case InlineTarget::CALLER:
-            return "caller";
-        case InlineTarget::CALLEE:
-            return "callee";
-        case InlineTarget::CALLSITE:
-            return "call site";
-        default:
-            return "unexpected target";
+    case InlineTarget::CALLER:
+        return "caller";
+    case InlineTarget::CALLEE:
+        return "callee";
+    case InlineTarget::CALLSITE:
+        return "call site";
+    default:
+        return "unexpected target";
     }
 }
 
@@ -127,18 +127,18 @@ const char* InlGetImpactString(InlineObservation obs)
     InlineImpact i = InlGetImpact(obs);
     switch (i)
     {
-        case InlineImpact::FATAL:
-            return "correctness -- fatal";
-        case InlineImpact::FUNDAMENTAL:
-            return "correctness -- fundamental limitation";
-        case InlineImpact::LIMITATION:
-            return "correctness -- jit limitation";
-        case InlineImpact::PERFORMANCE:
-            return "performance";
-        case InlineImpact::INFORMATION:
-            return "information";
-        default:
-            return "unexpected impact";
+    case InlineImpact::FATAL:
+        return "correctness -- fatal";
+    case InlineImpact::FUNDAMENTAL:
+        return "correctness -- fundamental limitation";
+    case InlineImpact::LIMITATION:
+        return "correctness -- jit limitation";
+    case InlineImpact::PERFORMANCE:
+        return "performance";
+    case InlineImpact::INFORMATION:
+        return "information";
+    default:
+        return "unexpected impact";
     }
 }
 
@@ -155,15 +155,15 @@ CorInfoInline InlGetCorInfoInlineDecision(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::SUCCESS:
-            return INLINE_PASS;
-        case InlineDecision::FAILURE:
-            return INLINE_FAIL;
-        case InlineDecision::NEVER:
-            return INLINE_NEVER;
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::SUCCESS:
+        return INLINE_PASS;
+    case InlineDecision::FAILURE:
+        return INLINE_FAIL;
+    case InlineDecision::NEVER:
+        return INLINE_NEVER;
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -180,19 +180,19 @@ const char* InlGetDecisionString(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::SUCCESS:
-            return "success";
-        case InlineDecision::FAILURE:
-            return "failed this call site";
-        case InlineDecision::NEVER:
-            return "failed this callee";
-        case InlineDecision::CANDIDATE:
-            return "candidate";
-        case InlineDecision::UNDECIDED:
-            return "undecided";
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::SUCCESS:
+        return "success";
+    case InlineDecision::FAILURE:
+        return "failed this call site";
+    case InlineDecision::NEVER:
+        return "failed this callee";
+    case InlineDecision::CANDIDATE:
+        return "candidate";
+    case InlineDecision::UNDECIDED:
+        return "undecided";
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -209,16 +209,16 @@ bool InlDecisionIsFailure(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::SUCCESS:
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            return false;
-        case InlineDecision::FAILURE:
-        case InlineDecision::NEVER:
-            return true;
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::SUCCESS:
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        return false;
+    case InlineDecision::FAILURE:
+    case InlineDecision::NEVER:
+        return true;
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -235,16 +235,16 @@ bool InlDecisionIsSuccess(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::SUCCESS:
-            return true;
-        case InlineDecision::FAILURE:
-        case InlineDecision::NEVER:
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            return false;
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::SUCCESS:
+        return true;
+    case InlineDecision::FAILURE:
+    case InlineDecision::NEVER:
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        return false;
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -261,16 +261,16 @@ bool InlDecisionIsNever(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::NEVER:
-            return true;
-        case InlineDecision::FAILURE:
-        case InlineDecision::SUCCESS:
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            return false;
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::NEVER:
+        return true;
+    case InlineDecision::FAILURE:
+    case InlineDecision::SUCCESS:
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        return false;
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -301,16 +301,16 @@ bool InlDecisionIsDecided(InlineDecision d)
 {
     switch (d)
     {
-        case InlineDecision::NEVER:
-        case InlineDecision::FAILURE:
-        case InlineDecision::SUCCESS:
-            return true;
-        case InlineDecision::UNDECIDED:
-        case InlineDecision::CANDIDATE:
-            return false;
-        default:
-            assert(!"Unexpected InlineDecision");
-            unreached();
+    case InlineDecision::NEVER:
+    case InlineDecision::FAILURE:
+    case InlineDecision::SUCCESS:
+        return true;
+    case InlineDecision::UNDECIDED:
+    case InlineDecision::CANDIDATE:
+        return false;
+    default:
+        assert(!"Unexpected InlineDecision");
+        unreached();
     }
 }
 
@@ -457,17 +457,17 @@ static void EscapeNameForXml(char* name)
     {
         switch (name[i])
         {
-            case '<':
-                name[i] = '[';
-                break;
-            case '>':
-                name[i] = ']';
-                break;
-            case '&':
-                name[i] = '#';
-                break;
-            default:
-                break;
+        case '<':
+            name[i] = '[';
+            break;
+        case '>':
+            name[i] = ']';
+            break;
+        case '&':
+            name[i] = '#';
+            break;
+        default:
+            break;
         }
         i++;
     }

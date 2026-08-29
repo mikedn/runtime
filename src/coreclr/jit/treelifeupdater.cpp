@@ -580,15 +580,15 @@ void CodeGenLivenessUpdater::SetGCRegType(RegNum reg, var_types type)
 
     switch (type)
     {
-        case TYP_REF:
-            AddGCRefRegs(regs);
-            break;
-        case TYP_BYREF:
-            AddGCByRefRegs(regs);
-            break;
-        default:
-            RemoveGCRegs(regs);
-            break;
+    case TYP_REF:
+        AddGCRefRegs(regs);
+        break;
+    case TYP_BYREF:
+        AddGCByRefRegs(regs);
+        break;
+    default:
+        RemoveGCRegs(regs);
+        break;
     }
 }
 

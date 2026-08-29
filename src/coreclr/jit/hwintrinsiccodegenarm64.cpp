@@ -259,35 +259,35 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
             switch (intrin.numOperands)
             {
-                case 1:
-                    emit.emitIns_R_R(ins, emitSize, defReg, regs[0], opt);
-                    break;
+            case 1:
+                emit.emitIns_R_R(ins, emitSize, defReg, regs[0], opt);
+                break;
 
-                case 2:
-                    if (isRMW)
-                    {
-                        assert(defReg != regs[1]);
-
-                        emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-                        emit.emitIns_R_R(ins, emitSize, defReg, regs[1], opt);
-                    }
-                    else
-                    {
-                        emit.emitIns_R_R_R(ins, emitSize, defReg, regs[0], regs[1], opt);
-                    }
-                    break;
-
-                case 3:
-                    assert(isRMW);
+            case 2:
+                if (isRMW)
+                {
                     assert(defReg != regs[1]);
-                    assert(defReg != regs[2]);
 
                     emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-                    emit.emitIns_R_R_R(ins, emitSize, defReg, regs[1], regs[2], opt);
-                    break;
+                    emit.emitIns_R_R(ins, emitSize, defReg, regs[1], opt);
+                }
+                else
+                {
+                    emit.emitIns_R_R_R(ins, emitSize, defReg, regs[0], regs[1], opt);
+                }
+                break;
 
-                default:
-                    unreached();
+            case 3:
+                assert(isRMW);
+                assert(defReg != regs[1]);
+                assert(defReg != regs[2]);
+
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_R_R_R(ins, emitSize, defReg, regs[1], regs[2], opt);
+                break;
+
+            default:
+                unreached();
             }
         }
     }
@@ -295,225 +295,223 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         switch (intrin.id)
         {
-            case NI_AdvSimd_BitwiseSelect:
-                // Even though BitwiseSelect is an RMW intrinsic per se, we don't want to mark it as such
-                // since we can handle all possible allocation decisions for targetReg.
-                assert(!isRMW);
+        case NI_AdvSimd_BitwiseSelect:
+            // Even though BitwiseSelect is an RMW intrinsic per se, we don't want to mark it as such
+            // since we can handle all possible allocation decisions for targetReg.
+            assert(!isRMW);
 
-                if (defReg == regs[0])
+            if (defReg == regs[0])
+            {
+                emit.emitIns_R_R_R(INS_bsl, emitSize, defReg, regs[1], regs[2], opt);
+            }
+            else if (defReg == regs[1])
+            {
+                emit.emitIns_R_R_R(INS_bif, emitSize, defReg, regs[2], regs[0], opt);
+            }
+            else if (defReg == regs[2])
+            {
+                emit.emitIns_R_R_R(INS_bit, emitSize, defReg, regs[1], regs[0], opt);
+            }
+            else
+            {
+                emit.emitIns_Mov(INS_mov, emitSize, defReg, regs[0], /* canSkip */ false);
+                emit.emitIns_R_R_R(INS_bsl, emitSize, defReg, regs[1], regs[2], opt);
+            }
+            break;
+
+        case NI_AdvSimd_DuplicateSelectedScalarToVector64:
+        case NI_AdvSimd_DuplicateSelectedScalarToVector128:
+        case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
+            if (GenTreeIntCon* imm = intrin.ops[1]->IsIntCon())
+            {
+                assert(Arm64Imm::IsVecIndex(imm->GetValue(), emitSize, GetVecElemsize(opt)));
+            }
+
+            emitSize = emitActualTypeSize(node->GetType());
+            opt      = GetVecArrangementOpt(emitSize, intrin.vecEltType);
+            assert(opt != INS_OPTS_NONE);
+
+            ExpandNonConstImm(this, intrin.ops[1], node,
+                              [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], imm, opt); });
+            break;
+
+        case NI_AdvSimd_Extract:
+            emitSize = emitTypeSize(intrin.vecEltType);
+
+            ExpandNonConstImm(this, intrin.ops[1], node,
+                              [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], imm, INS_OPTS_NONE); });
+            break;
+
+        case NI_AdvSimd_ExtractVector64:
+        case NI_AdvSimd_ExtractVector128:
+            opt = (intrin.id == NI_AdvSimd_ExtractVector64) ? INS_OPTS_8B : INS_OPTS_16B;
+
+            ExpandNonConstImm(this, intrin.ops[2], node, [&](int imm) {
+                const int byteIndex = varTypeSize(intrin.vecEltType) * imm;
+                emit.emitIns_R_R_R_I(ins, emitSize, defReg, regs[0], regs[1], byteIndex, opt);
+            });
+            break;
+
+        case NI_AdvSimd_Insert:
+            assert(isRMW);
+            assert(defReg != regs[2]);
+
+            emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
+
+            if (intrin.ops[2]->IsIntCon(0) || intrin.ops[2]->IsDblConPositiveZero())
+            {
+                regs[2] = REG_ZR;
+            }
+
+            ExpandNonConstImm(this, intrin.ops[1], node, [&](int imm) {
+                if (IsFloatReg(regs[2]))
                 {
-                    emit.emitIns_R_R_R(INS_bsl, emitSize, defReg, regs[1], regs[2], opt);
-                }
-                else if (defReg == regs[1])
-                {
-                    emit.emitIns_R_R_R(INS_bif, emitSize, defReg, regs[2], regs[0], opt);
-                }
-                else if (defReg == regs[2])
-                {
-                    emit.emitIns_R_R_R(INS_bit, emitSize, defReg, regs[1], regs[0], opt);
-                }
-                else
-                {
-                    emit.emitIns_Mov(INS_mov, emitSize, defReg, regs[0], /* canSkip */ false);
-                    emit.emitIns_R_R_R(INS_bsl, emitSize, defReg, regs[1], regs[2], opt);
-                }
-                break;
-
-            case NI_AdvSimd_DuplicateSelectedScalarToVector64:
-            case NI_AdvSimd_DuplicateSelectedScalarToVector128:
-            case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
-                if (GenTreeIntCon* imm = intrin.ops[1]->IsIntCon())
-                {
-                    assert(Arm64Imm::IsVecIndex(imm->GetValue(), emitSize, GetVecElemsize(opt)));
-                }
-
-                emitSize = emitActualTypeSize(node->GetType());
-                opt      = GetVecArrangementOpt(emitSize, intrin.vecEltType);
-                assert(opt != INS_OPTS_NONE);
-
-                ExpandNonConstImm(this, intrin.ops[1], node,
-                                  [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], imm, opt); });
-                break;
-
-            case NI_AdvSimd_Extract:
-                emitSize = emitTypeSize(intrin.vecEltType);
-
-                ExpandNonConstImm(this, intrin.ops[1], node, [&](int imm) {
-                    emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], imm, INS_OPTS_NONE);
-                });
-                break;
-
-            case NI_AdvSimd_ExtractVector64:
-            case NI_AdvSimd_ExtractVector128:
-                opt = (intrin.id == NI_AdvSimd_ExtractVector64) ? INS_OPTS_8B : INS_OPTS_16B;
-
-                ExpandNonConstImm(this, intrin.ops[2], node, [&](int imm) {
-                    const int byteIndex = varTypeSize(intrin.vecEltType) * imm;
-                    emit.emitIns_R_R_R_I(ins, emitSize, defReg, regs[0], regs[1], byteIndex, opt);
-                });
-                break;
-
-            case NI_AdvSimd_Insert:
-                assert(isRMW);
-                assert(defReg != regs[2]);
-
-                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-
-                if (intrin.ops[2]->IsIntCon(0) || intrin.ops[2]->IsDblConPositiveZero())
-                {
-                    regs[2] = REG_ZR;
-                }
-
-                ExpandNonConstImm(this, intrin.ops[1], node, [&](int imm) {
-                    if (IsFloatReg(regs[2]))
-                    {
-                        emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], imm, 0, opt);
-                    }
-                    else
-                    {
-                        emit.emitIns_R_R_I(INS_ins, emitSize, defReg, regs[2], imm, opt);
-                    }
-                });
-                break;
-
-            case NI_AdvSimd_InsertScalar:
-                assert(isRMW);
-                assert(defReg != regs[2]);
-
-                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-
-                ExpandNonConstImm(this, intrin.ops[1], node, [&](int imm) {
                     emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], imm, 0, opt);
-                });
-                break;
-
-            case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                assert(isRMW);
-                assert(defReg != regs[2]);
-
-                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-                emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], intrin.ops[1]->AsIntCon()->GetInt32Value(),
-                                     intrin.ops[3]->AsIntCon()->GetInt32Value(), opt);
-                break;
-
-            case NI_AdvSimd_LoadAndInsertScalar:
-                assert(isRMW);
-                assert(defReg != regs[2]);
-
-                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-
-                ExpandNonConstImm(this, intrin.ops[1], node,
-                                  [&](int imm) { emit.emitIns_R_R_I(INS_ld1, emitSize, defReg, regs[2], imm); });
-                break;
-
-            case NI_AdvSimd_StoreSelectedScalar:
-                ExpandNonConstImm(this, intrin.ops[2], node,
-                                  [&](int imm) { emit.emitIns_R_R_I(INS_st1, emitSize, regs[1], regs[0], imm, opt); });
-                break;
-
-            case NI_VEC_REGCAST:
-                assert(intrin.ops[0]->isUsedFromReg());
-                assert(IsVectorRegister(regs[0]));
-
-                emit.emitIns_Mov(varTypeIsFloating(intrin.ops[0]->GetType()) ? INS_fmov : INS_mov,
-                                 emitActualTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ true);
-                break;
-
-            case NI_VEC_ITOV:
-                assert(intrin.ops[0]->isUsedFromReg());
-                assert(IsGeneralRegister(regs[0]));
-
-                emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ false);
-                break;
-
-            case NI_VEC_FTOV:
-                if (GenTreeDblCon* imm = intrin.ops[0]->IsContainedDblCon())
-                {
-                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.vecEltType), defReg, imm->GetValue());
                 }
                 else
                 {
-                    emit.emitIns_Mov(INS_fmov, emitTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ false);
+                    emit.emitIns_R_R_I(INS_ins, emitSize, defReg, regs[2], imm, opt);
                 }
-                break;
+            });
+            break;
 
-            case NI_VEC_SPLAT:
-                assert(varTypeSize(node->GetType()) > varTypeSize(varActualType(intrin.ops[0]->GetType())));
-                assert(ins == INS_dup);
+        case NI_AdvSimd_InsertScalar:
+            assert(isRMW);
+            assert(defReg != regs[2]);
 
-                if (GenTreeDblCon* imm = intrin.ops[0]->IsContainedDblCon())
-                {
-                    emit.emitIns_R_F(INS_fmov, emitSize, defReg, imm->GetValue(), opt);
-                }
-                else if (GenTreeIntCon* imm = intrin.ops[0]->IsContainedIntCon())
-                {
-                    emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
-                }
-                else if (IsVectorRegister(regs[0]))
-                {
-                    emit.emitIns_R_R_I(INS_dup, emitSize, defReg, regs[0], 0, opt);
-                }
-                else
-                {
-                    emit.emitIns_R_R(INS_dup, emitSize, defReg, regs[0], opt);
-                }
-                break;
+            emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
-            case NI_AdvSimd_Arm64_StorePair:
-            case NI_AdvSimd_Arm64_StorePairNonTemporal:
-                emit.emitIns_R_R_R(ins, emitSize, regs[1], regs[2], regs[0]);
-                break;
-            case NI_AdvSimd_Arm64_StorePairScalar:
-            case NI_AdvSimd_Arm64_StorePairScalarNonTemporal:
-                emit.emitIns_R_R_R(ins, emitTypeSize(intrin.vecEltType), regs[1], regs[2], regs[0]);
-                break;
-            case NI_AdvSimd_AbsoluteCompareLessThan:
-            case NI_AdvSimd_AbsoluteCompareLessThanOrEqual:
-            case NI_AdvSimd_CompareLessThan:
-            case NI_AdvSimd_CompareLessThanOrEqual:
-            case NI_AdvSimd_Arm64_AbsoluteCompareLessThan:
-            case NI_AdvSimd_Arm64_AbsoluteCompareLessThanScalar:
-            case NI_AdvSimd_Arm64_AbsoluteCompareLessThanOrEqual:
-            case NI_AdvSimd_Arm64_AbsoluteCompareLessThanOrEqualScalar:
-            case NI_AdvSimd_Arm64_CompareLessThan:
-            case NI_AdvSimd_Arm64_CompareLessThanScalar:
-            case NI_AdvSimd_Arm64_CompareLessThanOrEqual:
-            case NI_AdvSimd_Arm64_CompareLessThanOrEqualScalar:
-                emit.emitIns_R_R_R(ins, emitSize, defReg, regs[1], regs[0], opt);
-                break;
-            case NI_AdvSimd_FusedMultiplyAddScalar:
-            case NI_AdvSimd_FusedMultiplyAddNegatedScalar:
-            case NI_AdvSimd_FusedMultiplySubtractNegatedScalar:
-            case NI_AdvSimd_FusedMultiplySubtractScalar:
-                assert(opt == INS_OPTS_NONE);
-                emit.emitIns_R_R_R_R(ins, emitSize, defReg, regs[1], regs[2], regs[0]);
-                break;
-            case NI_AdvSimd_Store:
-                emit.emitIns_R_R(ins, emitSize, regs[1], regs[0], opt);
-                break;
-            case NI_VEC_ZERO:
-                emit.emitIns_R_I(INS_movi, EA_16BYTE, defReg, 0, INS_OPTS_16B);
-                break;
-            case NI_VEC_ONE_BITS:
-                emit.emitIns_R_I(INS_movi, emitSize, defReg, 0xFF, emitSize == EA_8BYTE ? INS_OPTS_8B : INS_OPTS_16B);
-                break;
-            case NI_VEC_ZEXT:
-                emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false);
-                break;
-            case NI_VEC_TRUNC:
-                emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ true);
-                break;
-            case NI_AdvSimd_ReverseElement16:
-                emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_4H : INS_OPTS_8H);
-                break;
-            case NI_AdvSimd_ReverseElement32:
-                emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_2S : INS_OPTS_4S);
-                break;
-            case NI_AdvSimd_ReverseElement8:
-                emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B);
-                break;
-            default:
-                unreached();
+            ExpandNonConstImm(this, intrin.ops[1], node,
+                              [&](int imm) { emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], imm, 0, opt); });
+            break;
+
+        case NI_AdvSimd_Arm64_InsertSelectedScalar:
+            assert(isRMW);
+            assert(defReg != regs[2]);
+
+            emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
+            emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], intrin.ops[1]->AsIntCon()->GetInt32Value(),
+                                 intrin.ops[3]->AsIntCon()->GetInt32Value(), opt);
+            break;
+
+        case NI_AdvSimd_LoadAndInsertScalar:
+            assert(isRMW);
+            assert(defReg != regs[2]);
+
+            emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
+
+            ExpandNonConstImm(this, intrin.ops[1], node,
+                              [&](int imm) { emit.emitIns_R_R_I(INS_ld1, emitSize, defReg, regs[2], imm); });
+            break;
+
+        case NI_AdvSimd_StoreSelectedScalar:
+            ExpandNonConstImm(this, intrin.ops[2], node,
+                              [&](int imm) { emit.emitIns_R_R_I(INS_st1, emitSize, regs[1], regs[0], imm, opt); });
+            break;
+
+        case NI_VEC_REGCAST:
+            assert(intrin.ops[0]->isUsedFromReg());
+            assert(IsVectorRegister(regs[0]));
+
+            emit.emitIns_Mov(varTypeIsFloating(intrin.ops[0]->GetType()) ? INS_fmov : INS_mov,
+                             emitActualTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ true);
+            break;
+
+        case NI_VEC_ITOV:
+            assert(intrin.ops[0]->isUsedFromReg());
+            assert(IsGeneralRegister(regs[0]));
+
+            emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ false);
+            break;
+
+        case NI_VEC_FTOV:
+            if (GenTreeDblCon* imm = intrin.ops[0]->IsContainedDblCon())
+            {
+                emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.vecEltType), defReg, imm->GetValue());
+            }
+            else
+            {
+                emit.emitIns_Mov(INS_fmov, emitTypeSize(intrin.vecEltType), defReg, regs[0], /*canSkip*/ false);
+            }
+            break;
+
+        case NI_VEC_SPLAT:
+            assert(varTypeSize(node->GetType()) > varTypeSize(varActualType(intrin.ops[0]->GetType())));
+            assert(ins == INS_dup);
+
+            if (GenTreeDblCon* imm = intrin.ops[0]->IsContainedDblCon())
+            {
+                emit.emitIns_R_F(INS_fmov, emitSize, defReg, imm->GetValue(), opt);
+            }
+            else if (GenTreeIntCon* imm = intrin.ops[0]->IsContainedIntCon())
+            {
+                emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
+            }
+            else if (IsVectorRegister(regs[0]))
+            {
+                emit.emitIns_R_R_I(INS_dup, emitSize, defReg, regs[0], 0, opt);
+            }
+            else
+            {
+                emit.emitIns_R_R(INS_dup, emitSize, defReg, regs[0], opt);
+            }
+            break;
+
+        case NI_AdvSimd_Arm64_StorePair:
+        case NI_AdvSimd_Arm64_StorePairNonTemporal:
+            emit.emitIns_R_R_R(ins, emitSize, regs[1], regs[2], regs[0]);
+            break;
+        case NI_AdvSimd_Arm64_StorePairScalar:
+        case NI_AdvSimd_Arm64_StorePairScalarNonTemporal:
+            emit.emitIns_R_R_R(ins, emitTypeSize(intrin.vecEltType), regs[1], regs[2], regs[0]);
+            break;
+        case NI_AdvSimd_AbsoluteCompareLessThan:
+        case NI_AdvSimd_AbsoluteCompareLessThanOrEqual:
+        case NI_AdvSimd_CompareLessThan:
+        case NI_AdvSimd_CompareLessThanOrEqual:
+        case NI_AdvSimd_Arm64_AbsoluteCompareLessThan:
+        case NI_AdvSimd_Arm64_AbsoluteCompareLessThanScalar:
+        case NI_AdvSimd_Arm64_AbsoluteCompareLessThanOrEqual:
+        case NI_AdvSimd_Arm64_AbsoluteCompareLessThanOrEqualScalar:
+        case NI_AdvSimd_Arm64_CompareLessThan:
+        case NI_AdvSimd_Arm64_CompareLessThanScalar:
+        case NI_AdvSimd_Arm64_CompareLessThanOrEqual:
+        case NI_AdvSimd_Arm64_CompareLessThanOrEqualScalar:
+            emit.emitIns_R_R_R(ins, emitSize, defReg, regs[1], regs[0], opt);
+            break;
+        case NI_AdvSimd_FusedMultiplyAddScalar:
+        case NI_AdvSimd_FusedMultiplyAddNegatedScalar:
+        case NI_AdvSimd_FusedMultiplySubtractNegatedScalar:
+        case NI_AdvSimd_FusedMultiplySubtractScalar:
+            assert(opt == INS_OPTS_NONE);
+            emit.emitIns_R_R_R_R(ins, emitSize, defReg, regs[1], regs[2], regs[0]);
+            break;
+        case NI_AdvSimd_Store:
+            emit.emitIns_R_R(ins, emitSize, regs[1], regs[0], opt);
+            break;
+        case NI_VEC_ZERO:
+            emit.emitIns_R_I(INS_movi, EA_16BYTE, defReg, 0, INS_OPTS_16B);
+            break;
+        case NI_VEC_ONE_BITS:
+            emit.emitIns_R_I(INS_movi, emitSize, defReg, 0xFF, emitSize == EA_8BYTE ? INS_OPTS_8B : INS_OPTS_16B);
+            break;
+        case NI_VEC_ZEXT:
+            emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false);
+            break;
+        case NI_VEC_TRUNC:
+            emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ true);
+            break;
+        case NI_AdvSimd_ReverseElement16:
+            emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_4H : INS_OPTS_8H);
+            break;
+        case NI_AdvSimd_ReverseElement32:
+            emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_2S : INS_OPTS_4S);
+            break;
+        case NI_AdvSimd_ReverseElement8:
+            emit.emitIns_R_R(ins, emitSize, defReg, regs[0], (emitSize == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B);
+            break;
+        default:
+            unreached();
         }
     }
 

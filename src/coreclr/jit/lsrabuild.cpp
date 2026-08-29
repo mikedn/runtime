@@ -448,39 +448,39 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
     switch (kind)
     {
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-        case StructStoreKind::UnrollRegsWB:
-            return Compiler::compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
+    case StructStoreKind::UnrollRegsWB:
+        return Compiler::compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
 #endif
 
-        case StructStoreKind::UnrollCopyWB:
+    case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
-        case StructStoreKind::UnrollCopyWBRepMovs:
+    case StructStoreKind::UnrollCopyWBRepMovs:
 #endif
-            return Compiler::compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
+        return Compiler::compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
 
-        case StructStoreKind::UnrollInit:
-        case StructStoreKind::UnrollCopy:
+    case StructStoreKind::UnrollInit:
+    case StructStoreKind::UnrollCopy:
 #if FEATURE_MULTIREG_RET
-        case StructStoreKind::UnrollRegs:
+    case StructStoreKind::UnrollRegs:
 #endif
-            return RBM_NONE;
+        return RBM_NONE;
 
 #ifndef TARGET_X86
-        case StructStoreKind::MemSet:
-            return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMSET);
-        case StructStoreKind::MemCpy:
-            return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMCPY);
+    case StructStoreKind::MemSet:
+        return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMSET);
+    case StructStoreKind::MemCpy:
+        return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMCPY);
 #endif
 
 #ifdef TARGET_XARCH
-        case StructStoreKind::RepStos:
-            return RBM_RCX | RBM_RDI;
-        case StructStoreKind::RepMovs:
-            return RBM_RCX | RBM_RDI | RBM_RSI;
+    case StructStoreKind::RepStos:
+        return RBM_RCX | RBM_RDI;
+    case StructStoreKind::RepMovs:
+        return RBM_RCX | RBM_RDI | RBM_RSI;
 #endif
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -491,20 +491,20 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 #ifdef TARGET_XARCH
     switch (node->GetIntrinsic())
     {
-        case NI_SSE2_MaskMove:
-            // maskmovdqu uses edi as the implicit address register.
-            // Although it is set as the srcCandidate on the address, if there is also a fixed
-            // assignment for the definition of the address, resolveConflictingDefAndUse() may
-            // change the register assignment on the def or use of a node temp (SDSU) when there
-            // is a conflict, and the FixedRef on edi won't be sufficient to ensure that another
-            // Interval will not be allocated there.
-            // Issue #17674 tracks this.
-            killMask = RBM_EDI;
-            break;
+    case NI_SSE2_MaskMove:
+        // maskmovdqu uses edi as the implicit address register.
+        // Although it is set as the srcCandidate on the address, if there is also a fixed
+        // assignment for the definition of the address, resolveConflictingDefAndUse() may
+        // change the register assignment on the def or use of a node temp (SDSU) when there
+        // is a conflict, and the FixedRef on edi won't be sufficient to ensure that another
+        // Interval will not be allocated there.
+        // Issue #17674 tracks this.
+        killMask = RBM_EDI;
+        break;
 
-        default:
-            // Leave killMask as RBM_NONE
-            break;
+    default:
+        // Leave killMask as RBM_NONE
+        break;
     }
 #endif // TARGET_XARCH
     return killMask;
@@ -529,75 +529,75 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
     switch (node->GetOper())
     {
 #ifdef TARGET_XARCH
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
 #ifdef TARGET_X86
-        case GT_LSH_HI:
-        case GT_RSH_LO:
+    case GT_LSH_HI:
+    case GT_RSH_LO:
 #endif
-            return getKillSetForShiftRotate(node->AsOp());
-        case GT_MUL:
-        case GT_SMULH:
-        case GT_UMULH:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
+        return getKillSetForShiftRotate(node->AsOp());
+    case GT_MUL:
+    case GT_SMULH:
+    case GT_UMULH:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
 #ifdef TARGET_X86
-        case GT_SMULL:
-        case GT_UMULL:
+    case GT_SMULL:
+    case GT_UMULL:
 #endif
-            return getKillSetForMul(node->AsOp());
-        case GT_SREM:
-        case GT_SDIV:
-        case GT_UREM:
-        case GT_UDIV:
-            return getKillSetForModDiv(node->AsOp());
+        return getKillSetForMul(node->AsOp());
+    case GT_SREM:
+    case GT_SDIV:
+    case GT_UREM:
+    case GT_UDIV:
+        return getKillSetForModDiv(node->AsOp());
 #endif // TARGET_XARCH
 
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-            if (node->TypeIs(TYP_STRUCT) && !node->AsLclRef()->GetOp(0)->IsCall())
-            {
-                ClassLayout* layout = node->OperIs(GT_LCL_STORE) ? node->AsLclStore()->GetLcl()->GetLayout()
-                                                                 : node->AsLclStoreFld()->GetLayout(compiler);
-                return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclRef()->GetOp(0)));
-            }
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+        if (node->TypeIs(TYP_STRUCT) && !node->AsLclRef()->GetOp(0)->IsCall())
+        {
+            ClassLayout* layout = node->OperIs(GT_LCL_STORE) ? node->AsLclStore()->GetLcl()->GetLayout()
+                                                             : node->AsLclStoreFld()->GetLayout(compiler);
+            return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclRef()->GetOp(0)));
+        }
 
-            return RBM_NONE;
+        return RBM_NONE;
 
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
-            return getKillSetForStructStore(node->AsBlk()->GetKind());
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            return getKillSetForStructStore(node->AsDynBlk()->GetKind());
-        case GT_RETURNTRAP:
-            return Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-        case GT_CALL:
-            return getKillSetForCall(node->AsCall());
-        case GT_IND_STORE:
-            return getKillSetForStoreInd(node->AsIndStore());
+    case GT_IND_STORE_OBJ:
+    case GT_IND_STORE_BLK:
+        return getKillSetForStructStore(node->AsBlk()->GetKind());
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        return getKillSetForStructStore(node->AsDynBlk()->GetKind());
+    case GT_RETURNTRAP:
+        return Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
+    case GT_CALL:
+        return getKillSetForCall(node->AsCall());
+    case GT_IND_STORE:
+        return getKillSetForStoreInd(node->AsIndStore());
 
 #ifdef PROFILING_SUPPORTED
-        // If this method requires profiler ELT hook then mark these nodes as killing
-        // callee trash registers (excluding RAX and XMM0). The reason for this is that
-        // profiler callback would trash these registers. See vm\amd64\asmhelpers.asm for
-        // more details.
-        case GT_RETURN:
-            return getKillSetForReturn();
-        case GT_PROF_HOOK:
-            return getKillSetForProfilerHook();
+    // If this method requires profiler ELT hook then mark these nodes as killing
+    // callee trash registers (excluding RAX and XMM0). The reason for this is that
+    // profiler callback would trash these registers. See vm\amd64\asmhelpers.asm for
+    // more details.
+    case GT_RETURN:
+        return getKillSetForReturn();
+    case GT_PROF_HOOK:
+        return getKillSetForProfilerHook();
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            return getKillSetForHWIntrinsic(node->AsHWIntrinsic());
+    case GT_HWINTRINSIC:
+        return getKillSetForHWIntrinsic(node->AsHWIntrinsic());
 #endif
 
-        default:
-            return RBM_NONE;
+    default:
+        return RBM_NONE;
     }
 }
 #endif // DEBUG
@@ -2263,15 +2263,15 @@ static bool ShouldAlignDoubleLocals(Compiler*      compiler,
 
     switch (compiler->compCodeOpt())
     {
-        case SMALL_CODE:
-            misalignedWeight = 0;
-            break;
-        case FAST_CODE:
-            misalignedWeight = 16;
-            break;
-        default:
-            misalignedWeight = 4;
-            break;
+    case SMALL_CODE:
+        misalignedWeight = 0;
+        break;
+    case FAST_CODE:
+        misalignedWeight = 16;
+        break;
+    default:
+        misalignedWeight = 4;
+        break;
     }
 
     JITDUMP("\nDouble alignment:\n");
@@ -2388,18 +2388,18 @@ void LinearScan::identifyCandidates()
     {
         switch (CanAlignDoubleLocals(compiler))
         {
-            case MUST_DOUBLE_ALIGN:
-                doDoubleAlign    = true;
-                checkDoubleAlign = false;
-                break;
-            case CAN_DOUBLE_ALIGN:
-                break;
-            case CANT_DOUBLE_ALIGN:
-                doDoubleAlign    = false;
-                checkDoubleAlign = false;
-                break;
-            default:
-                unreached();
+        case MUST_DOUBLE_ALIGN:
+            doDoubleAlign    = true;
+            checkDoubleAlign = false;
+            break;
+        case CAN_DOUBLE_ALIGN:
+            break;
+        case CANT_DOUBLE_ALIGN:
+            doDoubleAlign    = false;
+            checkDoubleAlign = false;
+            break;
+        default:
+            unreached();
         }
     }
 #endif // DOUBLE_ALIGN
@@ -2737,29 +2737,29 @@ bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 
     switch (varActualType(lcl->GetType()))
     {
-        case TYP_STRUCT:
-            assert(compiler->compEnregStructLocals() && !lcl->HasGCPtr());
-            FALLTHROUGH;
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-        case TYP_INT:
+    case TYP_STRUCT:
+        assert(compiler->compEnregStructLocals() && !lcl->HasGCPtr());
+        FALLTHROUGH;
+    case TYP_FLOAT:
+    case TYP_DOUBLE:
+    case TYP_INT:
 #ifdef TARGET_64BIT
-        case TYP_LONG:
+    case TYP_LONG:
 #endif
-        case TYP_REF:
-        case TYP_BYREF:
+    case TYP_REF:
+    case TYP_BYREF:
 #ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
+    case TYP_SIMD8:
+    case TYP_SIMD12:
+    case TYP_SIMD16:
+    case TYP_SIMD32:
 #endif
-            assert(lcl->GetRegisterType() != TYP_UNDEF);
-            break;
+        assert(lcl->GetRegisterType() != TYP_UNDEF);
+        break;
 
-        default:
-            assert(!"Missing DNER or weird local type");
-            break;
+    default:
+        assert(!"Missing DNER or weird local type");
+        break;
     }
 
     return true;

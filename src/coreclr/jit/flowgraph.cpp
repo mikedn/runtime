@@ -70,16 +70,16 @@ PhaseStatus Compiler::phInsertGCPolls()
 #ifdef DEBUG
         switch (block->bbJumpKind)
         {
-            case BBJ_RETURN:
-            case BBJ_ALWAYS:
-            case BBJ_COND:
-            case BBJ_SWITCH:
-            case BBJ_NONE:
-            case BBJ_THROW:
-            case BBJ_CALLFINALLY:
-                break;
-            default:
-                assert(!"Unexpected block kind");
+        case BBJ_RETURN:
+        case BBJ_ALWAYS:
+        case BBJ_COND:
+        case BBJ_SWITCH:
+        case BBJ_NONE:
+        case BBJ_THROW:
+        case BBJ_CALLFINALLY:
+            break;
+        default:
+            assert(!"Unexpected block kind");
         }
 #endif
 
@@ -329,23 +329,23 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     switch (topKind)
     {
-        case BBJ_RETURN:
-        case BBJ_THROW:
-            break;
-        case BBJ_NONE:
-            fgReplacePred(bottom->bbNext, top, bottom);
-            break;
-        case BBJ_COND:
-            noway_assert(bottom->bbNext);
-            fgReplacePred(bottom->bbNext, top, bottom);
-            FALLTHROUGH;
-        case BBJ_ALWAYS:
-        case BBJ_CALLFINALLY:
-            fgReplacePred(bottom->bbJumpDest, top, bottom);
-            break;
+    case BBJ_RETURN:
+    case BBJ_THROW:
+        break;
+    case BBJ_NONE:
+        fgReplacePred(bottom->bbNext, top, bottom);
+        break;
+    case BBJ_COND:
+        noway_assert(bottom->bbNext);
+        fgReplacePred(bottom->bbNext, top, bottom);
+        FALLTHROUGH;
+    case BBJ_ALWAYS:
+    case BBJ_CALLFINALLY:
+        fgReplacePred(bottom->bbJumpDest, top, bottom);
+        break;
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
 #ifdef DEBUG
@@ -1492,18 +1492,18 @@ void Compiler::fgInsertFuncletPrologBlock(BasicBlock* block)
 
             switch (predBlock->bbJumpKind)
             {
-                case BBJ_CALLFINALLY:
-                    noway_assert(predBlock->bbJumpDest == block);
-                    predBlock->bbJumpDest = newHead;
-                    fgRemoveRefPred(block, predBlock);
-                    fgAddRefPred(newHead, predBlock);
-                    break;
+            case BBJ_CALLFINALLY:
+                noway_assert(predBlock->bbJumpDest == block);
+                predBlock->bbJumpDest = newHead;
+                fgRemoveRefPred(block, predBlock);
+                fgAddRefPred(newHead, predBlock);
+                break;
 
-                default:
-                    // The only way into the handler is via a BBJ_CALLFINALLY (to a finally handler), or
-                    // via exception handling.
-                    noway_assert(false);
-                    break;
+            default:
+                // The only way into the handler is via a BBJ_CALLFINALLY (to a finally handler), or
+                // via exception handling.
+                noway_assert(false);
+                break;
             }
         }
     }
@@ -1622,33 +1622,33 @@ unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit)
 
     switch (block->bbJumpKind)
     {
-        case BBJ_NONE:
-            costSz = 0;
-            break;
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-        case BBJ_COND:
-            costSz = 2;
-            break;
-        case BBJ_CALLFINALLY:
-            costSz = 5;
-            break;
-        case BBJ_SWITCH:
-            costSz = 10;
-            break;
-        case BBJ_THROW:
-            costSz = 1; // We place a int3 after the code for a throw block
-            break;
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-            costSz = 1;
-            break;
-        case BBJ_RETURN:
-            costSz = 3;
-            break;
-        default:
-            unreached();
+    case BBJ_NONE:
+        costSz = 0;
+        break;
+    case BBJ_ALWAYS:
+    case BBJ_EHCATCHRET:
+    case BBJ_LEAVE:
+    case BBJ_COND:
+        costSz = 2;
+        break;
+    case BBJ_CALLFINALLY:
+        costSz = 5;
+        break;
+    case BBJ_SWITCH:
+        costSz = 10;
+        break;
+    case BBJ_THROW:
+        costSz = 1; // We place a int3 after the code for a throw block
+        break;
+    case BBJ_EHFINALLYRET:
+    case BBJ_EHFILTERRET:
+        costSz = 1;
+        break;
+    case BBJ_RETURN:
+        costSz = 3;
+        break;
+    default:
+        unreached();
     }
 
     for (Statement* stmt : block->NonPhiStatements())
@@ -1788,52 +1788,52 @@ void Compiler::phDetermineFirstColdBlock()
         {
             switch (prevToFirstColdBlock->bbJumpKind)
             {
-                default:
-                    noway_assert(!"Unhandled jumpkind in fgDetermineFirstColdBlock()");
-                    break;
+            default:
+                noway_assert(!"Unhandled jumpkind in fgDetermineFirstColdBlock()");
+                break;
 
-                case BBJ_CALLFINALLY:
-                    // A BBJ_CALLFINALLY that falls through is always followed
-                    // by an empty BBJ_ALWAYS.
-                    assert(prevToFirstColdBlock->isBBCallAlwaysPair());
+            case BBJ_CALLFINALLY:
+                // A BBJ_CALLFINALLY that falls through is always followed
+                // by an empty BBJ_ALWAYS.
+                assert(prevToFirstColdBlock->isBBCallAlwaysPair());
+                // Note that firstColdBlock could become null.
+                firstColdBlock = firstColdBlock->bbNext;
+                break;
+
+            case BBJ_COND:
+                //
+                // This is a slightly more complicated case, because we will
+                // probably need to insert a block to jump to the cold section.
+                //
+                if (firstColdBlock->isEmpty() && (firstColdBlock->bbJumpKind == BBJ_ALWAYS))
+                {
+                    // We can just use this block as the transitionBlock.
                     // Note that firstColdBlock could become null.
                     firstColdBlock = firstColdBlock->bbNext;
-                    break;
+                }
+                else
+                {
+                    BasicBlock* transitionBlock = fgNewBBafter(BBJ_ALWAYS, prevToFirstColdBlock, true);
+                    transitionBlock->bbJumpDest = firstColdBlock;
+                    transitionBlock->inheritWeight(firstColdBlock);
 
-                case BBJ_COND:
-                    //
-                    // This is a slightly more complicated case, because we will
-                    // probably need to insert a block to jump to the cold section.
-                    //
-                    if (firstColdBlock->isEmpty() && (firstColdBlock->bbJumpKind == BBJ_ALWAYS))
-                    {
-                        // We can just use this block as the transitionBlock.
-                        // Note that firstColdBlock could become null.
-                        firstColdBlock = firstColdBlock->bbNext;
-                    }
-                    else
-                    {
-                        BasicBlock* transitionBlock = fgNewBBafter(BBJ_ALWAYS, prevToFirstColdBlock, true);
-                        transitionBlock->bbJumpDest = firstColdBlock;
-                        transitionBlock->inheritWeight(firstColdBlock);
+                    noway_assert(fgComputePredsDone);
 
-                        noway_assert(fgComputePredsDone);
+                    // Update the predecessor list for firstColdBlock
+                    fgReplacePred(firstColdBlock, prevToFirstColdBlock, transitionBlock);
 
-                        // Update the predecessor list for firstColdBlock
-                        fgReplacePred(firstColdBlock, prevToFirstColdBlock, transitionBlock);
+                    // Add prevToFirstColdBlock as a predecessor for transitionBlock
+                    fgAddRefPred(transitionBlock, prevToFirstColdBlock);
+                }
+                break;
 
-                        // Add prevToFirstColdBlock as a predecessor for transitionBlock
-                        fgAddRefPred(transitionBlock, prevToFirstColdBlock);
-                    }
-                    break;
+            case BBJ_NONE:
+                // If the block preceding the first cold block is BBJ_NONE,
+                // convert it to BBJ_ALWAYS to force an explicit jump.
 
-                case BBJ_NONE:
-                    // If the block preceding the first cold block is BBJ_NONE,
-                    // convert it to BBJ_ALWAYS to force an explicit jump.
-
-                    prevToFirstColdBlock->bbJumpDest = firstColdBlock;
-                    prevToFirstColdBlock->bbJumpKind = BBJ_ALWAYS;
-                    break;
+                prevToFirstColdBlock->bbJumpDest = firstColdBlock;
+                prevToFirstColdBlock->bbJumpKind = BBJ_ALWAYS;
+                break;
             }
         }
     }
@@ -1872,18 +1872,18 @@ CorInfoHelpFunc Compiler::GetThrowHelperCall(ThrowHelperKind kind)
     {
         static_assert_no_msg(ThrowHelperKind::Arithmetic == ThrowHelperKind::Overflow);
 
-        case ThrowHelperKind::IndexOutOfRange:
-            return CORINFO_HELP_RNGCHKFAIL;
-        case ThrowHelperKind::DivideByZero:
-            return CORINFO_HELP_THROWDIVZERO;
-        case ThrowHelperKind::Overflow:
-            return CORINFO_HELP_OVERFLOW;
-        case ThrowHelperKind::Argument:
-            return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
-        case ThrowHelperKind::ArgumentOutOfRange:
-            return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
-        default:
-            unreached();
+    case ThrowHelperKind::IndexOutOfRange:
+        return CORINFO_HELP_RNGCHKFAIL;
+    case ThrowHelperKind::DivideByZero:
+        return CORINFO_HELP_THROWDIVZERO;
+    case ThrowHelperKind::Overflow:
+        return CORINFO_HELP_OVERFLOW;
+    case ThrowHelperKind::Argument:
+        return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
+    case ThrowHelperKind::ArgumentOutOfRange:
+        return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
+    default:
+        unreached();
     }
 }
 
@@ -1949,24 +1949,24 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
         const char* msg;
         switch (kind)
         {
-            case ThrowHelperKind::IndexOutOfRange:
-                msg = "IndexOutOfRange";
-                break;
-            case ThrowHelperKind::DivideByZero:
-                msg = "DivideByZero";
-                break;
-            case ThrowHelperKind::Overflow:
-                msg = "Overflow";
-                break;
-            case ThrowHelperKind::Argument:
-                msg = "Argument";
-                break;
-            case ThrowHelperKind::ArgumentOutOfRange:
-                msg = "ArgumentOutOfRange";
-                break;
-            default:
-                msg = "???";
-                break;
+        case ThrowHelperKind::IndexOutOfRange:
+            msg = "IndexOutOfRange";
+            break;
+        case ThrowHelperKind::DivideByZero:
+            msg = "DivideByZero";
+            break;
+        case ThrowHelperKind::Overflow:
+            msg = "Overflow";
+            break;
+        case ThrowHelperKind::Argument:
+            msg = "Argument";
+            break;
+        case ThrowHelperKind::ArgumentOutOfRange:
+            msg = "ArgumentOutOfRange";
+            break;
+        default:
+            msg = "???";
+            break;
         }
 
         printf("\nAdding throw helper block in %s for %sException, new block " FMT_BB "\n", msgWhere, msg,
@@ -2152,22 +2152,22 @@ void Compiler::fgLoopCallMark()
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_COND:
-            case BBJ_CALLFINALLY:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                fgLoopCallTest(block, block->bbJumpDest);
-                break;
+        case BBJ_COND:
+        case BBJ_CALLFINALLY:
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+            fgLoopCallTest(block, block->bbJumpDest);
+            break;
 
-            case BBJ_SWITCH:
-                for (BasicBlock* target : block->SwitchTargets())
-                {
-                    fgLoopCallTest(block, target);
-                }
-                break;
+        case BBJ_SWITCH:
+            for (BasicBlock* target : block->SwitchTargets())
+            {
+                fgLoopCallTest(block, target);
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 }
@@ -2261,40 +2261,40 @@ void Compiler::phSetFullyInterruptible()
 
             switch (block->bbJumpKind)
             {
-                case BBJ_COND:
-                case BBJ_ALWAYS:
-                    if (!EdgeIsGCSafe(block, block->bbJumpDest))
+            case BBJ_COND:
+            case BBJ_ALWAYS:
+                if (!EdgeIsGCSafe(block, block->bbJumpDest))
+                {
+                    fullyInterruptible = true;
+                }
+                break;
+
+            case BBJ_SWITCH:
+                for (BasicBlock* target : block->SwitchTargets())
+                {
+                    if (!EdgeIsGCSafe(block, target))
                     {
                         fullyInterruptible = true;
+                        break;
                     }
-                    break;
-
-                case BBJ_SWITCH:
-                    for (BasicBlock* target : block->SwitchTargets())
-                    {
-                        if (!EdgeIsGCSafe(block, target))
-                        {
-                            fullyInterruptible = true;
-                            break;
-                        }
-                    }
-                    break;
+                }
+                break;
 
 #if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
-                case BBJ_RETURN:
-                case BBJ_THROW:
-                    // Tail calls might combine to form a loop. We need to either add a poll,
-                    // or make the method fully interruptible. JIT64 did the later.
-                    if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) &&
-                        (!fgFirstBB->HasGCSafePoint() && !block->HasGCSafePoint()))
-                    {
-                        fullyInterruptible = true;
-                    }
-                    break;
+            case BBJ_RETURN:
+            case BBJ_THROW:
+                // Tail calls might combine to form a loop. We need to either add a poll,
+                // or make the method fully interruptible. JIT64 did the later.
+                if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) &&
+                    (!fgFirstBB->HasGCSafePoint() && !block->HasGCSafePoint()))
+                {
+                    fullyInterruptible = true;
+                }
+                break;
 #endif
 
-                default:
-                    break;
+            default:
+                break;
             }
 
             if (fullyInterruptible)

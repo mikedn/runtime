@@ -177,334 +177,334 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
     switch (node->GetOper())
     {
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-            break;
-        case GT_LCL_LOAD:
-            LowerLclLoad(node->AsLclLoad());
-            break;
-        case GT_LCL_STORE:
-            LowerLclStore(node->AsLclStore());
-            break;
-        case GT_LCL_LOAD_FLD:
-            LowerLclLoadFld(node->AsLclLoadFld());
-            break;
-        case GT_LCL_STORE_FLD:
-            LowerLclStoreFld(node->AsLclStoreFld());
-            break;
-        case GT_NULLCHECK:
-        case GT_IND_LOAD:
-            LowerIndir(node->AsIndir());
-            break;
-        case GT_IND_STORE:
-            LowerIndStore(node->AsIndStore());
-            break;
-        case GT_IND_STORE_OBJ:
-            LowerIndStoreObj(node->AsIndStoreObj());
-            break;
-        case GT_IND_STORE_BLK:
-            LowerIndStoreBlk(node->AsIndStoreBlk());
-            break;
+    case GT_LCL_ADDR:
+        assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+        break;
+    case GT_LCL_LOAD:
+        LowerLclLoad(node->AsLclLoad());
+        break;
+    case GT_LCL_STORE:
+        LowerLclStore(node->AsLclStore());
+        break;
+    case GT_LCL_LOAD_FLD:
+        LowerLclLoadFld(node->AsLclLoadFld());
+        break;
+    case GT_LCL_STORE_FLD:
+        LowerLclStoreFld(node->AsLclStoreFld());
+        break;
+    case GT_NULLCHECK:
+    case GT_IND_LOAD:
+        LowerIndir(node->AsIndir());
+        break;
+    case GT_IND_STORE:
+        LowerIndStore(node->AsIndStore());
+        break;
+    case GT_IND_STORE_OBJ:
+        LowerIndStoreObj(node->AsIndStoreObj());
+        break;
+    case GT_IND_STORE_BLK:
+        LowerIndStoreBlk(node->AsIndStoreBlk());
+        break;
 
 #ifdef TARGET_ARM
-        case GT_FMUL:
-            LowerFloatMul(node->AsOp());
-            break;
+    case GT_FMUL:
+        LowerFloatMul(node->AsOp());
+        break;
 #endif
 
 #ifdef TARGET_ARM64
-        case GT_FXT:
-            LowerFloatExtend(node->AsUnOp());
-            break;
-        case GT_FTRUNC:
-            LowerFloatTruncate(node->AsUnOp());
-            break;
-        case GT_FNEG:
-            LowerFloatNegate(node->AsUnOp());
-            break;
+    case GT_FXT:
+        LowerFloatExtend(node->AsUnOp());
+        break;
+    case GT_FTRUNC:
+        LowerFloatTruncate(node->AsUnOp());
+        break;
+    case GT_FNEG:
+        LowerFloatNegate(node->AsUnOp());
+        break;
 
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            LowerFloatArithmetic(node->AsOp());
-            break;
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+        LowerFloatArithmetic(node->AsOp());
+        break;
 
-        case GT_INTRINSIC:
-            LowerIntrinsic(node->AsIntrinsic());
-            break;
+    case GT_INTRINSIC:
+        LowerIntrinsic(node->AsIntrinsic());
+        break;
 
-        case GT_NOT:
-            LowerNot(node->AsUnOp());
-            break;
+    case GT_NOT:
+        LowerNot(node->AsUnOp());
+        break;
 
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-            LowerLogical(node->AsOp());
-            break;
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+        LowerLogical(node->AsOp());
+        break;
 
-        case GT_NEG:
-            LowerNegate(node->AsUnOp());
-            break;
+    case GT_NEG:
+        LowerNegate(node->AsUnOp());
+        break;
 
-        case GT_ADD:
-        case GT_SUB:
-            LowerArithmetic(node->AsOp());
-            break;
+    case GT_ADD:
+    case GT_SUB:
+        LowerArithmetic(node->AsOp());
+        break;
 
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            ContainCheckBinary(node->AsOp());
-            break;
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        ContainCheckBinary(node->AsOp());
+        break;
 
-        case GT_MUL:
-        case GT_SMULH:
-        case GT_UMULH:
-            LowerMultiply(node->AsOp());
-            break;
+    case GT_MUL:
+    case GT_SMULH:
+    case GT_UMULH:
+        LowerMultiply(node->AsOp());
+        break;
 
-        case GT_UDIV:
-            LowerUnsignedDiv(node->AsOp());
-            break;
+    case GT_UDIV:
+        LowerUnsignedDiv(node->AsOp());
+        break;
 
-        case GT_SDIV:
-            return LowerSignedDiv(node->AsOp());
+    case GT_SDIV:
+        return LowerSignedDiv(node->AsOp());
 
-        case GT_UREM:
-        case GT_SREM:
-            unreached();
+    case GT_UREM:
+    case GT_SREM:
+        unreached();
 
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        case GT_EQ:
-        case GT_NE:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-        case GT_CMP:
-            return LowerRelop(node->AsOp());
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+    case GT_EQ:
+    case GT_NE:
+    case GT_TEST_EQ:
+    case GT_TEST_NE:
+    case GT_CMP:
+        return LowerRelop(node->AsOp());
 
-        case GT_BOUNDS_CHECK:
-            ContainCheckBoundsChk(node->AsBoundsChk());
-            break;
+    case GT_BOUNDS_CHECK:
+        ContainCheckBoundsChk(node->AsBoundsChk());
+        break;
 
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-            ContainImmOperand(node, node->AsOp()->GetOp(1));
-            break;
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+        ContainImmOperand(node, node->AsOp()->GetOp(1));
+        break;
 
-        case GT_CMPXCHG:
-            ContainImmOperand(node, node->AsCmpXchg()->GetCompareValue());
-            break;
+    case GT_CMPXCHG:
+        ContainImmOperand(node, node->AsCmpXchg()->GetCompareValue());
+        break;
 #else // TARGET_ARM64
 
 #ifdef TARGET_XARCH
-        case GT_MUL:
-        case GT_SMULH:
-        case GT_UMULH:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
+    case GT_MUL:
+    case GT_SMULH:
+    case GT_UMULH:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
 #ifdef TARGET_X86
-        case GT_SMULL:
-        case GT_UMULL:
+    case GT_SMULL:
+    case GT_UMULL:
 #endif
-            ContainCheckMul(node->AsOp());
-            break;
+        ContainCheckMul(node->AsOp());
+        break;
 
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            ContainCheckFloatBinary(node->AsOp());
-            break;
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+        ContainCheckFloatBinary(node->AsOp());
+        break;
 
-        case GT_FXT:
-        case GT_FTRUNC:
-            return LowerFloatConvert(node->AsUnOp());
+    case GT_FXT:
+    case GT_FTRUNC:
+        return LowerFloatConvert(node->AsUnOp());
 
-        case GT_INTRINSIC:
-            ContainCheckIntrinsic(node->AsIntrinsic());
-            break;
+    case GT_INTRINSIC:
+        ContainCheckIntrinsic(node->AsIntrinsic());
+        break;
 
-        case GT_BOUNDS_CHECK:
-            ContainCheckBoundsChk(node->AsBoundsChk());
-            break;
+    case GT_BOUNDS_CHECK:
+        ContainCheckBoundsChk(node->AsBoundsChk());
+        break;
 
-        case GT_XADD:
-            ContainCheckXAdd(node->AsOp());
-            break;
+    case GT_XADD:
+        ContainCheckXAdd(node->AsOp());
+        break;
 #endif // TARGET_XARCH
 
-        case GT_ADD:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-            if (GenTree* next = LowerAdd(node->AsOp()))
-            {
-                return next;
-            }
-            break;
+    case GT_ADD:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+        if (GenTree* next = LowerAdd(node->AsOp()))
+        {
+            return next;
+        }
+        break;
 
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
 #ifdef TARGET_ARM
-            node->AddImplicitFlagsDef();
+        node->AddImplicitFlagsDef();
 #endif
-            FALLTHROUGH;
+        FALLTHROUGH;
 #ifndef TARGET_64BIT
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
+    case GT_ADD_LO:
+    case GT_ADD_HI:
+    case GT_SUB_LO:
+    case GT_SUB_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
 #endif
-        case GT_AND:
-        case GT_SUB:
-        case GT_OR:
-        case GT_XOR:
-            ContainCheckBinary(node->AsOp());
-            break;
+    case GT_AND:
+    case GT_SUB:
+    case GT_OR:
+    case GT_XOR:
+        ContainCheckBinary(node->AsOp());
+        break;
 
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        case GT_EQ:
-        case GT_NE:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-        case GT_CMP:
-            return LowerCompare(node->AsOp());
+    case GT_LT:
+    case GT_LE:
+    case GT_GT:
+    case GT_GE:
+    case GT_EQ:
+    case GT_NE:
+    case GT_TEST_EQ:
+    case GT_TEST_NE:
+    case GT_CMP:
+        return LowerCompare(node->AsOp());
 
 #ifndef USE_HELPERS_FOR_INT_DIV
-        case GT_UDIV:
-        case GT_UREM:
-            if (!LowerUnsignedDivRem(node->AsOp()))
-            {
-                ContainCheckDivRem(node->AsOp());
-            }
-            break;
+    case GT_UDIV:
+    case GT_UREM:
+        if (!LowerUnsignedDivRem(node->AsOp()))
+        {
+            ContainCheckDivRem(node->AsOp());
+        }
+        break;
 #endif
 
-        case GT_SDIV:
-        case GT_SREM:
-            return LowerSignedDivRem(node);
+    case GT_SDIV:
+    case GT_SREM:
+        return LowerSignedDivRem(node);
 #endif // !TARGET_ARM64
 
-        case GT_ROL:
+    case GT_ROL:
 #ifdef TARGET_XARCH
-            LowerRotateLeft(node->AsOp());
-            break;
+        LowerRotateLeft(node->AsOp());
+        break;
 #else
-            unreached();
+        unreached();
 #endif
 
-        case GT_ROR:
-            LowerRotateRight(node->AsOp());
-            break;
+    case GT_ROR:
+        LowerRotateRight(node->AsOp());
+        break;
 
-        case GT_SWITCH:
-            return LowerSwitch(node->AsUnOp());
+    case GT_SWITCH:
+        return LowerSwitch(node->AsUnOp());
 
-        case GT_CALL:
-            LowerCall(node->AsCall());
-            break;
+    case GT_CALL:
+        LowerCall(node->AsCall());
+        break;
 
-        case GT_JTRUE:
-            return LowerJTrue(node->AsUnOp());
+    case GT_JTRUE:
+        return LowerJTrue(node->AsUnOp());
 
-        case GT_JMP:
-            LowerJmp(node->AsJmp());
-            break;
+    case GT_JMP:
+        LowerJmp(node->AsJmp());
+        break;
 
-        case GT_RETURN:
-            LowerReturn(node->AsUnOp());
-            break;
+    case GT_RETURN:
+        LowerReturn(node->AsUnOp());
+        break;
 
-        case GT_RETURNTRAP:
-            ContainCheckReturnTrap(node->AsOp());
-            break;
+    case GT_RETURNTRAP:
+        ContainCheckReturnTrap(node->AsOp());
+        break;
 
-        case GT_BITCAST:
-            return LowerBitCast(node->AsUnOp());
+    case GT_BITCAST:
+        return LowerBitCast(node->AsUnOp());
 
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            LowerOvfConv(node->AsUnOp());
-            break;
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        LowerOvfConv(node->AsUnOp());
+        break;
 
-        case GT_OVF_U:
-            LowerOvfUnsigned(node->AsUnOp());
-            break;
+    case GT_OVF_U:
+        LowerOvfUnsigned(node->AsUnOp());
+        break;
 
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            LowerOvfTruncate(node->AsUnOp());
-            break;
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+        LowerOvfTruncate(node->AsUnOp());
+        break;
 
-        case GT_CONV:
-            return LowerConv(node->AsUnOp());
+    case GT_CONV:
+        return LowerConv(node->AsUnOp());
 
 #ifdef TARGET_64BIT
-        case GT_TRUNC:
-            return LowerTruncate(node->AsUnOp());
-        case GT_SXT:
-            LowerSignedExtend(node->AsUnOp());
-            break;
-        case GT_UXT:
-            LowerUnsignedExtend(node->AsUnOp());
-            break;
+    case GT_TRUNC:
+        return LowerTruncate(node->AsUnOp());
+    case GT_SXT:
+        LowerSignedExtend(node->AsUnOp());
+        break;
+    case GT_UXT:
+        LowerUnsignedExtend(node->AsUnOp());
+        break;
 #endif
 
-        case GT_STOF:
-        case GT_UTOF:
-            LowerIntToFloat(node->AsUnOp());
-            break;
+    case GT_STOF:
+    case GT_UTOF:
+        LowerIntToFloat(node->AsUnOp());
+        break;
 
-        case GT_FTOS:
-        case GT_FTOU:
-            LowerFloatToInt(node->AsUnOp());
-            break;
+    case GT_FTOS:
+    case GT_FTOU:
+        LowerFloatToInt(node->AsUnOp());
+        break;
 
-        case GT_ARR_ELEM:
-            return LowerArrElem(node->AsArrElem());
+    case GT_ARR_ELEM:
+        return LowerArrElem(node->AsArrElem());
 
 #ifndef TARGET_64BIT
-        case GT_LSH_HI:
-        case GT_RSH_LO:
-            ContainCheckShiftRotate(node->AsOp());
-            break;
+    case GT_LSH_HI:
+    case GT_RSH_LO:
+        ContainCheckShiftRotate(node->AsOp());
+        break;
 #endif
 
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-            LowerShift(node->AsOp());
-            break;
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+        LowerShift(node->AsOp());
+        break;
 
-        case GT_LCLHEAP:
-            LowerLclHeap(node->AsUnOp());
-            break;
+    case GT_LCLHEAP:
+        LowerLclHeap(node->AsUnOp());
+        break;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            LowerHWIntrinsic(node->AsHWIntrinsic());
-            break;
+    case GT_HWINTRINSIC:
+        LowerHWIntrinsic(node->AsHWIntrinsic());
+        break;
 #endif
 
-        case GT_KEEPALIVE:
-            return LowerKeepAlive(node->AsUnOp());
+    case GT_KEEPALIVE:
+        return LowerKeepAlive(node->AsUnOp());
 
-        default:
-            break;
+    default:
+        break;
     }
 
     return node->gtNext;
@@ -2829,34 +2829,34 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
 
     switch (src->GetOper())
     {
-        case GT_CALL:
-            assert(src->TypeIs(retRegType)); // Type should be changed during call processing.
-            break;
+    case GT_CALL:
+        assert(src->TypeIs(retRegType)); // Type should be changed during call processing.
+        break;
 
-        case GT_LCL_LOAD:
-            LowerRetSingleRegStructLclVar(ret);
-            break;
+    case GT_LCL_LOAD:
+        LowerRetSingleRegStructLclVar(ret);
+        break;
 
-        case GT_LCL_LOAD_FLD:
-            assert(src->AsLclLoadFld()->GetLcl()->lvDoNotEnregister);
-            src->SetType(retRegType);
-            break;
+    case GT_LCL_LOAD_FLD:
+        assert(src->AsLclLoadFld()->GetLcl()->lvDoNotEnregister);
+        src->SetType(retRegType);
+        break;
 
-        case GT_CNS_INT:
-        case GT_CNS_DBL:
-            unreached();
+    case GT_CNS_INT:
+    case GT_CNS_DBL:
+        unreached();
 
-        default:
-            assert(!src->TypeIs(TYP_STRUCT));
+    default:
+        assert(!src->TypeIs(TYP_STRUCT));
 
-            if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
-            {
-                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
-                ret->SetOp(0, bitcast);
-                BlockRange().InsertBefore(ret, bitcast);
-                LowerBitCast(bitcast);
-            }
-            break;
+        if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
+        {
+            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
+            ret->SetOp(0, bitcast);
+            BlockRange().InsertBefore(ret, bitcast);
+            LowerBitCast(bitcast);
+        }
+        break;
     }
 }
 
@@ -2923,30 +2923,30 @@ void Lowering::LowerStructCall(GenTreeCall* call)
 
     switch (user->GetOper())
     {
-        case GT_RETURN:
+    case GT_RETURN:
+        call->SetType(varActualType(regType));
+        break;
+
+    case GT_LCL_STORE:
+    case GT_LCL_STORE_FLD:
+    case GT_IND_STORE_OBJ:
+        // Leave as is, the user will handle it.
+        assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
+        break;
+
+    case GT_IND_STORE:
+        if (!varTypeIsSIMD(user->GetType()))
+        {
             call->SetType(varActualType(regType));
-            break;
 
-        case GT_LCL_STORE:
-        case GT_LCL_STORE_FLD:
-        case GT_IND_STORE_OBJ:
-            // Leave as is, the user will handle it.
-            assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
-            break;
+            assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
+            assert(call->IsHelperCall());
+            assert(regType == user->GetType());
+        }
+        break;
 
-        case GT_IND_STORE:
-            if (!varTypeIsSIMD(user->GetType()))
-            {
-                call->SetType(varActualType(regType));
-
-                assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
-                assert(call->IsHelperCall());
-                assert(regType == user->GetType());
-            }
-            break;
-
-        default:
-            unreached();
+    default:
+        unreached();
     }
 }
 
@@ -4403,46 +4403,46 @@ void Lowering::VerifyNode(GenTree* node)
 {
     switch (node->GetOper())
     {
-        case GT_CALL:
-            VerifyCall(node->AsCall());
-            break;
-
-#ifdef FEATURE_SIMD
-        case GT_HWINTRINSIC:
-            assert(!node->TypeIs(TYP_SIMD12));
-            break;
-#endif
-
-        case GT_LCL_LOAD:
-        case GT_LCL_STORE:
-        {
-            LclVarDsc* lcl = node->AsLclVar()->GetLcl();
-#ifdef FEATURE_SIMD
-            assert(!node->TypeIs(TYP_SIMD12) || !CanWidenSimd12ToSimd16(lcl));
-#endif
-            assert(!lcl->IsPromoted() || lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
-        }
+    case GT_CALL:
+        VerifyCall(node->AsCall());
         break;
 
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-            break;
+#ifdef FEATURE_SIMD
+    case GT_HWINTRINSIC:
+        assert(!node->TypeIs(TYP_SIMD12));
+        break;
+#endif
 
-        case GT_PHI:
-        case GT_LCL_USE:
-        case GT_LCL_DEF:
-        case GT_INSERT:
-        case GT_EXTRACT:
-            assert(!"Should not see SSA nodes in lowering");
-            break;
+    case GT_LCL_LOAD:
+    case GT_LCL_STORE:
+    {
+        LclVarDsc* lcl = node->AsLclVar()->GetLcl();
+#ifdef FEATURE_SIMD
+        assert(!node->TypeIs(TYP_SIMD12) || !CanWidenSimd12ToSimd16(lcl));
+#endif
+        assert(!lcl->IsPromoted() || lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
+    }
+    break;
 
-        case GT_LCL_LOAD_FLD:
-        case GT_LCL_STORE_FLD:
-            assert(node->AsLclFld()->GetLcl()->lvDoNotEnregister);
-            break;
+    case GT_LCL_ADDR:
+        assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+        break;
 
-        default:
-            break;
+    case GT_PHI:
+    case GT_LCL_USE:
+    case GT_LCL_DEF:
+    case GT_INSERT:
+    case GT_EXTRACT:
+        assert(!"Should not see SSA nodes in lowering");
+        break;
+
+    case GT_LCL_LOAD_FLD:
+    case GT_LCL_STORE_FLD:
+        assert(node->AsLclFld()->GetLcl()->lvDoNotEnregister);
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -5371,24 +5371,24 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
     {
         switch (type)
         {
-            case TYP_BYTE:
-            case TYP_UBYTE:
-                u8[index] = icon->GetUInt8Value();
-                return true;
-            case TYP_SHORT:
-            case TYP_USHORT:
-                u16[index] = icon->GetUInt16Value();
-                return true;
-            case TYP_INT:
-                u32[index] = icon->GetUInt32Value();
-                return true;
+        case TYP_BYTE:
+        case TYP_UBYTE:
+            u8[index] = icon->GetUInt8Value();
+            return true;
+        case TYP_SHORT:
+        case TYP_USHORT:
+            u16[index] = icon->GetUInt16Value();
+            return true;
+        case TYP_INT:
+            u32[index] = icon->GetUInt32Value();
+            return true;
 #ifdef TARGET_64BIT
-            case TYP_LONG:
-                u64[index] = icon->GetUInt64Value();
-                return true;
+        case TYP_LONG:
+            u64[index] = icon->GetUInt64Value();
+            return true;
 #endif
-            default:
-                return false;
+        default:
+            return false;
         }
     }
 
@@ -5452,19 +5452,19 @@ bool Lowering::VectorConstant::Splat(GenTreeHWIntrinsic* create)
     {
         switch (eltSize)
         {
-            case 1:
-                u8[i] = u8[0];
-                break;
-            case 2:
-                u16[i] = u16[0];
-                break;
-            case 4:
-                u32[i] = u32[0];
-                break;
-            default:
-                assert(eltSize == 8);
-                u64[i] = u64[0];
-                break;
+        case 1:
+            u8[i] = u8[0];
+            break;
+        case 2:
+            u16[i] = u16[0];
+            break;
+        case 4:
+            u32[i] = u32[0];
+            break;
+        default:
+            assert(eltSize == 8);
+            u64[i] = u64[0];
+            break;
         }
     }
 

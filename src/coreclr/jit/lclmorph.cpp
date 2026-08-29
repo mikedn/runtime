@@ -280,211 +280,211 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_ADDR:
-                assert(TopValue(0).Node() == node);
+        case GT_LCL_ADDR:
+            assert(TopValue(0).Node() == node);
 
-                TopValue(0).Address(node->AsLclAddr());
-                break;
+            TopValue(0).Address(node->AsLclAddr());
+            break;
 
-            case GT_LCL_LOAD:
-                assert(TopValue(0).Node() == node);
+        case GT_LCL_LOAD:
+            assert(TopValue(0).Node() == node);
 
-                if (node->TypeIs(TYP_STRUCT))
-                {
-                    node        = MorphStructLclLoad(node->AsLclLoad(), user);
-                    TopValue(0) = node;
-                }
-                break;
+            if (node->TypeIs(TYP_STRUCT))
+            {
+                node        = MorphStructLclLoad(node->AsLclLoad(), user);
+                TopValue(0) = node;
+            }
+            break;
 
-            case GT_LCL_LOAD_FLD:
-                assert(TopValue(0).Node() == node);
+        case GT_LCL_LOAD_FLD:
+            assert(TopValue(0).Node() == node);
 
-                MorphLclLoadFld(node->AsLclLoadFld(), user);
-                break;
+            MorphLclLoadFld(node->AsLclLoadFld(), user);
+            break;
 
-            case GT_LCL_STORE:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
+        case GT_LCL_STORE:
+            assert(TopValue(1).Node() == node);
+            assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
 
+            EscapeValue(TopValue(0), node);
+            PopValue();
+
+            if (node->TypeIs(TYP_STRUCT))
+            {
+                MorphStructLclStore(node->AsLclStore());
+            }
+            break;
+
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD:
+            assert(TopValue(1).Node() == node);
+            assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
+
+            if (TopValue(0).IsAddress())
+            {
+                MorphLocalIndLoad(node->AsIndir(), TopValue(0), user);
+            }
+            else
+            {
                 EscapeValue(TopValue(0), node);
-                PopValue();
+            }
 
-                if (node->TypeIs(TYP_STRUCT))
-                {
-                    MorphStructLclStore(node->AsLclStore());
-                }
-                break;
+            PopValue();
+            break;
 
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_LOAD:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
+        case GT_IND_STORE:
+            assert(TopValue(2).Node() == node);
+            assert(TopValue(1).Node() == node->AsIndStore()->GetAddr());
+            assert(TopValue(0).Node() == node->AsIndStore()->GetValue());
 
-                if (TopValue(0).IsAddress())
-                {
-                    MorphLocalIndLoad(node->AsIndir(), TopValue(0), user);
-                }
-                else
-                {
-                    EscapeValue(TopValue(0), node);
-                }
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStore(node->AsIndStore(), TopValue(1));
+            }
+            else
+            {
+                EscapeValue(TopValue(1), node);
+            }
 
-                PopValue();
-                break;
+            EscapeValue(TopValue(0), node);
+            PopValue();
+            PopValue();
+            break;
 
-            case GT_IND_STORE:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndStore()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndStore()->GetValue());
+        case GT_IND_STORE_OBJ:
+            assert(TopValue(2).Node() == node);
+            assert(TopValue(1).Node() == node->AsIndStoreObj()->GetAddr());
+            assert(TopValue(0).Node() == node->AsIndStoreObj()->GetValue());
 
-                if (TopValue(1).IsAddress())
-                {
-                    MorphLocalIndStore(node->AsIndStore(), TopValue(1));
-                }
-                else
-                {
-                    EscapeValue(TopValue(1), node);
-                }
+            EscapeValue(TopValue(0), node);
+            MorphIndStoreObj(node->AsIndStoreObj(), TopValue(1));
 
+            PopValue();
+            PopValue();
+            break;
+
+        case GT_FIELD_ADDR:
+            assert(TopValue(1).Node() == node);
+            assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+
+            if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
+            {
                 EscapeValue(TopValue(0), node);
-                PopValue();
-                PopValue();
-                break;
+            }
 
-            case GT_IND_STORE_OBJ:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndStoreObj()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndStoreObj()->GetValue());
+            PopValue();
+            break;
 
+        case GT_ADD:
+            assert(TopValue(2).Node() == node);
+            assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
+            assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+
+            if (!TopValue(2).Add(TopValue(1), TopValue(0)))
+            {
+                EscapeValue(TopValue(1), node);
                 EscapeValue(TopValue(0), node);
-                MorphIndStoreObj(node->AsIndStoreObj(), TopValue(1));
+            }
 
-                PopValue();
-                PopValue();
-                break;
+            PopValue();
+            PopValue();
+            break;
 
-            case GT_FIELD_ADDR:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+        case GT_SUB:
+            assert(TopValue(2).Node() == node);
+            assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
+            assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
 
-                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
+            if (node->TypeIs(TYP_I_IMPL))
+            {
+                const Value& v1 = TopValue(1);
+                const Value& v2 = TopValue(0);
+
+                // We could handle SUB(local addr, constant) but those don't seem to exist nor
+                // they're likely to be useful. Instead, handle SUB(local addr1, local addr2),
+                // which also doesn't seem to exist but it could serve an useful purpose: to
+                // obtain the offset of a struct field as a cheap constant.
+
+                if (v1.IsAddress() && v2.IsAddress() && (v1.Lcl() == v2.Lcl()))
                 {
-                    EscapeValue(TopValue(0), node);
+                    node->ChangeToIntCon(static_cast<ssize_t>(v1.Offset()) - static_cast<ssize_t>(v2.Offset()));
+
+                    INDEBUG(v1.Consume();)
+                    INDEBUG(v2.Consume();)
                 }
+            }
 
-                PopValue();
-                break;
+            if (node->OperIs(GT_SUB))
+            {
+                EscapeValue(TopValue(1), node);
+                EscapeValue(TopValue(0), node);
+            }
 
-            case GT_ADD:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
-                assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+            PopValue();
+            PopValue();
+            break;
 
-                if (!TopValue(2).Add(TopValue(1), TopValue(0)))
-                {
-                    EscapeValue(TopValue(1), node);
-                    EscapeValue(TopValue(0), node);
-                }
+        case GT_BITCAST:
+            assert(TopValue(1).Node() == node);
+            assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 
-                PopValue();
-                PopValue();
-                break;
+            if (!TopValue(1).Cast(TopValue(0), node->AsUnOp()))
+            {
+                EscapeValue(TopValue(0), node);
+            }
 
-            case GT_SUB:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
-                assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+            PopValue();
+            break;
 
-                if (node->TypeIs(TYP_I_IMPL))
-                {
-                    const Value& v1 = TopValue(1);
-                    const Value& v2 = TopValue(0);
-
-                    // We could handle SUB(local addr, constant) but those don't seem to exist nor
-                    // they're likely to be useful. Instead, handle SUB(local addr1, local addr2),
-                    // which also doesn't seem to exist but it could serve an useful purpose: to
-                    // obtain the offset of a struct field as a cheap constant.
-
-                    if (v1.IsAddress() && v2.IsAddress() && (v1.Lcl() == v2.Lcl()))
-                    {
-                        node->ChangeToIntCon(static_cast<ssize_t>(v1.Offset()) - static_cast<ssize_t>(v2.Offset()));
-
-                        INDEBUG(v1.Consume();)
-                        INDEBUG(v2.Consume();)
-                    }
-                }
-
-                if (node->OperIs(GT_SUB))
-                {
-                    EscapeValue(TopValue(1), node);
-                    EscapeValue(TopValue(0), node);
-                }
-
-                PopValue();
-                PopValue();
-                break;
-
-            case GT_BITCAST:
+        case GT_RETURN:
+            if (TopValue(0).Node() != node)
+            {
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 
-                if (!TopValue(1).Cast(TopValue(0), node->AsUnOp()))
+                GenTreeUnOp* ret   = node->AsUnOp();
+                GenTree*     value = ret->GetOp(0);
+
+                if (value->OperIs(GT_LCL_LOAD))
                 {
-                    EscapeValue(TopValue(0), node);
+                    // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small, having
+                    // `doNotEnregister` affect block init and copy transformations that affect many methods.
+                    // I have a change that introduces more precise and effective solution for that, but it would
+                    // be merged separately.
+
+                    LclVarDsc* lcl = value->AsLclLoad()->GetLcl();
+
+                    if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
+                        lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsVec(lcl->GetType()))
+                    {
+                        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
+                    }
                 }
 
+                EscapeValue(TopValue(0), node);
                 PopValue();
-                break;
 
-            case GT_RETURN:
-                if (TopValue(0).Node() != node)
+                if (value->TypeIs(TYP_STRUCT) && IsMergedReturn(ret))
                 {
-                    assert(TopValue(1).Node() == node);
-                    assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
 
-                    GenTreeUnOp* ret   = node->AsUnOp();
-                    GenTree*     value = ret->GetOp(0);
-
-                    if (value->OperIs(GT_LCL_LOAD))
+                    if (lcl->IsPromoted())
                     {
-                        // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small, having
-                        // `doNotEnregister` affect block init and copy transformations that affect many methods.
-                        // I have a change that introduces more precise and effective solution for that, but it would
-                        // be merged separately.
-
-                        LclVarDsc* lcl = value->AsLclLoad()->GetLcl();
-
-                        if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
-                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsVec(lcl->GetType()))
-                        {
-                            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
-                        }
-                    }
-
-                    EscapeValue(TopValue(0), node);
-                    PopValue();
-
-                    if (value->TypeIs(TYP_STRUCT) && IsMergedReturn(ret))
-                    {
-                        LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
-
-                        if (lcl->IsPromoted())
-                        {
-                            assert(lcl->GetPromotedFieldCount() == 1);
-                            RetypeMergedReturnValue(ret, value, lcl);
-                        }
+                        assert(lcl->GetPromotedFieldCount() == 1);
+                        RetypeMergedReturnValue(ret, value, lcl);
                     }
                 }
-                break;
+            }
+            break;
 
-            default:
-                while (TopValue(0).Node() != node)
-                {
-                    EscapeValue(TopValue(0), node);
-                    PopValue();
-                }
-                break;
+        default:
+            while (TopValue(0).Node() != node)
+            {
+                EscapeValue(TopValue(0), node);
+                PopValue();
+            }
+            break;
         }
 
         assert(TopValue(0).Node() == node);
@@ -1718,35 +1718,35 @@ private:
 
         switch (varActualType(type))
         {
-            case TYP_INT:
-                break;
-            case TYP_LONG:
+        case TYP_INT:
+            break;
+        case TYP_LONG:
 #ifdef TARGET_64BIT
-                zero->SetType(TYP_LONG);
+            zero->SetType(TYP_LONG);
 #else
-                zero->ChangeToLngCon(0);
+            zero->ChangeToLngCon(0);
 #endif
-                break;
-            case TYP_BYREF:
-            case TYP_REF:
-                zero->SetType(type);
-                break;
-            case TYP_FLOAT:
-            case TYP_DOUBLE:
-                zero->ChangeToDblCon(type, 0);
-                break;
+            break;
+        case TYP_BYREF:
+        case TYP_REF:
+            zero->SetType(type);
+            break;
+        case TYP_FLOAT:
+        case TYP_DOUBLE:
+            zero->ChangeToDblCon(type, 0);
+            break;
 #ifdef FEATURE_SIMD
-            case TYP_SIMD8:
-            case TYP_SIMD12:
-            case TYP_SIMD16:
-            case TYP_SIMD32:
-                zero->ChangeOper(GT_HWINTRINSIC);
-                zero->SetType(varTypeTargetVec(type));
-                zero->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(type), 0);
-                break;
+        case TYP_SIMD8:
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+        case TYP_SIMD32:
+            zero->ChangeOper(GT_HWINTRINSIC);
+            zero->SetType(varTypeTargetVec(type));
+            zero->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(type), 0);
+            break;
 #endif
-            default:
-                unreached();
+        default:
+            unreached();
         }
 
         return zero;
@@ -2192,12 +2192,12 @@ void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src
     // Don't block promotion due to intrinsics that we can promote.
     switch (src->GetIntrinsic())
     {
-        case NI_VEC_PACK:
-        case NI_VEC_SPLAT:
-        case NI_VEC_ZERO:
-            return;
-        default:
-            break;
+    case NI_VEC_PACK:
+    case NI_VEC_SPLAT:
+    case NI_VEC_ZERO:
+        return;
+    default:
+        break;
     }
 
     lcl->lvUsedInVecIntrinsic = true;
@@ -3009,25 +3009,25 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_ADDR:
+        case GT_LCL_ADDR:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-                MorphImplicitByRefParamAddr(node->AsLclAddr());
+            MorphImplicitByRefParamAddr(node->AsLclAddr());
 #else
-                MorphVarargsStackParamAddr(node->AsLclAddr());
+            MorphVarargsStackParamAddr(node->AsLclAddr());
 #endif
-                return GenTreeWalkResult::Skip;
-            case GT_LCL_STORE:
-            case GT_LCL_STORE_FLD:
-            case GT_LCL_LOAD:
-            case GT_LCL_LOAD_FLD:
+            return GenTreeWalkResult::Skip;
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-                MorphImplicitByRefParam(node);
+            MorphImplicitByRefParam(node);
 #else
-                MorphVarargsStackParam(node->AsLclRef());
+            MorphVarargsStackParam(node->AsLclRef());
 #endif
-                return GenTreeWalkResult::Continue;
-            default:
-                return GenTreeWalkResult::Continue;
+            return GenTreeWalkResult::Continue;
+        default:
+            return GenTreeWalkResult::Continue;
         }
     }
 

@@ -14,371 +14,371 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_LOAD:
-        case GT_LCL_LOAD_FLD:
-            assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
+    case GT_LCL_LOAD:
+    case GT_LCL_LOAD_FLD:
+        assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
 
 #ifdef FEATURE_SIMD
-            if (tree->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-            {
-                BuildInternalFloatDef(tree, allFloatRegs());
-                setInternalRegsDelayFree = true;
-                BuildInternalUses();
-            }
+        if (tree->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            BuildInternalFloatDef(tree, allFloatRegs());
+            setInternalRegsDelayFree = true;
+            BuildInternalUses();
+        }
 #endif
-            BuildDef(tree);
-            break;
+        BuildDef(tree);
+        break;
 
-        case GT_LCL_STORE:
-            BuildLclStore(tree->AsLclStore());
-            break;
+    case GT_LCL_STORE:
+        BuildLclStore(tree->AsLclStore());
+        break;
 
-        case GT_LCL_STORE_FLD:
-            BuildLclStoreFld(tree->AsLclStoreFld());
-            break;
+    case GT_LCL_STORE_FLD:
+        BuildLclStoreFld(tree->AsLclStoreFld());
+        break;
 
-        case GT_START_PREEMPTGC:
-            BuildKills(tree, RBM_NONE);
-            break;
+    case GT_START_PREEMPTGC:
+        BuildKills(tree, RBM_NONE);
+        break;
 
-        case GT_PROF_HOOK:
-            BuildKills(tree, getKillSetForProfilerHook());
-            break;
+    case GT_PROF_HOOK:
+        BuildKills(tree, getKillSetForProfilerHook());
+        break;
 
-        case GT_CNS_INT:
-        case GT_CNS_DBL:
-            assert(!tree->IsReuseRegVal());
-            BuildDef(tree)->getInterval()->isConstant = true;
-            break;
+    case GT_CNS_INT:
+    case GT_CNS_DBL:
+        assert(!tree->IsReuseRegVal());
+        BuildDef(tree)->getInterval()->isConstant = true;
+        break;
 
-        case GT_RETURN:
-            BuildReturn(tree->AsUnOp());
-            BuildKills(tree, getKillSetForReturn());
-            break;
+    case GT_RETURN:
+        BuildReturn(tree->AsUnOp());
+        BuildKills(tree, getKillSetForReturn());
+        break;
 
-        case GT_RETFILT:
-            if (!tree->TypeIs(TYP_VOID))
-            {
-                assert(tree->TypeIs(TYP_INT));
-                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
-            }
-            break;
+    case GT_RETFILT:
+        if (!tree->TypeIs(TYP_VOID))
+        {
+            assert(tree->TypeIs(TYP_INT));
+            BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
+        }
+        break;
 
-        case GT_KEEPALIVE:
-            BuildKeepAlive(tree->AsUnOp());
-            break;
+    case GT_KEEPALIVE:
+        BuildKeepAlive(tree->AsUnOp());
+        break;
 
-        case GT_SETCC:
+    case GT_SETCC:
 #ifdef TARGET_X86
-            BuildDef(tree, allByteRegs());
+        BuildDef(tree, allByteRegs());
 #else
-            BuildDef(tree);
+        BuildDef(tree);
 #endif
-            break;
+        break;
 
-        case GT_SWITCH_TABLE:
-            BuildInternalIntDef(tree);
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildInternalUses();
-            break;
+    case GT_SWITCH_TABLE:
+        BuildInternalIntDef(tree);
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildInternalUses();
+        break;
 
-        case GT_BT:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            break;
+    case GT_BT:
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        break;
 
-        case GT_FTRUNC:
-        case GT_FXT:
-        case GT_STOF:
-        case GT_UTOF:
-        case GT_FTOS:
-        case GT_FTOU:
-        case GT_SXT:
-        case GT_UXT:
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+    case GT_FTRUNC:
+    case GT_FXT:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_FTOS:
+    case GT_FTOU:
+    case GT_SXT:
+    case GT_UXT:
+        BuildOperandUses(tree->AsUnOp()->GetOp(0));
+        BuildDef(tree);
+        break;
+
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+        if (compiler->codeGen->UseVexEncoding())
+        {
+            BuildOperandUses(tree->AsOp()->GetOp(0));
+            BuildOperandUses(tree->AsOp()->GetOp(1));
             BuildDef(tree);
             break;
-
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            if (compiler->codeGen->UseVexEncoding())
-            {
-                BuildOperandUses(tree->AsOp()->GetOp(0));
-                BuildOperandUses(tree->AsOp()->GetOp(1));
-                BuildDef(tree);
-                break;
-            }
-            FALLTHROUGH;
+        }
+        FALLTHROUGH;
 #ifndef TARGET_64BIT
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
+    case GT_ADD_LO:
+    case GT_ADD_HI:
+    case GT_SUB_LO:
+    case GT_SUB_HI:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
 #endif
-        case GT_ADD:
-        case GT_SUB:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            BuildRMWUses(tree->AsOp());
-            FALLTHROUGH;
-        case GT_JMPTABLE:
-        case GT_LCL_ADDR:
-        case GT_CONST_ADDR:
-        case GT_REG_USE:
-        case GT_LABEL:
-            BuildDef(tree);
-            FALLTHROUGH;
-        case GT_NOP:
-        case GT_NO_OP:
-        case GT_IL_OFFSET:
-        case GT_START_NONGC:
-        case GT_PINVOKE_PROLOG:
-        case GT_MEMORYBARRIER:
-        case GT_JTRUE:
-        case GT_JCC:
-        case GT_JMP:
+    case GT_ADD:
+    case GT_SUB:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+        BuildRMWUses(tree->AsOp());
+        FALLTHROUGH;
+    case GT_JMPTABLE:
+    case GT_LCL_ADDR:
+    case GT_CONST_ADDR:
+    case GT_REG_USE:
+    case GT_LABEL:
+        BuildDef(tree);
+        FALLTHROUGH;
+    case GT_NOP:
+    case GT_NO_OP:
+    case GT_IL_OFFSET:
+    case GT_START_NONGC:
+    case GT_PINVOKE_PROLOG:
+    case GT_MEMORYBARRIER:
+    case GT_JTRUE:
+    case GT_JCC:
+    case GT_JMP:
 #ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
+    case GT_END_LFIN:
 #endif
-            break;
+        break;
 
-        case GT_LOCKADD:
-            BuildUse(tree->AsOp()->GetOp(0));
+    case GT_LOCKADD:
+        BuildUse(tree->AsOp()->GetOp(0));
 
-            if (!tree->AsOp()->GetOp(1)->IsContainedIntCon())
-            {
-                BuildUse(tree->AsOp()->GetOp(1));
-            }
-            break;
+        if (!tree->AsOp()->GetOp(1)->IsContainedIntCon())
+        {
+            BuildUse(tree->AsOp()->GetOp(1));
+        }
+        break;
 
-        case GT_RETURNTRAP:
-            // TODO-MIKE-Review: This internal def occurs after the use.
-            // Also, x86 doesn't need this register.
-            BuildInternalIntDef(tree);
-            assert(tree->AsUnOp()->GetOp(0)->isContained());
-            BuildAddrUses(tree->AsUnOp()->GetOp(0)->AsIndir()->GetAddr());
-            BuildInternalUses();
-            BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
-            break;
+    case GT_RETURNTRAP:
+        // TODO-MIKE-Review: This internal def occurs after the use.
+        // Also, x86 doesn't need this register.
+        BuildInternalIntDef(tree);
+        assert(tree->AsUnOp()->GetOp(0)->isContained());
+        BuildAddrUses(tree->AsUnOp()->GetOp(0)->AsIndir()->GetAddr());
+        BuildInternalUses();
+        BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+        break;
 
-        case GT_SREM:
-        case GT_SDIV:
-        case GT_UREM:
-        case GT_UDIV:
-            BuildDivMod(tree->AsOp());
-            break;
+    case GT_SREM:
+    case GT_SDIV:
+    case GT_UREM:
+    case GT_UDIV:
+        BuildDivMod(tree->AsOp());
+        break;
 
-        case GT_MUL:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            BuildMul(tree->AsOp());
-            break;
+    case GT_MUL:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        BuildMul(tree->AsOp());
+        break;
 
-        case GT_SMULH:
-        case GT_UMULH:
+    case GT_SMULH:
+    case GT_UMULH:
 #ifdef TARGET_X86
-        case GT_SMULL:
-        case GT_UMULL:
+    case GT_SMULL:
+    case GT_UMULL:
 #endif
-            BuildMulLong(tree->AsOp());
-            break;
+        BuildMulLong(tree->AsOp());
+        break;
 
-        case GT_INTRINSIC:
-            BuildIntrinsic(tree->AsIntrinsic());
-            break;
+    case GT_INTRINSIC:
+        BuildIntrinsic(tree->AsIntrinsic());
+        break;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            BuildHWIntrinsic(tree->AsHWIntrinsic());
-            break;
+    case GT_HWINTRINSIC:
+        BuildHWIntrinsic(tree->AsHWIntrinsic());
+        break;
 #endif
 
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            BuildOvfTruncate(tree->AsUnOp());
-            break;
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+        BuildOvfTruncate(tree->AsUnOp());
+        break;
 
-        case GT_OVF_U:
-            BuildOvfUnsigned(tree->AsUnOp());
-            break;
+    case GT_OVF_U:
+        BuildOvfUnsigned(tree->AsUnOp());
+        break;
 
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            BuildOvfConv(tree->AsUnOp());
-            break;
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+        BuildOvfConv(tree->AsUnOp());
+        break;
 
-        case GT_CONV:
-            BuildConv(tree->AsUnOp());
-            break;
+    case GT_CONV:
+        BuildConv(tree->AsUnOp());
+        break;
 
-        case GT_TRUNC:
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
-            BuildDef(tree);
-            break;
+    case GT_TRUNC:
+        BuildOperandUses(tree->AsUnOp()->GetOp(0));
+        BuildDef(tree);
+        break;
 
-        case GT_BITCAST:
-            BuildBitCast(tree->AsUnOp());
-            break;
+    case GT_BITCAST:
+        BuildBitCast(tree->AsUnOp());
+        break;
 
-        case GT_FNEG:
-        case GT_NEG:
-        case GT_NOT:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_INC_SATURATE:
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildDef(tree);
-            break;
+    case GT_FNEG:
+    case GT_NEG:
+    case GT_NOT:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_INC_SATURATE:
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildDef(tree);
+        break;
 
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
 #ifdef TARGET_X86
-        case GT_LSH_HI:
-        case GT_RSH_LO:
+    case GT_LSH_HI:
+    case GT_RSH_LO:
 #endif
-            BuildShiftRotate(tree->AsOp());
-            break;
+        BuildShiftRotate(tree->AsOp());
+        break;
 
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-        case GT_CMP:
-            BuildCmp(tree->AsOp());
-            break;
+    case GT_EQ:
+    case GT_NE:
+    case GT_LT:
+    case GT_LE:
+    case GT_GE:
+    case GT_GT:
+    case GT_TEST_EQ:
+    case GT_TEST_NE:
+    case GT_CMP:
+        BuildCmp(tree->AsOp());
+        break;
 
-        case GT_CKFINITE:
-            // TODO-MIKE-Review: This internal def occurs after the use, though it
-            // should not matter since it's an integer register and the use is float.
-            BuildInternalIntDef(tree);
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
+    case GT_CKFINITE:
+        // TODO-MIKE-Review: This internal def occurs after the use, though it
+        // should not matter since it's an integer register and the use is float.
+        BuildInternalIntDef(tree);
+        BuildUse(tree->AsUnOp()->GetOp(0));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
 
-        case GT_CMPXCHG:
-            BuildCmpXchg(tree->AsCmpXchg());
-            break;
+    case GT_CMPXCHG:
+        BuildCmpXchg(tree->AsCmpXchg());
+        break;
 
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-        case GT_XCHG:
-            BuildInterlocked(tree->AsOp());
-            break;
+    case GT_XORR:
+    case GT_XAND:
+    case GT_XADD:
+    case GT_XCHG:
+        BuildInterlocked(tree->AsOp());
+        break;
 
-        case GT_PUTARG_REG:
-            BuildPutArgReg(tree->AsUnOp());
-            break;
+    case GT_PUTARG_REG:
+        BuildPutArgReg(tree->AsUnOp());
+        break;
 
-        case GT_CALL:
-            BuildCall(tree->AsCall());
-            break;
+    case GT_CALL:
+        BuildCall(tree->AsCall());
+        break;
 
-        case GT_ARG_STORE:
-            BuildArgStore(tree->AsArgStore());
-            break;
+    case GT_ARG_STORE:
+        BuildArgStore(tree->AsArgStore());
+        break;
 
-        case GT_IND_STORE_BLK:
-        case GT_IND_STORE_OBJ:
-            BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
-            break;
+    case GT_IND_STORE_BLK:
+    case GT_IND_STORE_OBJ:
+        BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
+        break;
 
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            BuildStoreDynBlk(tree->AsDynBlk());
-            break;
+    case GT_COPY_BLK:
+    case GT_INIT_BLK:
+        BuildStoreDynBlk(tree->AsDynBlk());
+        break;
 
-        case GT_LCLHEAP:
-            BuildLclHeap(tree->AsUnOp());
-            break;
+    case GT_LCLHEAP:
+        BuildLclHeap(tree->AsUnOp());
+        break;
 
-        case GT_BOUNDS_CHECK:
-            BuildBoundsChk(tree->AsBoundsChk());
-            break;
+    case GT_BOUNDS_CHECK:
+        BuildBoundsChk(tree->AsBoundsChk());
+        break;
 
-        case GT_LEA:
-            BuildAddrMode(tree->AsAddrMode());
-            break;
+    case GT_LEA:
+        BuildAddrMode(tree->AsAddrMode());
+        break;
 
-        case GT_IND_STORE:
-            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
-            {
-                BuildGCWriteBarrier(tree->AsIndStore());
-            }
-            else
-            {
-                BuildIndStore(tree->AsIndStore());
-            }
-            break;
+    case GT_IND_STORE:
+        if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
+        {
+            BuildGCWriteBarrier(tree->AsIndStore());
+        }
+        else
+        {
+            BuildIndStore(tree->AsIndStore());
+        }
+        break;
 
-        case GT_NULLCHECK:
-            BuildUse(tree->AsNullCheck()->GetAddr());
-            break;
+    case GT_NULLCHECK:
+        BuildUse(tree->AsNullCheck()->GetAddr());
+        break;
 
-        case GT_IND_LOAD:
-            BuildLoadInd(tree->AsIndLoad());
-            break;
+    case GT_IND_LOAD:
+        BuildLoadInd(tree->AsIndLoad());
+        break;
 
-        case GT_CATCH_ARG:
-            BuildDef(tree, RBM_EXCEPTION_OBJECT);
-            break;
+    case GT_CATCH_ARG:
+        BuildDef(tree, RBM_EXCEPTION_OBJECT);
+        break;
 
-        case GT_INDEX_ADDR:
+    case GT_INDEX_ADDR:
 #ifdef TARGET_64BIT
-            // On 64-bit we always need a temporary register:
-            //   - if the index is `native int` then we need to load the array
-            //     length into a register to widen it to `native int`
-            //   - if the index is `int` (or smaller) then we need to widen
-            //     it to `long` to perform the address calculation
-            BuildInternalIntDef(tree);
+        // On 64-bit we always need a temporary register:
+        //   - if the index is `native int` then we need to load the array
+        //     length into a register to widen it to `native int`
+        //   - if the index is `int` (or smaller) then we need to widen
+        //     it to `long` to perform the address calculation
+        BuildInternalIntDef(tree);
 #else
-            assert(!tree->AsIndexAddr()->GetIndex()->TypeIs(TYP_LONG));
+        assert(!tree->AsIndexAddr()->GetIndex()->TypeIs(TYP_LONG));
 
-            switch (tree->AsIndexAddr()->GetElemSize())
-            {
-                case 1:
-                case 2:
-                case 4:
-                case 8:
-                    break;
-                default:
-                    BuildInternalIntDef(tree);
-                    break;
-            }
-#endif
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildInternalUses();
-            BuildDef(tree);
+        switch (tree->AsIndexAddr()->GetElemSize())
+        {
+        case 1:
+        case 2:
+        case 4:
+        case 8:
             break;
-
-        case GT_INSTR:
-            BuildInstr(tree->AsInstr());
-            break;
-
         default:
-            unreached();
+            BuildInternalIntDef(tree);
+            break;
+        }
+#endif
+        BuildUse(tree->AsOp()->GetOp(0));
+        BuildUse(tree->AsOp()->GetOp(1));
+        BuildInternalUses();
+        BuildDef(tree);
+        break;
+
+    case GT_INSTR:
+        BuildInstr(tree->AsInstr());
+        break;
+
+    default:
+        unreached();
     }
 }
 
@@ -475,53 +475,53 @@ static bool IsRMWRegOper(GenTreeOp* node, Compiler* compiler)
 {
     switch (node->GetOper())
     {
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            return !compiler->codeGen->UseVexEncoding();
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+        return !compiler->codeGen->UseVexEncoding();
 
 #ifdef TARGET_X86
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
+    case GT_ADD_LO:
+    case GT_ADD_HI:
+    case GT_SUB_LO:
+    case GT_SUB_HI:
 #endif
-        case GT_ADD:
-        case GT_SUB:
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-        // TODO-MIKE-Review: Given the very specific register constraints MUL has,
-        // does it really need to be treated as RMW or will some special casing do?
-        case GT_SMULH:
-        case GT_UMULH:
+    case GT_ADD:
+    case GT_SUB:
+    case GT_AND:
+    case GT_OR:
+    case GT_XOR:
+    // TODO-MIKE-Review: Given the very specific register constraints MUL has,
+    // does it really need to be treated as RMW or will some special casing do?
+    case GT_SMULH:
+    case GT_UMULH:
 #ifdef TARGET_X86
-        case GT_SMULL:
-        case GT_UMULL:
+    case GT_SMULL:
+    case GT_UMULL:
 #endif
-        // Note that overflow checking operations are reg RMW only if we do not
-        // enregister local variables that are EH live, otherwise we may modify
-        // the register assigned to the local BEFORE throwing an exception.
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
+    // Note that overflow checking operations are reg RMW only if we do not
+    // enregister local variables that are EH live, otherwise we may modify
+    // the register assigned to the local BEFORE throwing an exception.
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
 #ifdef TARGET_X86
-        case GT_OVF_SADDC:
-        case GT_OVF_UADDC:
-        case GT_OVF_SSUBB:
-        case GT_OVF_USUBB:
+    case GT_OVF_SADDC:
+    case GT_OVF_UADDC:
+    case GT_OVF_SSUBB:
+    case GT_OVF_USUBB:
 #endif
-            return true;
+        return true;
 
-        case GT_MUL:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            return !node->GetOp(0)->IsContainedIntCon() && !node->GetOp(1)->IsContainedIntCon();
+    case GT_MUL:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+        return !node->GetOp(0)->IsContainedIntCon() && !node->GetOp(1)->IsContainedIntCon();
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
 #endif // DEBUG
@@ -903,85 +903,85 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     switch (kind)
     {
 #if FEATURE_MULTIREG_RET
-        case StructStoreKind::UnrollRegs:
-            break;
+    case StructStoreKind::UnrollRegs:
+        break;
 #endif
 
-        case StructStoreKind::UnrollInit:
-            if ((size >= XMM_REGSIZE_BYTES)
+    case StructStoreKind::UnrollInit:
+        if ((size >= XMM_REGSIZE_BYTES)
 #ifdef TARGET_AMD64
-                && (!store->IsIndStoreObj() || !layout->HasGCPtr())
+            && (!store->IsIndStoreObj() || !layout->HasGCPtr())
 #endif
-                    )
-            {
-                BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsVexInstructions();
-            }
+                )
+        {
+            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            SetContainsVexInstructions();
+        }
 
 #ifdef TARGET_X86
-            if ((size & 1) != 0)
-            {
-                // We'll need to store a byte so a byte register is needed on x86.
-                srcRegMask = allByteRegs();
-            }
+        if ((size & 1) != 0)
+        {
+            // We'll need to store a byte so a byte register is needed on x86.
+            srcRegMask = allByteRegs();
+        }
 #endif
-            break;
+        break;
 
-        case StructStoreKind::UnrollCopy:
-            if (size >= XMM_REGSIZE_BYTES)
-            {
-                BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsVexInstructions();
-            }
+    case StructStoreKind::UnrollCopy:
+        if (size >= XMM_REGSIZE_BYTES)
+        {
+            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            SetContainsVexInstructions();
+        }
 
 #ifdef TARGET_X86
-            if ((size & 1) != 0)
-            {
-                // We'll need to store a byte so a byte register is needed on x86.
-                internalByteDef = BuildInternalIntDef(store, allByteRegs());
-            }
-            else
+        if ((size & 1) != 0)
+        {
+            // We'll need to store a byte so a byte register is needed on x86.
+            internalByteDef = BuildInternalIntDef(store, allByteRegs());
+        }
+        else
 #endif
-                if ((size % XMM_REGSIZE_BYTES) != 0)
-            {
-                BuildInternalIntDef(store);
-            }
-            break;
+            if ((size % XMM_REGSIZE_BYTES) != 0)
+        {
+            BuildInternalIntDef(store);
+        }
+        break;
 
-        case StructStoreKind::UnrollCopyWBRepMovs:
-            sizeRegMask = RBM_RCX;
-            FALLTHROUGH;
-        case StructStoreKind::UnrollCopyWB:
-            dstAddrRegMask = RBM_RDI;
-            srcRegMask     = RBM_RSI;
-            break;
+    case StructStoreKind::UnrollCopyWBRepMovs:
+        sizeRegMask = RBM_RCX;
+        FALLTHROUGH;
+    case StructStoreKind::UnrollCopyWB:
+        dstAddrRegMask = RBM_RDI;
+        srcRegMask     = RBM_RSI;
+        break;
 
-        case StructStoreKind::RepStos:
-            assert(!src->isContained());
-            dstAddrRegMask = RBM_RDI;
-            srcRegMask     = RBM_RAX;
-            sizeRegMask    = RBM_RCX;
-            break;
+    case StructStoreKind::RepStos:
+        assert(!src->isContained());
+        dstAddrRegMask = RBM_RDI;
+        srcRegMask     = RBM_RAX;
+        sizeRegMask    = RBM_RCX;
+        break;
 
-        case StructStoreKind::RepMovs:
-            dstAddrRegMask = RBM_RDI;
-            srcRegMask     = RBM_RSI;
-            sizeRegMask    = RBM_RCX;
-            break;
+    case StructStoreKind::RepMovs:
+        dstAddrRegMask = RBM_RDI;
+        srcRegMask     = RBM_RSI;
+        sizeRegMask    = RBM_RCX;
+        break;
 
 #ifdef TARGET_AMD64
-        case StructStoreKind::MemSet:
-            assert(!src->isContained());
-            FALLTHROUGH;
-        case StructStoreKind::MemCpy:
-            dstAddrRegMask = RBM_ARG_0;
-            srcRegMask     = RBM_ARG_1;
-            sizeRegMask    = RBM_ARG_2;
-            break;
+    case StructStoreKind::MemSet:
+        assert(!src->isContained());
+        FALLTHROUGH;
+    case StructStoreKind::MemCpy:
+        dstAddrRegMask = RBM_ARG_0;
+        srcRegMask     = RBM_ARG_1;
+        sizeRegMask    = RBM_ARG_2;
+        break;
 #endif
 
-        default:
-            unreached();
+    default:
+        unreached();
     }
 
     if ((dstAddr == nullptr) && (dstAddrRegMask != RBM_NONE))
@@ -1170,55 +1170,55 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
         switch (store->GetKind())
         {
 #ifdef TARGET_X86
-            case GenTreeArgStore::Kind::Push:
-                break;
+        case GenTreeArgStore::Kind::Push:
+            break;
 #endif
 
-            case GenTreeArgStore::Kind::Unroll:
-                unsigned size;
-                size = layout->GetSize();
+        case GenTreeArgStore::Kind::Unroll:
+            unsigned size;
+            size = layout->GetSize();
 
-                if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-                {
-                    size = roundUp(size, REGSIZE_BYTES);
-                }
+            if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+            {
+                size = roundUp(size, REGSIZE_BYTES);
+            }
 
-                if ((size % XMM_REGSIZE_BYTES) != 0)
-                {
-                    BuildInternalIntDef(store, X86_ONLY((size % 2) != 0 ? allByteRegs() :) allIntRegs());
-                }
+            if ((size % XMM_REGSIZE_BYTES) != 0)
+            {
+                BuildInternalIntDef(store, X86_ONLY((size % 2) != 0 ? allByteRegs() :) allIntRegs());
+            }
 
 #ifdef TARGET_X86
-                if (size >= XMM_REGSIZE_BYTES / 2)
+            if (size >= XMM_REGSIZE_BYTES / 2)
 #else
-                if (size >= XMM_REGSIZE_BYTES)
+            if (size >= XMM_REGSIZE_BYTES)
 #endif
-                {
-                    BuildInternalFloatDef(store, internalFloatRegCandidates());
-                    SetContainsVexInstructions();
-                }
-                break;
-
-            case GenTreeArgStore::Kind::RepInstrXMM:
+            {
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
                 SetContainsVexInstructions();
-                FALLTHROUGH;
-            case GenTreeArgStore::Kind::RepInstr:
-                BuildInternalIntDef(store, RBM_RDI);
-                BuildInternalIntDef(store, RBM_RCX);
-                BuildInternalIntDef(store, RBM_RSI);
-                break;
+            }
+            break;
 
-            case GenTreeArgStore::Kind::GCUnrollXMM:
-                BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsVexInstructions();
-                FALLTHROUGH;
-            case GenTreeArgStore::Kind::GCUnroll:
-                BuildInternalIntDef(store);
-                break;
+        case GenTreeArgStore::Kind::RepInstrXMM:
+            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            SetContainsVexInstructions();
+            FALLTHROUGH;
+        case GenTreeArgStore::Kind::RepInstr:
+            BuildInternalIntDef(store, RBM_RDI);
+            BuildInternalIntDef(store, RBM_RCX);
+            BuildInternalIntDef(store, RBM_RSI);
+            break;
 
-            default:
-                unreached();
+        case GenTreeArgStore::Kind::GCUnrollXMM:
+            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            SetContainsVexInstructions();
+            FALLTHROUGH;
+        case GenTreeArgStore::Kind::GCUnroll:
+            BuildInternalIntDef(store);
+            break;
+
+        default:
+            unreached();
         }
 
         if (src->OperIs(GT_IND_LOAD_OBJ))
@@ -1453,185 +1453,164 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // false, and any RMW handling (delayFree) must be handled within the case.
         switch (intrinsicId)
         {
-            case NI_VEC_REGCAST:
-                assert(numOps == 1);
-                assert(varTypeUsesVecReg(op1->GetType()));
+        case NI_VEC_REGCAST:
+            assert(numOps == 1);
+            assert(varTypeUsesVecReg(op1->GetType()));
 
-                if (!op1->isContained())
-                {
-                    tgtPrefUse = BuildUse(op1);
-                    buildUses  = false;
-                }
-                break;
-
-            case NI_VEC_ITOV:
-                assert(numOps == 1);
-                assert(varTypeIsIntegral(baseType));
-                break;
-
-            case NI_VEC_EXTRACT:
-                assert(numOps == 2);
-                assert(op2->IsIntCon() || op1->isContained());
-
-                if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntCon(0))
-                {
-                    tgtPrefUse = BuildUse(op1);
-                    buildUses  = false;
-                }
-                break;
-
-            case NI_VEC_ZEXT:
-            case NI_VEC_TRUNC:
-                assert(numOps == 1);
-
-                if (!op1->isContained())
-                {
-                    tgtPrefUse = BuildUse(op1);
-                    buildUses  = false;
-                }
-                break;
-
-            case NI_SSE2_MaskMove:
-                assert(numOps == 3);
-                assert(!isRMW);
-
-                BuildUse(op1);
-                BuildUse(op2);
-                BuildUse(op3, RBM_RDI);
-                buildUses = false;
-                break;
-
-            case NI_SSE41_BlendVariable:
-                assert(numOps == 3);
-                assert(isRMW);
-                assert(!compiler->codeGen->UseVexEncoding());
-
-                tgtPrefUse = BuildUse(op1);
-
-                if (op2->isContained())
-                {
-                    BuildOperand(op2);
-                }
-                else
-                {
-                    BuildDelayFreeUse(op2, op1);
-                }
-
-                BuildDelayFreeUse(op3, op1, RBM_XMM0);
-                buildUses = false;
-                break;
-
-            case NI_SSE41_Extract:
-                assert(!varTypeIsFloating(baseType));
-#ifdef TARGET_X86
-                if (varTypeIsByte(baseType))
-                {
-                    dstCandidates = allByteRegs();
-                }
-#endif
-                break;
-
-#ifdef TARGET_X86
-            case NI_SSE42_Crc32:
-            case NI_SSE42_X64_Crc32:
-                // TODO-XArch-Cleanup: Currently we use the BaseType to bring the type of the second argument
-                // to the code generator. We may want to encode the overload info in another way.
-                assert(numOps == 2);
-                assert(isRMW);
-
-                // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
-                tgtPrefUse = BuildUse(op1);
-                BuildDelayFreeOperandUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
-                buildUses = false;
-                break;
-#endif // TARGET_X86
-
-            case NI_BMI2_MultiplyNoFlags:
-            case NI_BMI2_X64_MultiplyNoFlags:
-                assert((numOps == 2) || (numOps == 3));
-
-                BuildUse(op1, RBM_EDX);
-                BuildOperandUses(op2);
-
-                if (numOps == 3)
-                {
-                    BuildDelayFreeUse(op3, op1);
-                    BuildInternalIntDef(node);
-                    setInternalRegsDelayFree = true;
-                }
-
-                buildUses = false;
-                break;
-
-            case NI_FMA_MultiplyAdd:
-            case NI_FMA_MultiplyAddNegated:
-            case NI_FMA_MultiplyAddNegatedScalar:
-            case NI_FMA_MultiplyAddScalar:
-            case NI_FMA_MultiplyAddSubtract:
-            case NI_FMA_MultiplySubtract:
-            case NI_FMA_MultiplySubtractAdd:
-            case NI_FMA_MultiplySubtractNegated:
-            case NI_FMA_MultiplySubtractNegatedScalar:
-            case NI_FMA_MultiplySubtractScalar:
+            if (!op1->isContained())
             {
-                assert(numOps == 3);
-                assert(isRMW);
+                tgtPrefUse = BuildUse(op1);
+                buildUses  = false;
+            }
+            break;
 
-                const bool isScalar = HWIntrinsicInfo::IsXmmScalar(intrinsicId);
+        case NI_VEC_ITOV:
+            assert(numOps == 1);
+            assert(varTypeIsIntegral(baseType));
+            break;
 
-                if (op2->isContained())
-                {
-                    // 132 form: op1 = (op1 * op3) + [op2]
+        case NI_VEC_EXTRACT:
+            assert(numOps == 2);
+            assert(op2->IsIntCon() || op1->isContained());
 
-                    tgtPrefUse = BuildUse(op1);
-                    BuildOperand(op2);
-                    BuildDelayFreeUse(op3, op1);
-                }
-                else if (op1->isContained())
-                {
-                    assert(!isScalar);
+            if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntCon(0))
+            {
+                tgtPrefUse = BuildUse(op1);
+                buildUses  = false;
+            }
+            break;
 
-                    // 231 form: op3 = (op2 * op3) + [op1]
+        case NI_VEC_ZEXT:
+        case NI_VEC_TRUNC:
+            assert(numOps == 1);
 
-                    tgtPrefUse = BuildUse(op3);
-                    BuildOperand(op1);
-                    BuildDelayFreeUse(op2, op1);
-                }
-                else
-                {
-                    // 213 form: op1 = (op2 * op1) + [op3]
+            if (!op1->isContained())
+            {
+                tgtPrefUse = BuildUse(op1);
+                buildUses  = false;
+            }
+            break;
 
-                    tgtPrefUse = BuildUse(op1);
+        case NI_SSE2_MaskMove:
+            assert(numOps == 3);
+            assert(!isRMW);
 
-                    if (isScalar)
-                    {
-                        BuildDelayFreeUse(op2, op1);
-                    }
-                    else
-                    {
-                        tgtPrefUse2 = BuildUse(op2);
-                    }
+            BuildUse(op1);
+            BuildUse(op2);
+            BuildUse(op3, RBM_RDI);
+            buildUses = false;
+            break;
 
-                    if (op3->isContained())
-                    {
-                        BuildOperand(op3);
-                    }
-                    else
-                    {
-                        BuildDelayFreeUse(op3, op1);
-                    }
-                }
+        case NI_SSE41_BlendVariable:
+            assert(numOps == 3);
+            assert(isRMW);
+            assert(!compiler->codeGen->UseVexEncoding());
 
-                buildUses = false;
-                break;
+            tgtPrefUse = BuildUse(op1);
+
+            if (op2->isContained())
+            {
+                BuildOperand(op2);
+            }
+            else
+            {
+                BuildDelayFreeUse(op2, op1);
             }
 
-            case NI_AVXVNNI_MultiplyWideningAndAdd:
-            case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-                assert(numOps == 3);
+            BuildDelayFreeUse(op3, op1, RBM_XMM0);
+            buildUses = false;
+            break;
+
+        case NI_SSE41_Extract:
+            assert(!varTypeIsFloating(baseType));
+#ifdef TARGET_X86
+            if (varTypeIsByte(baseType))
+            {
+                dstCandidates = allByteRegs();
+            }
+#endif
+            break;
+
+#ifdef TARGET_X86
+        case NI_SSE42_Crc32:
+        case NI_SSE42_X64_Crc32:
+            // TODO-XArch-Cleanup: Currently we use the BaseType to bring the type of the second argument
+            // to the code generator. We may want to encode the overload info in another way.
+            assert(numOps == 2);
+            assert(isRMW);
+
+            // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
+            tgtPrefUse = BuildUse(op1);
+            BuildDelayFreeOperandUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
+            buildUses = false;
+            break;
+#endif // TARGET_X86
+
+        case NI_BMI2_MultiplyNoFlags:
+        case NI_BMI2_X64_MultiplyNoFlags:
+            assert((numOps == 2) || (numOps == 3));
+
+            BuildUse(op1, RBM_EDX);
+            BuildOperandUses(op2);
+
+            if (numOps == 3)
+            {
+                BuildDelayFreeUse(op3, op1);
+                BuildInternalIntDef(node);
+                setInternalRegsDelayFree = true;
+            }
+
+            buildUses = false;
+            break;
+
+        case NI_FMA_MultiplyAdd:
+        case NI_FMA_MultiplyAddNegated:
+        case NI_FMA_MultiplyAddNegatedScalar:
+        case NI_FMA_MultiplyAddScalar:
+        case NI_FMA_MultiplyAddSubtract:
+        case NI_FMA_MultiplySubtract:
+        case NI_FMA_MultiplySubtractAdd:
+        case NI_FMA_MultiplySubtractNegated:
+        case NI_FMA_MultiplySubtractNegatedScalar:
+        case NI_FMA_MultiplySubtractScalar:
+        {
+            assert(numOps == 3);
+            assert(isRMW);
+
+            const bool isScalar = HWIntrinsicInfo::IsXmmScalar(intrinsicId);
+
+            if (op2->isContained())
+            {
+                // 132 form: op1 = (op1 * op3) + [op2]
 
                 tgtPrefUse = BuildUse(op1);
+                BuildOperand(op2);
+                BuildDelayFreeUse(op3, op1);
+            }
+            else if (op1->isContained())
+            {
+                assert(!isScalar);
+
+                // 231 form: op3 = (op2 * op3) + [op1]
+
+                tgtPrefUse = BuildUse(op3);
+                BuildOperand(op1);
                 BuildDelayFreeUse(op2, op1);
+            }
+            else
+            {
+                // 213 form: op1 = (op2 * op1) + [op3]
+
+                tgtPrefUse = BuildUse(op1);
+
+                if (isScalar)
+                {
+                    BuildDelayFreeUse(op2, op1);
+                }
+                else
+                {
+                    tgtPrefUse2 = BuildUse(op2);
+                }
 
                 if (op3->isContained())
                 {
@@ -1641,40 +1620,61 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     BuildDelayFreeUse(op3, op1);
                 }
+            }
 
-                buildUses = false;
-                break;
+            buildUses = false;
+            break;
+        }
 
-            case NI_AVX2_GATHERD:
-            case NI_AVX2_GATHERQ:
-                if (numOps == 3)
-                {
-                    assert(op3->IsContainedIntCon());
-                    assert(!isRMW);
+        case NI_AVXVNNI_MultiplyWideningAndAdd:
+        case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+            assert(numOps == 3);
 
-                    BuildUse(op1);
-                    BuildDelayFreeUse(op2);
-                }
-                else
-                {
-                    assert(numOps == 5);
-                    assert(node->GetOp(4)->IsContainedIntCon());
-                    assert(!isRMW);
+            tgtPrefUse = BuildUse(op1);
+            BuildDelayFreeUse(op2, op1);
 
-                    BuildUse(op1);
-                    BuildUse(op2);
-                    BuildDelayFreeUse(op3);
-                    BuildDelayFreeUse(node->GetOp(3));
-                }
+            if (op3->isContained())
+            {
+                BuildOperand(op3);
+            }
+            else
+            {
+                BuildDelayFreeUse(op3, op1);
+            }
 
-                BuildInternalFloatDef(node, allFloatRegs());
-                setInternalRegsDelayFree = true;
-                buildUses                = false;
-                break;
+            buildUses = false;
+            break;
 
-            default:
-                assert(NI_HW_INTRINSIC_FIRST <= intrinsicId && intrinsicId <= NI_HW_INTRINSIC_LAST);
-                break;
+        case NI_AVX2_GATHERD:
+        case NI_AVX2_GATHERQ:
+            if (numOps == 3)
+            {
+                assert(op3->IsContainedIntCon());
+                assert(!isRMW);
+
+                BuildUse(op1);
+                BuildDelayFreeUse(op2);
+            }
+            else
+            {
+                assert(numOps == 5);
+                assert(node->GetOp(4)->IsContainedIntCon());
+                assert(!isRMW);
+
+                BuildUse(op1);
+                BuildUse(op2);
+                BuildDelayFreeUse(op3);
+                BuildDelayFreeUse(node->GetOp(3));
+            }
+
+            BuildInternalFloatDef(node, allFloatRegs());
+            setInternalRegsDelayFree = true;
+            buildUses                = false;
+            break;
+
+        default:
+            assert(NI_HW_INTRINSIC_FIRST <= intrinsicId && intrinsicId <= NI_HW_INTRINSIC_LAST);
+            break;
         }
 
         if (buildUses)
