@@ -7,18 +7,17 @@
 
 enum HWIntrinsicFlag : unsigned
 {
-    HW_Flag_None             = 0x00,
-    HW_Flag_NoFlag           = HW_Flag_None,
-    HW_Flag_Commutative      = 0x01,
-    HW_Flag_SpecialImport    = 0x02,
-    HW_Flag_BaseTypeFromArg0 = 0x04,
-    HW_Flag_BaseTypeFromArg1 = 0x08,
-    HW_Flag_NoCodeGen        = 0x10,
-    HW_Flag_SpecialCodeGen   = 0x20,
-    HW_Flag_Load             = 0x40,
-    HW_Flag_Store            = 0x80,
-    HW_Flag_IMM              = 0x100,
-    HW_Flag_Scalar           = 0x200,
+    HW_Flag_None           = 0x00,
+    HW_Flag_Commutative    = 0x01,
+    HW_Flag_SpecialImport  = 0x02,
+    HW_Flag_TypeFromArg0   = 0x04,
+    HW_Flag_TypeFromArg1   = 0x08,
+    HW_Flag_NoCodeGen      = 0x10,
+    HW_Flag_SpecialCodeGen = 0x20,
+    HW_Flag_Load           = 0x40,
+    HW_Flag_Store          = 0x80,
+    HW_Flag_Imm            = 0x100,
+    HW_Flag_Scalar         = 0x200,
 
 #if defined(TARGET_XARCH)
     HW_Flag_NoRMW         = 0x400,
@@ -197,14 +196,14 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_Commutative);
     }
 
-    static bool BaseTypeFromArg0(NamedIntrinsic id)
+    static bool TypeFromArg0(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_BaseTypeFromArg0);
+        return HasFlag(id, HW_Flag_TypeFromArg0);
     }
 
-    static bool BaseTypeFromArg1(NamedIntrinsic id)
+    static bool TypeFromArg1(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_BaseTypeFromArg1);
+        return HasFlag(id, HW_Flag_TypeFromArg1);
     }
 
     static bool HasSpecialImport(NamedIntrinsic id)
@@ -224,7 +223,7 @@ struct HWIntrinsicInfo
 
     static bool HasImm(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_IMM);
+        return HasFlag(id, HW_Flag_Imm);
     }
 
     static bool IsLoad(NamedIntrinsic id)
@@ -353,12 +352,12 @@ private:
 
         const GenTree* op;
 
-        if (HWIntrinsicInfo::BaseTypeFromArg0(id))
+        if (HWIntrinsicInfo::TypeFromArg0(id))
         {
             assert(ops[0] != nullptr);
             op = ops[0];
         }
-        else if (HWIntrinsicInfo::BaseTypeFromArg1(id))
+        else if (HWIntrinsicInfo::TypeFromArg1(id))
         {
             assert(ops[1] != nullptr);
             op = ops[1];
