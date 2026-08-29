@@ -15,10 +15,6 @@ enum HWIntrinsicCategory : unsigned
     // Scalar intrinsics operate on general purpose registers (e.g. cls, clz, rbit)
     HW_Category_Scalar,
 
-    // Memory access intrinsics
-    HW_Category_MemoryLoad,
-    HW_Category_MemoryStore,
-
     // These are Arm64 that share some features in a given category (e.g. immediate operand value range)
     HW_Category_ShiftLeftByImmediate,
     HW_Category_ShiftRightByImmediate,
@@ -261,12 +257,6 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_IMM);
     }
 
-#ifdef TARGET_XARCH
-    static bool IsRMW(NamedIntrinsic id)
-    {
-        return !HasFlag(id, HW_Flag_NoRMW);
-    }
-
     static bool IsLoad(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_Load);
@@ -275,6 +265,12 @@ struct HWIntrinsicInfo
     static bool IsStore(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_Store);
+    }
+
+#ifdef TARGET_XARCH
+    static bool IsRMW(NamedIntrinsic id)
+    {
+        return !HasFlag(id, HW_Flag_NoRMW);
     }
 
     static bool IsXmmScalar(NamedIntrinsic id)

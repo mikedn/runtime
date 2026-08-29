@@ -724,13 +724,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         case 1:
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
-#if defined(TARGET_ARM64)
-            if (category == HW_Category_MemoryLoad)
-#elif defined(TARGET_XARCH)
             if (HWIntrinsicInfo::IsLoad(intrinsic))
-#else
-#error Unknown target
-#endif
             {
                 if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
                 {

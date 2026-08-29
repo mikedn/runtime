@@ -135,10 +135,8 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
                 case HW_Category_ShiftLeftByImmediate:
                 case HW_Category_ShiftRightByImmediate:
                 case HW_Category_Helper:
-                    return true;
-                // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
-                case HW_Category_MemoryLoad:
-                case HW_Category_MemoryStore:
+                    // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
+                    return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
                 default:
                     return false;
             }
