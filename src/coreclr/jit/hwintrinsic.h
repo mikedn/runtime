@@ -50,55 +50,25 @@ enum HWIntrinsicCategory : unsigned
 
 enum HWIntrinsicFlag : unsigned
 {
-    HW_Flag_NoFlag = 0,
-
-    // Commutative
-    // - if a binary-op intrinsic is commutative (e.g., Add, Multiply), its op1 can be contained
-    HW_Flag_Commutative = 0x1,
-
-    // NoCodeGen
-    // - should be transformed in the compiler front-end, cannot reach CodeGen
-    HW_Flag_NoCodeGen = 0x2,
-
-    // Select base type using the first argument type
-    HW_Flag_BaseTypeFromArg0     = 0x8,
-    HW_Flag_BaseTypeFromFirstArg = HW_Flag_BaseTypeFromArg0,
-
-    // Select base type using the second argument type
-    HW_Flag_BaseTypeFromArg1      = 0x10,
-    HW_Flag_BaseTypeFromSecondArg = HW_Flag_BaseTypeFromArg1,
-
-    // Special codegen
-    // the intrinsics need special rules in CodeGen,
-    // but may be table-driven in the front-end
-    HW_Flag_SpecialCodeGen = 0x80,
-
-    // Special import
-    // the intrinsics need special rules in importer,
-    // but may be table-driven in the back-end
-    HW_Flag_SpecialImport = 0x100,
+    HW_Flag_None             = 0x00,
+    HW_Flag_NoFlag           = HW_Flag_None,
+    HW_Flag_Commutative      = 0x01,
+    HW_Flag_SpecialImport    = 0x02,
+    HW_Flag_BaseTypeFromArg0 = 0x04,
+    HW_Flag_BaseTypeFromArg1 = 0x08,
+    HW_Flag_NoCodeGen        = 0x10,
+    HW_Flag_SpecialCodeGen   = 0x20,
 
 #if defined(TARGET_XARCH)
-    // Treat an unary intrinsic as binary by duplicating the operand in codegen.
-    HW_Flag_DupUnaryOp = 0x800,
-
-    HW_Flag_Load     = 0x40000,
-    HW_Flag_MayLoad  = 0x1000,
-    HW_Flag_Store    = 0x80000,
-    HW_Flag_MayStore = 0x2000,
-
-    // No Read/Modify/Write Semantics
-    // the intrinsic doesn't have read/modify/write semantics in two/three-operand form.
-    HW_Flag_NoRMWSemantics = 0x4000,
-
-    // NoContainment
-    // the intrinsic cannot be handled by containment,
-    // all the intrinsic that have explicit memory load/store semantics should have this flag
-    HW_Flag_NoContainment = 0x8000,
-
-    HW_Flag_IMM       = 0x10000,
-    HW_Flag_XmmScalar = 0x20000,
-
+    HW_Flag_DupUnaryOp    = 0x40,
+    HW_Flag_IMM           = 0x80,
+    HW_Flag_Load          = 0x100,
+    HW_Flag_Store         = 0x200,
+    HW_Flag_MayLoad       = 0x400,
+    HW_Flag_MayStore      = 0x800,
+    HW_Flag_NoRMW         = 0x1000,
+    HW_Flag_NoContainment = 0x2000,
+    HW_Flag_XmmScalar     = 0x4000,
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
     // the imm intrinsic does not need jumptable fallback when it gets non-const argument
@@ -308,7 +278,7 @@ struct HWIntrinsicInfo
 #ifdef TARGET_XARCH
     static bool HasRMWSemantics(NamedIntrinsic id)
     {
-        return !HasFlag(id, HW_Flag_NoRMWSemantics);
+        return !HasFlag(id, HW_Flag_NoRMW);
     }
 
     static bool HasIMM(NamedIntrinsic id)
