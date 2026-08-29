@@ -163,7 +163,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
 
 unsigned HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
 {
-    assert(HWIntrinsicInfo::HasIMM(id));
+    assert(HWIntrinsicInfo::HasImm(id));
 
     switch (id)
     {
@@ -680,7 +680,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
         {
             assert(sig.paramCount == 1);
             assert(sig.retType == TYP_VOID);
-            GenTree* op1 = impPopStack().val;
+            GenTree* op1  = impPopStack().val;
             GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
             node->SetDoNotCSE();
             return node;

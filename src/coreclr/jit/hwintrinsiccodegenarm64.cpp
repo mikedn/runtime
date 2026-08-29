@@ -163,7 +163,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     emitAttr emitSize;
     insOpts  opt;
 
-    if (HWIntrinsicInfo::SIMDScalar(intrin.id))
+    if (HWIntrinsicInfo::IsVecScalar(intrin.id))
     {
         emitSize = emitTypeSize(intrin.vecEltType);
         opt      = INS_OPTS_NONE;
@@ -180,7 +180,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 
     const bool isRMW         = node->IsRMW(compiler);
-    const bool hasImmOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
+    const bool hasImmOperand = HWIntrinsicInfo::HasImm(intrin.id);
 
     RegNum defReg = node->GetRegNum();
     RegNum regs[4]{REG_NA, REG_NA, REG_NA, REG_NA};

@@ -216,7 +216,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
             {
                 unreached();
             }
-            else if (HWIntrinsicInfo::HasIMM(intrinsic) && varActualTypeIsInt(op2->GetType()))
+            else if (HWIntrinsicInfo::HasImm(intrinsic) && varActualTypeIsInt(op2->GetType()))
             {
                 assert(implicitImm == -1);
                 auto emitSwCase = [&](int8_t i) { genHWIntrinsic_R_RM_I(node, ins, i); };
@@ -261,7 +261,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
             RegNum op2Reg = op2->GetRegNum();
             RegNum op3Reg = op3->GetRegNum();
 
-            if (HWIntrinsicInfo::HasIMM(intrinsic) && varActualTypeIsInt(op3->GetType()))
+            if (HWIntrinsicInfo::HasImm(intrinsic) && varActualTypeIsInt(op3->GetType()))
             {
                 auto emitSwCase = [&](int8_t i) { genHWIntrinsic_R_R_RM_I(node, ins, i); };
 

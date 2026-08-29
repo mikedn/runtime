@@ -481,7 +481,7 @@ void Lowering::LowerAdvSimdFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 void Lowering::LowerAdvSimdInsert(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_AdvSimd_Insert);
-    assert(HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()));
+    assert(HWIntrinsicInfo::HasImm(node->GetIntrinsic()));
 
     node->SetOp(2, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(2)));
 
@@ -549,7 +549,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             return;
         default:
-            if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
+            if (HWIntrinsicInfo::HasImm(node->GetIntrinsic()))
             {
                 GenTree* immOp = node->GetLastOp();
                 assert(varTypeIsIntegral(immOp->GetType()));

@@ -40,34 +40,30 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_BaseTypeFromArg1 = 0x08,
     HW_Flag_NoCodeGen        = 0x10,
     HW_Flag_SpecialCodeGen   = 0x20,
+    HW_Flag_Load             = 0x40,
+    HW_Flag_Store            = 0x80,
+    HW_Flag_IMM              = 0x100,
+    HW_Flag_Scalar           = 0x200,
 
 #if defined(TARGET_XARCH)
-    HW_Flag_DupUnaryOp    = 0x40,
-    HW_Flag_IMM           = 0x80,
-    HW_Flag_Load          = 0x100,
-    HW_Flag_Store         = 0x200,
-    HW_Flag_MayLoad       = 0x400,
-    HW_Flag_MayStore      = 0x800,
-    HW_Flag_NoRMW         = 0x1000,
-    HW_Flag_NoContainment = 0x2000,
-    HW_Flag_XmmScalar     = 0x4000,
-    HW_Flag_Scalar        = 0x8000
+    HW_Flag_DupUnaryOp    = 0x400,
+    HW_Flag_MayLoad       = 0x800,
+    HW_Flag_MayStore      = 0x1000,
+    HW_Flag_NoRMW         = 0x2000,
+    HW_Flag_NoContainment = 0x4000,
+    HW_Flag_XmmScalar     = 0x8000,
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
     // the imm intrinsic does not need jumptable fallback when it gets non-const argument
-    HW_Flag_NoJmpTableIMM = 0x40,
-
-    // The intrinsic has an immediate operand
-    // - the value can be (and should be) encoded in a corresponding instruction when the operand value is constant
-    HW_Flag_HasImmediateOperand = 0x200,
+    HW_Flag_NoImmFallback = 0x40,
 
     // The intrinsic has read/modify/write semantics in multiple-operands form.
-    HW_Flag_HasRMWSemantics = 0x400,
+    HW_Flag_RMW = 0x400,
 
     // The intrinsic operates on the lower part of a SIMD register
     // - the upper part of the source registers are ignored
     // - the upper part of the destination register is zeroed
-    HW_Flag_SIMDScalar = 0x800,
+    HW_Flag_VecScalar = 0x800,
 
 #else
 #error Unsupported platform
@@ -260,15 +256,15 @@ struct HWIntrinsicInfo
         return !HasFlag(id, HW_Flag_NoCodeGen);
     }
 
-#ifdef TARGET_XARCH
-    static bool HasRMWSemantics(NamedIntrinsic id)
-    {
-        return !HasFlag(id, HW_Flag_NoRMW);
-    }
-
-    static bool HasIMM(NamedIntrinsic id)
+    static bool HasImm(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_IMM);
+    }
+
+#ifdef TARGET_XARCH
+    static bool IsRMW(NamedIntrinsic id)
+    {
+        return !HasFlag(id, HW_Flag_NoRMW);
     }
 
     static bool IsLoad(NamedIntrinsic id)
@@ -313,24 +309,19 @@ struct HWIntrinsicInfo
 #endif
 
 #ifdef TARGET_ARM64
-    static bool HasRMWSemantics(NamedIntrinsic id)
+    static bool IsRMW(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_HasRMWSemantics);
+        return HasFlag(id, HW_Flag_RMW);
     }
 
-    static bool NoJmpTableImm(NamedIntrinsic id)
+    static bool NoImmFallback(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_NoJmpTableIMM);
+        return HasFlag(id, HW_Flag_NoImmFallback);
     }
 
-    static bool SIMDScalar(NamedIntrinsic id)
+    static bool IsVecScalar(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_SIMDScalar);
-    }
-
-    static bool HasImmediateOperand(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_HasImmediateOperand);
+        return HasFlag(id, HW_Flag_VecScalar);
     }
 #endif
 };

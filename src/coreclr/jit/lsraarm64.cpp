@@ -582,9 +582,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
+    const bool hasImmediateOperand = HWIntrinsicInfo::HasImm(intrin.id);
 
-    if (hasImmediateOperand && !HWIntrinsicInfo::NoJmpTableImm(intrin.id))
+    if (hasImmediateOperand && !HWIntrinsicInfo::NoImmFallback(intrin.id))
     {
         // We may need to allocate an additional general-purpose register when an intrinsic
         // has a non-const immediate operand and the intrinsic does not have an alternative

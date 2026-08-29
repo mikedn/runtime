@@ -90,10 +90,10 @@ struct HWIntrinsicInfoEntry
     int                    vecSize;
     int                    numArgs;
 #ifdef TARGET_ARM64
-    HWIntrinsicCategory    category;
+    HWIntrinsicCategory category;
 #endif
-    HWIntrinsicFlag        flags;
-    instruction            ins[10];
+    HWIntrinsicFlag flags;
+    instruction     ins[10];
 };
 
 static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
@@ -304,7 +304,7 @@ GenTree* Importer::PopVecAddrLoad(var_types type)
 GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
     NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int lowerBound, int upperBound)
 {
-    if (!mustExpand || !HWIntrinsicInfo::HasImmediateOperand(intrinsic) || !varActualTypeIsInt(immOp->GetType()))
+    if (!mustExpand || !HWIntrinsicInfo::HasImm(intrinsic) || !varActualTypeIsInt(immOp->GetType()))
     {
         return immOp;
     }
@@ -484,7 +484,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
     if (HWIntrinsicInfo::BaseTypeFromArg0(intrinsic) || HWIntrinsicInfo::BaseTypeFromArg1(intrinsic))
     {
         ClassLayout* argLayout = nullptr;
-        baseType = sig.GetBaseTypeFromParam(HWIntrinsicInfo::BaseTypeFromArg1(intrinsic), &argLayout);
+        baseType               = sig.GetBaseTypeFromParam(HWIntrinsicInfo::BaseTypeFromArg1(intrinsic), &argLayout);
 
         if (argLayout != nullptr)
         {
@@ -560,7 +560,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
     }
 
 #ifdef TARGET_XARCH
-    if ((sig.paramCount > 0) && (HWIntrinsicInfo::HasIMM(intrinsic)) &&
+    if ((sig.paramCount > 0) && (HWIntrinsicInfo::HasImm(intrinsic)) &&
         varActualTypeIsInt(impStackTop().val->GetType()))
     {
         assert((HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) == 255) || HWIntrinsicInfo::HasSpecialImport(intrinsic));
@@ -577,7 +577,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
 
     GenTree* immOp = nullptr;
 
-    if (HWIntrinsicInfo::HasImmediateOperand(intrinsic))
+    if (HWIntrinsicInfo::HasImm(intrinsic))
     {
         if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
             (intrinsic == NI_AdvSimd_LoadAndInsertScalar))
@@ -590,7 +590,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         else if (intrinsic == NI_AdvSimd_Arm64_InsertSelectedScalar)
         {
             assert(sig.paramCount == 4);
-            assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
+            assert(HWIntrinsicInfo::NoImmFallback(intrinsic));
 
             GenTree* srcImmOp = impStackTop().val;
 
@@ -681,7 +681,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         }
         else
         {
-            if (HWIntrinsicInfo::NoJmpTableImm(intrinsic) || !mustExpand)
+            if (HWIntrinsicInfo::NoImmFallback(intrinsic) || !mustExpand)
             {
                 return nullptr;
             }

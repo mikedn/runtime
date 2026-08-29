@@ -1407,7 +1407,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         GenTree* op3    = numOps >= 3 ? node->GetOp(2) : nullptr;
         GenTree* lastOp = node->GetLastOp();
 
-        if (HWIntrinsicInfo::HasIMM(intrinsicId) && varActualTypeIsInt(lastOp->GetType()) &&
+        if (HWIntrinsicInfo::HasImm(intrinsicId) && varActualTypeIsInt(lastOp->GetType()) &&
             !lastOp->IsContainedIntCon())
         {
             // We need two extra reg when lastOp isn't a constant so the offset

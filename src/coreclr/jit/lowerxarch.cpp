@@ -4623,7 +4623,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
             break;
 
         default:
-            if (HWIntrinsicInfo::HasIMM(intrinsic))
+            if (HWIntrinsicInfo::HasImm(intrinsic))
             {
                 break;
             }
@@ -4878,7 +4878,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    if (HWIntrinsicInfo::HasIMM(intrinsic))
+    if (HWIntrinsicInfo::HasImm(intrinsic))
     {
         if (GenTree* lastOp = node->GetLastOp(); lastOp->IsIntCon())
         {

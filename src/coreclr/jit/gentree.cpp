@@ -11022,7 +11022,7 @@ bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 #if defined(TARGET_XARCH)
     if (!comp->codeGen->UseVexEncoding())
     {
-        return HWIntrinsicInfo::HasRMWSemantics(m_intrinsic);
+        return HWIntrinsicInfo::IsRMW(m_intrinsic);
     }
 
     switch (m_intrinsic)
@@ -11047,7 +11047,7 @@ bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
             return false;
     }
 #elif defined(TARGET_ARM64)
-    return HWIntrinsicInfo::HasRMWSemantics(m_intrinsic);
+    return HWIntrinsicInfo::IsRMW(m_intrinsic);
 #else
     return false;
 #endif
