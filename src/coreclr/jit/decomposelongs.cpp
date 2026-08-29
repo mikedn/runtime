@@ -106,7 +106,8 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
         case GT_RETURN:
 #ifdef TARGET_X86
-            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
+            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST) ||
+                   tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
 #else
             assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST));
 #endif

@@ -973,7 +973,7 @@ public:
         assert(!idIsSmallDsc());
         return _idAddrUnion.iiaAddrMode;
     }
-    
+
     ssize_t GetImm() const;
     ssize_t GetMemDisp() const;
     ssize_t GetAmDisp() const;
