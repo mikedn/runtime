@@ -24,22 +24,21 @@ struct ExpandNonConstImmHelper
     {
         assert(varTypeIsIntegral(immOp->GetType()));
 
-        const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrin->GetIntrinsic());
-        unsigned                  simdSize;
+        unsigned vecSize;
 
         if (HWIntrinsicInfo::IsVecByElt(intrin->GetIntrinsic()))
         {
             assert((intrin->GetNumOps() == 3) || (intrin->GetNumOps() == 4));
             var_types indexedElementOpType = intrin->GetOp(intrin->GetNumOps() - 2)->GetType();
-            assert(varTypeIsSIMD(indexedElementOpType));
-            simdSize = varTypeSize(indexedElementOpType);
+            assert(varTypeIsVec(indexedElementOpType));
+            vecSize = varTypeSize(indexedElementOpType);
         }
         else
         {
-            simdSize = intrin->GetVecSize();
+            vecSize = intrin->GetVecSize();
         }
 
-        HWIntrinsicInfo::GetImmOpBounds(intrin->GetIntrinsic(), simdSize, intrin->GetVecEltType(), &immLowerBound,
+        HWIntrinsicInfo::GetImmOpBounds(intrin->GetIntrinsic(), vecSize, intrin->GetVecEltType(), &immLowerBound,
                                         &immUpperBound);
 
         nonConstImmReg = immOp->GetRegNum();

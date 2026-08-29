@@ -122,21 +122,10 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-#ifdef TARGET_XARCH
             // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
+            // Probably VN doesn't do anything useful with them.
             return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
 #endif
-#ifdef TARGET_ARM64
-            switch (HWIntrinsicInfo::GetCategory(node->AsHWIntrinsic()->GetIntrinsic()))
-            {
-                case HW_Category_SIMD:
-                    // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
-                    return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
-                default:
-                    return false;
-            }
-#endif
-#endif // FEATURE_HW_INTRINSICS
 
         default:
             return false;

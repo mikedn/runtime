@@ -89,11 +89,8 @@ struct HWIntrinsicInfoEntry
     CORINFO_InstructionSet isa;
     int                    vecSize;
     int                    numArgs;
-#ifdef TARGET_ARM64
-    HWIntrinsicCategory category;
-#endif
-    HWIntrinsicFlag flags;
-    instruction     ins[10];
+    HWIntrinsicFlag        flags;
+    instruction            ins[10];
 };
 
 static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
@@ -107,8 +104,8 @@ static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
 #undef InstructionSet_VEC
 #elif defined (TARGET_ARM64)
 #define InstructionSet_VEC InstructionSet_ILLEGAL
-#define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
-    {#name, InstructionSet_##isa, size, numarg, category, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
+#define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
+    {#name, InstructionSet_##isa, size, numarg, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistarm64.h"
 #undef InstructionSet_VEC
 #else
@@ -128,13 +125,6 @@ CORINFO_InstructionSet HWIntrinsicInfo::GetIsa(NamedIntrinsic id)
 {
     return GetHWIntrinsicInfo(id).isa;
 }
-
-#ifdef TARGET_ARM64
-HWIntrinsicCategory HWIntrinsicInfo::GetCategory(NamedIntrinsic id)
-{
-    return GetHWIntrinsicInfo(id).category;
-}
-#endif
 
 static unsigned GetVecSize(NamedIntrinsic id)
 {
@@ -569,8 +559,6 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
-    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-
     GenTree* immOp = nullptr;
 
     if (HWIntrinsicInfo::HasImm(intrinsic))

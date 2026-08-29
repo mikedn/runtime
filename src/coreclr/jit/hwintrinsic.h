@@ -5,15 +5,6 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-#ifdef TARGET_ARM64
-enum HWIntrinsicCategory : unsigned
-{
-    // Most of the Arm64 intrinsic fall into SIMD category:
-    // - vector or scalar intrinsics that operate on one-or-many SIMD registers
-    HW_Category_SIMD,
-};
-#endif // TARGET_ARM64
-
 enum HWIntrinsicFlag : unsigned
 {
     HW_Flag_None             = 0x00,
@@ -198,9 +189,6 @@ struct HWIntrinsicInfo
 #endif
 
     static CORINFO_InstructionSet GetIsa(NamedIntrinsic id);
-#ifdef TARGET_ARM64
-    static HWIntrinsicCategory GetCategory(NamedIntrinsic id);
-#endif
     static instruction GetIns(NamedIntrinsic id, var_types type);
     static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag);
 
@@ -338,15 +326,13 @@ struct HWIntrinsicSignature final
 
 struct HWIntrinsic final
 {
-    NamedIntrinsic      id;
-    HWIntrinsicCategory category;
-    var_types           vecEltType;
-    unsigned            numOperands;
-    GenTree*            ops[4];
+    NamedIntrinsic id;
+    var_types      vecEltType;
+    unsigned       numOperands;
+    GenTree*       ops[4];
 
     HWIntrinsic(const GenTreeHWIntrinsic* node)
         : id(node->GetIntrinsic())
-        , category(HWIntrinsicInfo::GetCategory(id))
         , vecEltType(node->GetVecEltType())
         , numOperands(node->GetNumOps())
         , ops{numOperands >= 1 ? node->GetOp(0) : nullptr, numOperands >= 2 ? node->GetOp(1) : nullptr,
