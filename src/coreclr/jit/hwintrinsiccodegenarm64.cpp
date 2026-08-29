@@ -27,7 +27,7 @@ struct ExpandNonConstImmHelper
         const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrin->GetIntrinsic());
         unsigned                  simdSize;
 
-        if (category == HW_Category_SIMDByIndexedElement)
+        if (HWIntrinsicInfo::IsVecByElt(intrin->GetIntrinsic()))
         {
             assert((intrin->GetNumOps() == 3) || (intrin->GetNumOps() == 4));
             var_types indexedElementOpType = intrin->GetOp(intrin->GetNumOps() - 2)->GetType();
@@ -207,7 +207,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (!HWIntrinsicInfo::HasSpecialCodegen(intrin.id))
     {
-        if (intrin.category == HW_Category_SIMDByIndexedElement)
+        if (HWIntrinsicInfo::IsVecByElt(intrin.id))
         {
             if (isRMW)
             {
@@ -233,8 +233,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 emit.emitIns_R_R_R_I(ins, emitSize, defReg, regs[0], regs[1], 0, opt);
             }
         }
-        else if ((intrin.category == HW_Category_ShiftLeftByImmediate) ||
-                 (intrin.category == HW_Category_ShiftRightByImmediate))
+        else if (HWIntrinsicInfo::IsShlImm(intrin.id) || HWIntrinsicInfo::IsShrImm(intrin.id))
         {
             assert(hasImmOperand);
 

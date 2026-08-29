@@ -596,7 +596,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         int      immUpperBound = 0;
         unsigned immVecSize;
 
-        if (intrin.category == HW_Category_SIMDByIndexedElement)
+        if (HWIntrinsicInfo::IsVecByElt(intrin.id))
         {
             assert((node->GetNumOps() == 3) || (node->GetNumOps() == 4));
             var_types indexedElementOpType = node->GetOp(node->GetNumOps() - 2)->GetType();
@@ -613,9 +613,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
         if ((immLowerBound != 0) || (immUpperBound != 1))
         {
-            if ((intrin.category == HW_Category_SIMDByIndexedElement) ||
-                (intrin.category == HW_Category_ShiftLeftByImmediate) ||
-                (intrin.category == HW_Category_ShiftRightByImmediate))
+            if (HWIntrinsicInfo::IsShlImm(intrin.id) || HWIntrinsicInfo::IsShrImm(intrin.id) ||
+                HWIntrinsicInfo::IsVecByElt(intrin.id))
             {
                 immOp = node->GetLastOp();
             }
@@ -694,7 +693,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
-    if ((intrin.category == HW_Category_SIMDByIndexedElement) && (varTypeSize(intrin.vecEltType) == 2))
+    if (HWIntrinsicInfo::IsVecByElt(intrin.id) && (varTypeSize(intrin.vecEltType) == 2))
     {
         // Some "Advanced SIMD scalar x indexed element" and "Advanced SIMD vector x indexed element"
         // instructions (e.g. "MLA (by element)") have encoding that restricts what registers that

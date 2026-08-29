@@ -630,7 +630,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
     {
         unsigned immVecSize;
 
-        if (category != HW_Category_SIMDByIndexedElement)
+        if (!HWIntrinsicInfo::IsVecByElt(intrinsic))
         {
             immVecSize = vecSize;
         }
@@ -789,7 +789,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
 #ifdef TARGET_ARM64
-            assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op2->GetType()));
+            assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op2->GetType()));
 
             if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
             {
@@ -823,7 +823,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
             op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
-            assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op3->GetType()));
+            assert(!HWIntrinsicInfo::IsVecByElt(intrinsic) || varTypeIsVec(op3->GetType()));
             assert(!isScalar);
 
             retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3, op4);

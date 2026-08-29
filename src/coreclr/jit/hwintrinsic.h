@@ -11,11 +11,6 @@ enum HWIntrinsicCategory : unsigned
     // Most of the Arm64 intrinsic fall into SIMD category:
     // - vector or scalar intrinsics that operate on one-or-many SIMD registers
     HW_Category_SIMD,
-
-    // These are Arm64 that share some features in a given category (e.g. immediate operand value range)
-    HW_Category_ShiftLeftByImmediate,
-    HW_Category_ShiftRightByImmediate,
-    HW_Category_SIMDByIndexedElement,
 };
 #endif // TARGET_ARM64
 
@@ -300,6 +295,21 @@ struct HWIntrinsicInfo
     static bool NoImmFallback(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_NoImmFallback);
+    }
+
+    static bool IsShlImm(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_ShlImm);
+    }
+
+    static bool IsShrImm(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_ShrImm);
+    }
+
+    static bool IsVecByElt(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_VecByElt);
     }
 
     static bool IsVecScalar(NamedIntrinsic id)

@@ -117,19 +117,17 @@ void HWIntrinsicInfo::GetImmOpBounds(
     assert(lowerBound != nullptr);
     assert(upperBound != nullptr);
 
-    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-
-    if (category == HW_Category_ShiftLeftByImmediate)
+    if (HWIntrinsicInfo::IsShlImm(intrinsic))
     {
         *lowerBound = 0;
         *upperBound = varTypeBitSize(eltType) - 1;
     }
-    else if (category == HW_Category_ShiftRightByImmediate)
+    else if (HWIntrinsicInfo::IsShrImm(intrinsic))
     {
         *lowerBound = 1;
         *upperBound = varTypeBitSize(eltType);
     }
-    else if (category == HW_Category_SIMDByIndexedElement)
+    else if (HWIntrinsicInfo::IsVecByElt(intrinsic))
     {
         *lowerBound = 0;
         *upperBound = varTypeVecLength(vecSize, eltType) - 1;
