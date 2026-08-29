@@ -122,32 +122,27 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
+#ifdef TARGET_XARCH
+            // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
+            return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
+#endif
+#ifdef TARGET_ARM64
             switch (HWIntrinsicInfo::GetCategory(node->AsHWIntrinsic()->GetIntrinsic()))
             {
-#ifdef TARGET_XARCH
-                case HW_Category_SimpleSIMD:
-#elif defined(TARGET_ARM64)
                 case HW_Category_Scalar:
                 case HW_Category_SIMD:
                 case HW_Category_SIMDByIndexedElement:
                 case HW_Category_ShiftLeftByImmediate:
                 case HW_Category_ShiftRightByImmediate:
                 case HW_Category_Helper:
-#endif
-#ifdef TARGET_XARCH
-                    // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
-                    return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
-#else
                     return true;
-#endif
-
-#ifdef TARGET_ARM64
+                // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
                 case HW_Category_MemoryLoad:
                 case HW_Category_MemoryStore:
-#endif
                 default:
                     return false;
             }
+#endif
 #endif // FEATURE_HW_INTRINSICS
 
         default:

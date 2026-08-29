@@ -4515,6 +4515,11 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
     // be aligned to the 'natural alignment' of the type.
     bool supportsUnalignedVecLoads = false;
 
+    if (HWIntrinsicInfo::IsLoad(intrinsic) || HWIntrinsicInfo::IsStore(intrinsic))
+    {
+        return false;
+    }
+
     if (HWIntrinsicInfo::IsScalar(intrinsic))
     {
         switch (intrinsic)
@@ -4535,161 +4540,147 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
         return supportsGeneralLoads && IsMemOperand(op);
     }
 
-    switch (category)
+    switch (intrinsic)
     {
-        case HW_Category_SimpleSIMD:
-            if (HWIntrinsicInfo::IsLoad(intrinsic) || HWIntrinsicInfo::IsStore(intrinsic))
+        case NI_SSE41_ConvertToVector128Int16:
+        case NI_SSE41_ConvertToVector128Int32:
+        case NI_SSE41_ConvertToVector128Int64:
+        case NI_AVX2_ConvertToVector256Int16:
+        case NI_AVX2_ConvertToVector256Int32:
+        case NI_AVX2_ConvertToVector256Int64:
+            supportsGeneralLoads = !op->IsHWIntrinsic();
+            break;
+
+        case NI_SSE2_ConvertToVector128Double:
+            assert(op->TypeIs(TYP_SIMD16));
+
+            // ConvertToVector128Double has Vector128 operands but the memory versions of
+            // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
+
+            supportsAlignedVecLoads   = !comp->opts.MinOpts();
+            supportsUnalignedVecLoads = true;
+            supportsGeneralLoads      = true;
+            break;
+
+        case NI_AVX_CompareScalar:
+            assert(op->TypeIs(TYP_SIMD16));
+
+            // CompareScalar has Vector128 operands but the memory versions of CMPSS
+            // and CMPSD have 32/64 bit operands and don't care about alignment.
+
+            supportsAlignedVecLoads   = !comp->opts.MinOpts();
+            supportsUnalignedVecLoads = true;
+            supportsScalarVecLoads    = true;
+            supportsGeneralLoads      = true;
+            break;
+
+        case NI_SSE2_Insert:
+        case NI_SSE41_Insert:
+        case NI_SSE41_X64_Insert:
+            assert(instr->GetOp(1) == op);
+            // insertps has its own special handling
+            assert(instr->GetVecEltType() != TYP_FLOAT);
+            assert(varTypeIsIntegral(op->GetType()));
+
+            supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
+            break;
+
+        case NI_VEC_REGCAST:
+            assert(varTypeIsFloating(instr->GetVecEltType()));
+            supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
+            break;
+
+        case NI_VEC_ITOV:
+            assert(varTypeIsIntegral(instr->GetVecEltType()));
+            supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
+            break;
+
+        case NI_AVX2_BroadcastScalarToVector128:
+        case NI_AVX2_BroadcastScalarToVector256:
+            // The memory form of this already takes a pointer, and cannot be further contained.
+            // The containable form is the one that takes a SIMD value, that may be in memory.
+            supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
+            break;
+
+        case NI_SSE_ConvertScalarToVector128Single:
+        case NI_SSE2_ConvertScalarToVector128Double:
+        case NI_SSE2_ConvertScalarToVector128Int32:
+        case NI_SSE_X64_ConvertScalarToVector128Single:
+        case NI_SSE2_X64_ConvertScalarToVector128Double:
+        case NI_SSE2_X64_ConvertScalarToVector128Int64:
+            if (!varTypeIsIntegral(op->GetType()))
             {
-                break;
+                // The floating-point overload doesn't require any special semantics
+                assert(intrinsic == NI_SSE2_ConvertScalarToVector128Double);
+
+                supportsScalarVecLoads = true;
+                supportsGeneralLoads   = true;
             }
-
-            switch (intrinsic)
+            else
             {
-                case NI_SSE41_ConvertToVector128Int16:
-                case NI_SSE41_ConvertToVector128Int32:
-                case NI_SSE41_ConvertToVector128Int64:
-                case NI_AVX2_ConvertToVector256Int16:
-                case NI_AVX2_ConvertToVector256Int32:
-                case NI_AVX2_ConvertToVector256Int64:
-                    supportsGeneralLoads = !op->IsHWIntrinsic();
-                    break;
-
-                case NI_SSE2_ConvertToVector128Double:
-                    assert(op->TypeIs(TYP_SIMD16));
-
-                    // ConvertToVector128Double has Vector128 operands but the memory versions of
-                    // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
-
-                    supportsAlignedVecLoads   = !comp->opts.MinOpts();
-                    supportsUnalignedVecLoads = true;
-                    supportsGeneralLoads      = true;
-                    break;
-
-                case NI_AVX_CompareScalar:
-                    assert(op->TypeIs(TYP_SIMD16));
-
-                    // CompareScalar has Vector128 operands but the memory versions of CMPSS
-                    // and CMPSD have 32/64 bit operands and don't care about alignment.
-
-                    supportsAlignedVecLoads   = !comp->opts.MinOpts();
-                    supportsUnalignedVecLoads = true;
-                    supportsScalarVecLoads    = true;
-                    supportsGeneralLoads      = true;
-                    break;
-
-                case NI_SSE2_Insert:
-                case NI_SSE41_Insert:
-                case NI_SSE41_X64_Insert:
-                    assert(instr->GetOp(1) == op);
-                    // insertps has its own special handling
-                    assert(instr->GetVecEltType() != TYP_FLOAT);
-                    assert(varTypeIsIntegral(op->GetType()));
-
-                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
-                    break;
-
-                case NI_VEC_REGCAST:
-                    assert(varTypeIsFloating(instr->GetVecEltType()));
-                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
-                    break;
-
-                case NI_VEC_ITOV:
-                    assert(varTypeIsIntegral(instr->GetVecEltType()));
-                    supportsGeneralLoads =
-                        (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
-                    break;
-
-                case NI_AVX2_BroadcastScalarToVector128:
-                case NI_AVX2_BroadcastScalarToVector256:
-                    // The memory form of this already takes a pointer, and cannot be further contained.
-                    // The containable form is the one that takes a SIMD value, that may be in memory.
-                    supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
-                    break;
-
-                case NI_SSE_ConvertScalarToVector128Single:
-                case NI_SSE2_ConvertScalarToVector128Double:
-                case NI_SSE2_ConvertScalarToVector128Int32:
-                case NI_SSE_X64_ConvertScalarToVector128Single:
-                case NI_SSE2_X64_ConvertScalarToVector128Double:
-                case NI_SSE2_X64_ConvertScalarToVector128Int64:
-                    if (!varTypeIsIntegral(op->GetType()))
-                    {
-                        // The floating-point overload doesn't require any special semantics
-                        assert(intrinsic == NI_SSE2_ConvertScalarToVector128Double);
-
-                        supportsScalarVecLoads = true;
-                        supportsGeneralLoads   = true;
-                    }
-                    else
-                    {
-                        supportsGeneralLoads =
-                            (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
-                    }
-                    break;
-
-                default:
-                    if (HWIntrinsicInfo::HasIMM(intrinsic))
-                    {
-                        break;
-                    }
-
-                    if (HWIntrinsicInfo::IsXmmScalar(intrinsic))
-                    {
-                        if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
-                        {
-                            supportsScalarVecLoads = true;
-                            supportsGeneralLoads   = true;
-                        }
-                        break;
-                    }
-                    FALLTHROUGH;
-                case NI_SSE_Shuffle:
-                case NI_SSE2_ShiftLeftLogical:
-                case NI_SSE2_ShiftRightArithmetic:
-                case NI_SSE2_ShiftRightLogical:
-                case NI_SSE2_Shuffle:
-                case NI_SSE2_ShuffleHigh:
-                case NI_SSE2_ShuffleLow:
-                case NI_SSSE3_AlignRight:
-                case NI_SSE41_Blend:
-                case NI_SSE41_DotProduct:
-                case NI_SSE41_MultipleSumAbsoluteDifferences:
-                case NI_AES_KeygenAssist:
-                case NI_PCLMULQDQ_CarrylessMultiply:
-                case NI_AVX_Blend:
-                case NI_AVX_Compare:
-                case NI_AVX_DotProduct:
-                case NI_AVX_InsertVector128:
-                case NI_AVX_Permute:
-                case NI_AVX_Permute2x128:
-                case NI_AVX_Shuffle:
-                case NI_AVX2_AlignRight:
-                case NI_AVX2_Blend:
-                case NI_AVX2_InsertVector128:
-                case NI_AVX2_MultipleSumAbsoluteDifferences:
-                case NI_AVX2_Permute2x128:
-                case NI_AVX2_Permute4x64:
-                case NI_AVX2_ShiftLeftLogical:
-                case NI_AVX2_ShiftRightArithmetic:
-                case NI_AVX2_ShiftRightLogical:
-                case NI_AVX2_Shuffle:
-                case NI_AVX2_ShuffleHigh:
-                case NI_AVX2_ShuffleLow:
-                    if (!op->TypeIs(TYP_SIMD16, TYP_SIMD32))
-                    {
-                        *supportsRegOptional = false;
-                        return false;
-                    }
-
-                    supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
-                    supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
-                    supportsGeneralLoads      = supportsUnalignedVecLoads;
-                    break;
+                supportsGeneralLoads =
+                    (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
             }
             break;
 
         default:
-            unreached();
+            if (HWIntrinsicInfo::HasIMM(intrinsic))
+            {
+                break;
+            }
+
+            if (HWIntrinsicInfo::IsXmmScalar(intrinsic))
+            {
+                if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
+                {
+                    supportsScalarVecLoads = true;
+                    supportsGeneralLoads   = true;
+                }
+                break;
+            }
+            FALLTHROUGH;
+        case NI_SSE_Shuffle:
+        case NI_SSE2_ShiftLeftLogical:
+        case NI_SSE2_ShiftRightArithmetic:
+        case NI_SSE2_ShiftRightLogical:
+        case NI_SSE2_Shuffle:
+        case NI_SSE2_ShuffleHigh:
+        case NI_SSE2_ShuffleLow:
+        case NI_SSSE3_AlignRight:
+        case NI_SSE41_Blend:
+        case NI_SSE41_DotProduct:
+        case NI_SSE41_MultipleSumAbsoluteDifferences:
+        case NI_AES_KeygenAssist:
+        case NI_PCLMULQDQ_CarrylessMultiply:
+        case NI_AVX_Blend:
+        case NI_AVX_Compare:
+        case NI_AVX_DotProduct:
+        case NI_AVX_InsertVector128:
+        case NI_AVX_Permute:
+        case NI_AVX_Permute2x128:
+        case NI_AVX_Shuffle:
+        case NI_AVX2_AlignRight:
+        case NI_AVX2_Blend:
+        case NI_AVX2_InsertVector128:
+        case NI_AVX2_MultipleSumAbsoluteDifferences:
+        case NI_AVX2_Permute2x128:
+        case NI_AVX2_Permute4x64:
+        case NI_AVX2_ShiftLeftLogical:
+        case NI_AVX2_ShiftRightArithmetic:
+        case NI_AVX2_ShiftRightLogical:
+        case NI_AVX2_Shuffle:
+        case NI_AVX2_ShuffleHigh:
+        case NI_AVX2_ShuffleLow:
+            if (!op->TypeIs(TYP_SIMD16, TYP_SIMD32))
+            {
+                *supportsRegOptional = false;
+                return false;
+            }
+
+            supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
+            supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
+            supportsGeneralLoads      = supportsUnalignedVecLoads;
+            break;
     }
 
     *supportsRegOptional = supportsGeneralLoads;
@@ -4919,21 +4910,13 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    switch (category)
+    if (numArgs == 1)
     {
-        case HW_Category_SimpleSIMD:
-            if (numArgs == 1)
-            {
-                TryMakeHWIntrinsicMemOp(node, op1);
-            }
-            else if (numArgs == 2)
-            {
-                TryMakeHWIntrinsicMemOp(node, op1, op2, HWIntrinsicInfo::IsCommutative(intrinsic));
-            }
-            return;
-
-        default:
-            unreached();
+        TryMakeHWIntrinsicMemOp(node, op1);
+    }
+    else if (numArgs == 2)
+    {
+        TryMakeHWIntrinsicMemOp(node, op1, op2, HWIntrinsicInfo::IsCommutative(intrinsic));
     }
 }
 
