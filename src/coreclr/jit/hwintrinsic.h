@@ -35,25 +35,19 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_Scalar           = 0x200,
 
 #if defined(TARGET_XARCH)
-    HW_Flag_DupUnaryOp    = 0x400,
-    HW_Flag_MayLoad       = 0x800,
-    HW_Flag_MayStore      = 0x1000,
-    HW_Flag_NoRMW         = 0x2000,
+    HW_Flag_NoRMW         = 0x400,
+    HW_Flag_DupUnaryOp    = 0x800,
+    HW_Flag_MayLoad       = 0x1000,
+    HW_Flag_MayStore      = 0x2000,
     HW_Flag_NoContainment = 0x4000,
     HW_Flag_XmmScalar     = 0x8000,
 #elif defined(TARGET_ARM64)
-    // NoJmpTable IMM
-    // the imm intrinsic does not need jumptable fallback when it gets non-const argument
-    HW_Flag_NoImmFallback = 0x40,
-
-    // The intrinsic has read/modify/write semantics in multiple-operands form.
-    HW_Flag_RMW = 0x400,
-
-    // The intrinsic operates on the lower part of a SIMD register
-    // - the upper part of the source registers are ignored
-    // - the upper part of the destination register is zeroed
-    HW_Flag_VecScalar = 0x800,
-
+    HW_Flag_RMW           = 0x400,
+    HW_Flag_NoImmFallback = 0x800,
+    HW_Flag_ShlImm        = 0x1000,
+    HW_Flag_ShrImm        = 0x2000,
+    HW_Flag_VecByElt      = 0x4000,
+    HW_Flag_VecScalar     = 0x8000,
 #else
 #error Unsupported platform
 #endif
