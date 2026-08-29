@@ -14,10 +14,6 @@ enum HWIntrinsicCategory : unsigned
     // - the codegen of overloads can be determined by intrinsicID and base type of returned vector
     HW_Category_SimpleSIMD,
 
-    // Scalar intrinsics
-    // - operate over general purpose registers, like crc32, lzcnt, popcnt, etc.
-    HW_Category_Scalar,
-
     // Special intrinsics
     // - have to be addressed specially
     HW_Category_Special
@@ -69,6 +65,7 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_NoRMW         = 0x1000,
     HW_Flag_NoContainment = 0x2000,
     HW_Flag_XmmScalar     = 0x4000,
+    HW_Flag_Scalar        = 0x8000
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
     // the imm intrinsic does not need jumptable fallback when it gets non-const argument
@@ -299,6 +296,11 @@ struct HWIntrinsicInfo
     static bool IsXmmScalar(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_XmmScalar);
+    }
+
+    static bool IsScalar(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_Scalar);
     }
 
     static bool SupportsContainment(NamedIntrinsic id)

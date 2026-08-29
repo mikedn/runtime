@@ -4515,24 +4515,28 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
     // be aligned to the 'natural alignment' of the type.
     bool supportsUnalignedVecLoads = false;
 
+    if (HWIntrinsicInfo::IsScalar(intrinsic))
+    {
+        switch (intrinsic)
+        {
+            case NI_SSE42_CRC32B:
+                supportsGeneralLoads = true;
+                break;
+            case NI_SSE42_CRC32W:
+                supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
+                break;
+            default:
+                assert(varTypeIsIntegral(op->GetType()));
+                supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
+                break;
+        }
+
+        *supportsRegOptional = supportsGeneralLoads;
+        return supportsGeneralLoads && IsMemOperand(op);
+    }
+
     switch (category)
     {
-        case HW_Category_Scalar:
-            switch (intrinsic)
-            {
-                case NI_SSE42_CRC32B:
-                    supportsGeneralLoads = true;
-                    break;
-                case NI_SSE42_CRC32W:
-                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
-                    break;
-                default:
-                    assert(varTypeIsIntegral(op->GetType()));
-                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
-                    break;
-            }
-            break;
-
         case HW_Category_SimpleSIMD:
             if (HWIntrinsicInfo::IsLoad(intrinsic) || HWIntrinsicInfo::IsStore(intrinsic))
             {
@@ -4878,7 +4882,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     NamedIntrinsic      intrinsic = node->GetIntrinsic();
     HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
 
-    if ((category != HW_Category_Scalar) && (node->GetVecSize() < 16))
+    if (!HWIntrinsicInfo::IsScalar(intrinsic) && (node->GetVecSize() < 16))
     {
         // Ignore anything having a non-target vector size, such
         // intrinsic nodes should not appear but just in case...
@@ -4918,7 +4922,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     switch (category)
     {
         case HW_Category_SimpleSIMD:
-        case HW_Category_Scalar:
             if (numArgs == 1)
             {
                 TryMakeHWIntrinsicMemOp(node, op1);
