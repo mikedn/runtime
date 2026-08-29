@@ -547,11 +547,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
 #endif
 
             default:
-#ifdef TARGET_XARCH
                 assert(HWIntrinsicInfo::IsScalar(intrinsic));
-#else
-                assert(HWIntrinsicInfo::GetCategory(intrinsic) == HW_Category_Scalar);
-#endif
                 assert(varTypeIsArithmetic(retType));
                 break;
         }
@@ -694,11 +690,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         return ImportSpecialIntrinsic(intrinsic, sig);
     }
 
-#ifdef TARGET_XARCH
     const bool isScalar = HWIntrinsicInfo::IsScalar(intrinsic);
-#else
-    const bool isScalar = (category == HW_Category_Scalar);
-#endif
 
     if (!isScalar && ((HWIntrinsicInfo::GetIns(intrinsic, baseType) == INS_invalid) ||
                       ((vecSize != 8) && (vecSize != 16) && (vecSize != 32))))

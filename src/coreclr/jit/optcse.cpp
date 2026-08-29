@@ -129,7 +129,6 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 #ifdef TARGET_ARM64
             switch (HWIntrinsicInfo::GetCategory(node->AsHWIntrinsic()->GetIntrinsic()))
             {
-                case HW_Category_Scalar:
                 case HW_Category_SIMD:
                 case HW_Category_SIMDByIndexedElement:
                 case HW_Category_ShiftLeftByImmediate:

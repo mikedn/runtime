@@ -12,9 +12,6 @@ enum HWIntrinsicCategory : unsigned
     // - vector or scalar intrinsics that operate on one-or-many SIMD registers
     HW_Category_SIMD,
 
-    // Scalar intrinsics operate on general purpose registers (e.g. cls, clz, rbit)
-    HW_Category_Scalar,
-
     // These are Arm64 that share some features in a given category (e.g. immediate operand value range)
     HW_Category_ShiftLeftByImmediate,
     HW_Category_ShiftRightByImmediate,
@@ -267,6 +264,11 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_Store);
     }
 
+    static bool IsScalar(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_Scalar);
+    }
+
 #ifdef TARGET_XARCH
     static bool IsRMW(NamedIntrinsic id)
     {
@@ -276,11 +278,6 @@ struct HWIntrinsicInfo
     static bool IsXmmScalar(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_XmmScalar);
-    }
-
-    static bool IsScalar(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_Scalar);
     }
 
     static bool SupportsContainment(NamedIntrinsic id)
@@ -366,7 +363,7 @@ struct HWIntrinsic final
 private:
     var_types InitializeScalarType(const GenTreeHWIntrinsic* node) const
     {
-        assert(category == HW_Category_Scalar);
+        HWIntrinsicInfo::IsScalar(id);
 
         const GenTree* op;
 
