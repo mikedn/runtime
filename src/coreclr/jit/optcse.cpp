@@ -133,7 +133,6 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
                 case HW_Category_SIMDByIndexedElement:
                 case HW_Category_ShiftLeftByImmediate:
                 case HW_Category_ShiftRightByImmediate:
-                case HW_Category_Helper:
                     // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
                     return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());
                 default:

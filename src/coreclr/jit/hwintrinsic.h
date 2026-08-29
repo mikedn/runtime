@@ -16,10 +16,6 @@ enum HWIntrinsicCategory : unsigned
     HW_Category_ShiftLeftByImmediate,
     HW_Category_ShiftRightByImmediate,
     HW_Category_SIMDByIndexedElement,
-
-    // Helper intrinsics
-    // - do not directly correspond to a instruction, such as Vector64.AllBitsSet
-    HW_Category_Helper,
 };
 #endif // TARGET_ARM64
 
