@@ -6057,10 +6057,15 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
     switch (ins)
     {
     case INS_movss:
-    case INS_insertps:
     case INS_cvtss2sd:
     case INS_cvtss2si:
     case INS_cvttss2si:
+    case INS_rcpss:
+    case INS_rsqrtss:
+    case INS_sqrtss:
+    case INS_roundss:
+    case INS_vbroadcastss:
+    case INS_insertps:
     case INS_addss:
     case INS_subss:
     case INS_mulss:
@@ -6070,13 +6075,27 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
     case INS_cmpss:
     case INS_comiss:
     case INS_ucomiss:
-    case INS_vbroadcastss:
+    case INS_vfmadd132ss:
+    case INS_vfmadd213ss:
+    case INS_vfmadd231ss:
+    case INS_vfmsub132ss:
+    case INS_vfmsub213ss:
+    case INS_vfmsub231ss:
+    case INS_vfnmadd132ss:
+    case INS_vfnmadd213ss:
+    case INS_vfnmadd231ss:
+    case INS_vfnmsub132ss:
+    case INS_vfnmsub213ss:
+    case INS_vfnmsub231ss:
         align = 4;
         break;
     case INS_movsd:
     case INS_cvtsd2ss:
     case INS_cvtsd2si:
     case INS_cvttsd2si:
+    case INS_sqrtsd:
+    case INS_roundsd:
+    case INS_vbroadcastsd:
     case INS_addsd:
     case INS_subsd:
     case INS_mulsd:
@@ -6086,7 +6105,18 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
     case INS_cmpsd:
     case INS_comisd:
     case INS_ucomisd:
-    case INS_vbroadcastsd:
+    case INS_vfmadd132sd:
+    case INS_vfmadd213sd:
+    case INS_vfmadd231sd:
+    case INS_vfmsub132sd:
+    case INS_vfmsub213sd:
+    case INS_vfmsub231sd:
+    case INS_vfnmadd132sd:
+    case INS_vfnmadd213sd:
+    case INS_vfnmadd231sd:
+    case INS_vfnmsub132sd:
+    case INS_vfnmsub213sd:
+    case INS_vfnmsub231sd:
         align = 8;
         break;
     case INS_vinsertf128:
