@@ -126,14 +126,14 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             {
 #ifdef TARGET_XARCH
                 case HW_Category_SimpleSIMD:
+                case HW_Category_Scalar:
 #elif defined(TARGET_ARM64)
                 case HW_Category_SIMD:
                 case HW_Category_SIMDByIndexedElement:
                 case HW_Category_ShiftLeftByImmediate:
                 case HW_Category_ShiftRightByImmediate:
-#endif
-                case HW_Category_Scalar:
                 case HW_Category_Helper:
+#endif
 #ifdef TARGET_XARCH
                     // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
                     return !HWIntrinsicInfo::IsLoad(node->AsHWIntrinsic()->GetIntrinsic());

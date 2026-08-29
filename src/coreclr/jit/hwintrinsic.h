@@ -18,10 +18,6 @@ enum HWIntrinsicCategory : unsigned
     // - operate over general purpose registers, like crc32, lzcnt, popcnt, etc.
     HW_Category_Scalar,
 
-    // Helper intrinsics
-    // - do not directly correspond to a instruction, such as Avx.SetAllVector256
-    HW_Category_Helper,
-
     // Special intrinsics
     // - have to be addressed specially
     HW_Category_Special
