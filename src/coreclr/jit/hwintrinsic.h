@@ -18,11 +18,6 @@ enum HWIntrinsicCategory : unsigned
     // - operate over general purpose registers, like crc32, lzcnt, popcnt, etc.
     HW_Category_Scalar,
 
-    // Memory access intrinsics
-    // - e.g., Avx.Load, Avx.Store, Sse.LoadAligned
-    HW_Category_MemoryLoad,
-    HW_Category_MemoryStore,
-
     // Helper intrinsics
     // - do not directly correspond to a instruction, such as Avx.SetAllVector256
     HW_Category_Helper,
@@ -91,10 +86,10 @@ enum HWIntrinsicFlag : unsigned
     // Treat an unary intrinsic as binary by duplicating the operand in codegen.
     HW_Flag_DupUnaryOp = 0x800,
 
-    // Maybe Memory Load/Store
-    // - some intrinsics may have pointer overloads but without HW_Category_MemoryLoad/HW_Category_MemoryStore
-    HW_Flag_MaybeMemoryLoad  = 0x1000,
-    HW_Flag_MaybeMemoryStore = 0x2000,
+    HW_Flag_Load     = 0x40000,
+    HW_Flag_MayLoad  = 0x1000,
+    HW_Flag_Store    = 0x80000,
+    HW_Flag_MayStore = 0x2000,
 
     // No Read/Modify/Write Semantics
     // the intrinsic doesn't have read/modify/write semantics in two/three-operand form.
@@ -105,8 +100,8 @@ enum HWIntrinsicFlag : unsigned
     // all the intrinsic that have explicit memory load/store semantics should have this flag
     HW_Flag_NoContainment = 0x8000,
 
-    HW_Flag_IMM = 0x10000,
-    HW_Flag_XmmScalar = 0x20000
+    HW_Flag_IMM       = 0x10000,
+    HW_Flag_XmmScalar = 0x20000,
 
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
@@ -325,6 +320,16 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_IMM);
     }
 
+    static bool IsLoad(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_Load);
+    }
+
+    static bool IsStore(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_Store);
+    }
+
     static bool IsXmmScalar(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_XmmScalar);
@@ -340,14 +345,14 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_DupUnaryOp);
     }
 
-    static bool MaybeMemoryLoad(NamedIntrinsic id)
+    static bool MayLoad(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_MaybeMemoryLoad);
+        return HasFlag(id, HW_Flag_MayLoad);
     }
 
-    static bool MaybeMemoryStore(NamedIntrinsic id)
+    static bool MayStore(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_MaybeMemoryStore);
+        return HasFlag(id, HW_Flag_MayStore);
     }
 #endif
 

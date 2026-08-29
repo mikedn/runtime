@@ -11261,7 +11261,7 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
 
 bool GenTreeHWIntrinsic::IsMemoryLoad() const
 {
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
     if (HWIntrinsicInfo::GetCategory(m_intrinsic) == HW_Category_MemoryLoad)
     {
         return true;
@@ -11269,7 +11269,12 @@ bool GenTreeHWIntrinsic::IsMemoryLoad() const
 #endif
 
 #ifdef TARGET_XARCH
-    if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
+    if (HWIntrinsicInfo::IsLoad(m_intrinsic))
+    {
+        return true;
+    }
+
+    if (HWIntrinsicInfo::MayLoad(m_intrinsic))
     {
         if ((m_intrinsic == NI_AVX2_GATHERD) || (m_intrinsic == NI_AVX2_GATHERQ))
         {
@@ -11291,7 +11296,7 @@ bool GenTreeHWIntrinsic::IsMemoryLoad() const
 
 bool GenTreeHWIntrinsic::IsMemoryStore() const
 {
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
     if (HWIntrinsicInfo::GetCategory(m_intrinsic) == HW_Category_MemoryStore)
     {
         return true;
@@ -11299,7 +11304,12 @@ bool GenTreeHWIntrinsic::IsMemoryStore() const
 #endif
 
 #ifdef TARGET_XARCH
-    if (HWIntrinsicInfo::MaybeMemoryStore(m_intrinsic))
+    if (HWIntrinsicInfo::IsStore(m_intrinsic))
+    {
+        return true;
+    }
+
+    if (HWIntrinsicInfo::MayStore(m_intrinsic))
     {
         assert((m_intrinsic == NI_BMI2_MultiplyNoFlags) || (m_intrinsic == NI_BMI2_X64_MultiplyNoFlags));
 

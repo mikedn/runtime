@@ -4534,6 +4534,11 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
             break;
 
         case HW_Category_SimpleSIMD:
+            if (HWIntrinsicInfo::IsLoad(intrinsic) || HWIntrinsicInfo::IsStore(intrinsic))
+            {
+                break;
+            }
+
             switch (intrinsic)
             {
                 case NI_SSE41_ConvertToVector128Int16:
@@ -4896,18 +4901,22 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     GenTree* op1     = node->GetOp(0);
     GenTree* op2     = numArgs > 1 ? node->GetOp(1) : nullptr;
 
+    if (HWIntrinsicInfo::IsLoad(intrinsic))
+    {
+        assert((numArgs == 1) || (numArgs == 2));
+        TryMakeHWIntrinsicAddrMode(node, numArgs == 1 ? op1 : op2);
+        return;
+    }
+
+    if (HWIntrinsicInfo::IsStore(intrinsic))
+    {
+        assert((numArgs == 2) || (numArgs == 3));
+        TryMakeHWIntrinsicAddrMode(node, op1);
+        return;
+    }
+
     switch (category)
     {
-        case HW_Category_MemoryLoad:
-            assert((numArgs == 1) || (numArgs == 2));
-            TryMakeHWIntrinsicAddrMode(node, numArgs == 1 ? op1 : op2);
-            return;
-
-        case HW_Category_MemoryStore:
-            assert((numArgs == 2) || (numArgs == 3));
-            TryMakeHWIntrinsicAddrMode(node, op1);
-            return;
-
         case HW_Category_SimpleSIMD:
         case HW_Category_Scalar:
             if (numArgs == 1)

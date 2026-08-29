@@ -161,7 +161,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
         {
             GenTree* op2 = node->GetOp(1);
 
-            if (category == HW_Category_MemoryStore)
+            if (HWIntrinsicInfo::IsStore(intrinsic))
             {
                 UseAddrRegs(op1);
 
@@ -213,7 +213,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 assert((implicitImm >= 0) && (implicitImm <= 127));
                 genHWIntrinsic_R_R_RM_I(node, ins, static_cast<int8_t>(implicitImm));
             }
-            else if (category == HW_Category_MemoryLoad)
+            else if (HWIntrinsicInfo::IsLoad(intrinsic))
             {
                 unreached();
             }
