@@ -13,11 +13,6 @@ enum HWIntrinsicCategory : unsigned
     // - return a Vector128/256<T>
     // - the codegen of overloads can be determined by intrinsicID and base type of returned vector
     HW_Category_SimpleSIMD,
-
-    // Special intrinsics
-    // - have to be addressed specially
-    HW_Category_Special
-
 #elif defined(TARGET_ARM64)
 
     // Most of the Arm64 intrinsic fall into SIMD category:

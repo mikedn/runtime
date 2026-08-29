@@ -681,15 +681,21 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             assert(sig.paramCount == 1);
             assert(sig.retType == TYP_VOID);
             GenTree* op1 = impPopStack().val;
-            return comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
+            GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
+            node->SetDoNotCSE();
+            return node;
         }
 
         case NI_SSE_StoreFence:
         case NI_SSE2_LoadFence:
         case NI_SSE2_MemoryFence:
+        {
             assert(sig.paramCount == 0);
             assert(sig.retType == TYP_VOID);
-            return comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
+            GenTree* node = comp->gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
+            node->SetDoNotCSE();
+            return node;
+        }
 
         case NI_SSE2_StoreNonTemporal:
         {
