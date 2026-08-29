@@ -4477,8 +4477,7 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 
 bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* op, bool* supportsRegOptional)
 {
-    NamedIntrinsic      intrinsic = instr->GetIntrinsic();
-    HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
+    NamedIntrinsic intrinsic = instr->GetIntrinsic();
 
     assert(HWIntrinsicInfo::SupportsContainment(intrinsic));
 
@@ -4870,8 +4869,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
 
-    NamedIntrinsic      intrinsic = node->GetIntrinsic();
-    HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
+    NamedIntrinsic intrinsic = node->GetIntrinsic();
 
     if (!HWIntrinsicInfo::IsScalar(intrinsic) && (node->GetVecSize() < 16))
     {

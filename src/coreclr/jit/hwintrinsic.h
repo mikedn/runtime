@@ -5,16 +5,9 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
+#ifdef TARGET_ARM64
 enum HWIntrinsicCategory : unsigned
 {
-#ifdef TARGET_XARCH
-    // Simple SIMD intrinsics
-    // - take Vector128/256<T> parameters
-    // - return a Vector128/256<T>
-    // - the codegen of overloads can be determined by intrinsicID and base type of returned vector
-    HW_Category_SimpleSIMD,
-#elif defined(TARGET_ARM64)
-
     // Most of the Arm64 intrinsic fall into SIMD category:
     // - vector or scalar intrinsics that operate on one-or-many SIMD registers
     HW_Category_SIMD,
@@ -34,10 +27,8 @@ enum HWIntrinsicCategory : unsigned
     // Helper intrinsics
     // - do not directly correspond to a instruction, such as Vector64.AllBitsSet
     HW_Category_Helper,
-#else
-#error Unsupported platform
-#endif
 };
+#endif // TARGET_ARM64
 
 enum HWIntrinsicFlag : unsigned
 {
@@ -233,7 +224,9 @@ struct HWIntrinsicInfo
 #endif
 
     static CORINFO_InstructionSet GetIsa(NamedIntrinsic id);
+#ifdef TARGET_ARM64
     static HWIntrinsicCategory GetCategory(NamedIntrinsic id);
+#endif
     static instruction GetIns(NamedIntrinsic id, var_types type);
     static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag);
 

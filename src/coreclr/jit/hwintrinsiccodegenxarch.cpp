@@ -104,8 +104,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
     var_types            eltType   = node->GetVecEltType();
     Emitter&             emit      = *GetEmitter();
 
-    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-    instruction         ins      = HWIntrinsicInfo::GetIns(intrinsic, eltType);
+    instruction ins = HWIntrinsicInfo::GetIns(intrinsic, eltType);
     assert(ins != INS_invalid);
     emitAttr vecSize = emitVecTypeSize(node->GetVecSize());
     assert(vecSize != 0);
