@@ -34,9 +34,6 @@ public:
     }
 
     static void TransformUnusedIndirection(GenTreeIndir* ind);
-#ifdef FEATURE_HW_INTRINSICS
-    static bool IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional);
-#endif
 
     void Run();
 
@@ -327,10 +324,7 @@ private:
     void LowerVecPackConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
     GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op);
 
-    bool IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional)
-    {
-        return IsHWIntrinsicMemOp(comp, instr, node, supportsRegOptional);
-    }
+    bool IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* supportsRegOptional);
 #endif // FEATURE_HW_INTRINSICS
 
     bool IsImmOperand(GenTree* operand, GenTree* instr) const;

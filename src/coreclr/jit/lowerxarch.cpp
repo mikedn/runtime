@@ -4474,7 +4474,7 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* op, bool* supportsRegOptional)
+bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* supportsRegOptional)
 {
     NamedIntrinsic intrinsic = instr->GetIntrinsic();
 

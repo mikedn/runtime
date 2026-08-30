@@ -10,25 +10,6 @@
 #include "sideeffects.h"
 #include "lower.h"
 
-#if DEBUG
-static bool IsHWIntrinsicMemOp(Compiler* compiler, GenTreeHWIntrinsic* instr, GenTree* op)
-{
-    // The Lowering::IsHWIntrinsicMemOp call is not quite right, since it follows
-    // pre-register allocation logic. However, this check is still important due to the
-    // various containment rules that SIMD intrinsics follow.
-    //
-    // We use isContainable to track the special HWIntrinsic instr containment rules (for
-    // things like LoadAligned and LoadUnaligned) and we use the supportsRegOptional check
-    // to support general-purpose loads (both from stack spillage and for isUsedFromMemory
-    // contained nodes, in the case where the register allocator decided to not allocate a
-    // register in the first place).
-
-    bool supportsRegOptional = false;
-    bool isContainable       = Lowering::IsHWIntrinsicMemOp(compiler, instr, op, &supportsRegOptional);
-    return isContainable || supportsRegOptional || op->OperIs(GT_IND_LOAD);
-}
-#endif // DEBUG
-
 void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsic = node->GetIntrinsic();
@@ -418,9 +399,6 @@ void CodeGen::genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emi
         return;
     }
 
-    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-    assert(IsHWIntrinsicMemOp(compiler, node, rmOp));
-
     StackAddrMode s;
     GenTree*      addr;
     ConstData*    data;
@@ -454,12 +432,6 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
 
     assert(dstReg != REG_NA);
     assert(!node->IsCommutative()); // One operand intrinsics cannot be commutative
-
-    if (op1->isContained() || op1->isUsedFromSpillTemp())
-    {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsHWIntrinsicMemOp(compiler, node, op1));
-    }
 
     inst_R_RM_I(ins, size, dstReg, op1, imm);
 }
@@ -502,12 +474,6 @@ void CodeGen::inst_R_RM_I(instruction ins, emitAttr attr, RegNum reg1, GenTree* 
 void CodeGen::genHWIntrinsic_R_R_RM(
     GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum dstReg, RegNum op1Reg, GenTree* op2)
 {
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
-    {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsHWIntrinsicMemOp(compiler, node, op2));
-    }
-
     inst_R_R_RM(ins, attr, dstReg, op1Reg, op2, node->IsRMW(compiler));
 }
 
@@ -666,9 +632,6 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
         return;
     }
 
-    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-    assert((ins == INS_insertps) || IsHWIntrinsicMemOp(compiler, node, op2));
-
     StackAddrMode s;
     GenTree*      addr;
     ConstData*    data;
@@ -722,9 +685,6 @@ void CodeGen::inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
         return;
     }
 
-    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-    assert(IsHWIntrinsicMemOp(compiler, node, op2));
-
     StackAddrMode s;
     GenTree*      addr;
     ConstData*    data;
@@ -772,9 +732,6 @@ void CodeGen::inst_VexBlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 
         return;
     }
-
-    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-    assert(IsHWIntrinsicMemOp(compiler, node, op2));
 
     StackAddrMode s;
     GenTree*      addr;
