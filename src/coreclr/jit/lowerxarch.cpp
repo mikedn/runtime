@@ -4480,63 +4480,40 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
 
     assert(HWIntrinsicInfo::SupportsContainment(intrinsic));
 
-    // instr supports nodes that read from an aligned memory address
-    //
-    // This will generally be an explicit LoadAligned instruction and is false for
-    // machines with VEX support when minOpts is enabled. This is because there is
-    // currently no way to guarantee that the address read from will always be
-    // aligned and we want to assert that the address is aligned when optimizations
-    // aren't enabled. However, when optimizations are enabled, we want to allow
-    // folding of memory operands as it produces better codegen and allows simpler
-    // coding patterns on the managed side.
-    bool supportsAlignedVecLoads = false;
-
-    // instr supports nodes that read from general memory
-    //
-    // We currently have to assume all "general" loads are unaligned. As such, this is
-    // generally used to determine if we can mark the node as `regOptional` in the case
-    // where `node` is not containable. However, this can also be used to determine whether
-    // we can mark other types of reads as contained (such as when directly reading a local).
-    bool supportsGeneralLoads = false;
-
-    // instr supports nodes that read from a scalar memory address
-    //
-    // This will generally be an explicit LoadScalar instruction but is also used to determine
-    // whether we can read an address of type T (we don't support this when the load would
-    // read more than sizeof(T) bytes).
-    bool supportsScalarVecLoads = false;
-
-    // instr supports nodes that read from an unaligned memory address
-    //
-    // This will generally be an explicit Load instruction and is generally false for machines
-    // without VEX support. This is because older hardware required that the SIMD operand always
-    // be aligned to the 'natural alignment' of the type.
-    bool supportsUnalignedVecLoads = false;
-
     if (HWIntrinsicInfo::IsLoad(intrinsic) || HWIntrinsicInfo::IsStore(intrinsic))
     {
+        *supportsRegOptional = false;
         return false;
     }
 
     if (HWIntrinsicInfo::IsScalar(intrinsic))
     {
+        unsigned loadSize;
+
         switch (intrinsic)
         {
         case NI_SSE42_CRC32B:
-            supportsGeneralLoads = true;
+            loadSize = 1;
             break;
         case NI_SSE42_CRC32W:
-            supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
+            loadSize = 2;
             break;
         default:
             assert(varTypeIsIntegral(op->GetType()));
-            supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
+            assert(!varTypeIsSmall(instr->GetType()));
+
+            loadSize = varTypeSize(instr->GetType());
             break;
         }
 
-        *supportsRegOptional = supportsGeneralLoads;
-        return supportsGeneralLoads && IsMemOperand(op);
+        *supportsRegOptional = loadSize <= varTypeSize(varActualType(op->GetType()));
+        return loadSize <= varTypeSize(op->GetType()) && IsMemOperand(op);
     }
+
+    bool supportsGeneralLoads      = false;
+    bool supportsScalarVecLoads    = false;
+    bool supportsUnalignedVecLoads = false;
+    bool supportsAlignedVecLoads   = false;
 
     switch (intrinsic)
     {
