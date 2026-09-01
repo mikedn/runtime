@@ -1479,6 +1479,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_VEC_ITOV:
         LowerVecIToV(node);
         return;
+
     case NI_VEC_ZEXT:
     case NI_VEC_TRUNC:
         TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
@@ -1495,6 +1496,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_VEC_EXTRACT:
         LowerVecExtract(node);
         return;
+
     case NI_VEC_INSERT:
         LowerVecInsert(node);
         return;
@@ -1513,6 +1515,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_VEC_EQ:
         LowerVecEquality(node, GT_EQ);
         return;
+
     case NI_VEC_NE:
         LowerVecEquality(node, GT_NE);
         return;
@@ -1576,6 +1579,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             if (IsMemOperand(value, node->GetVecEltType()) && IsSafeToMoveMemOperandForward(node, value))
             {
                 value->SetContained();
+            }
+            else
+            {
+                value->SetRegOptional();
             }
 
             imm->SetContained();
@@ -1890,6 +1897,16 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         node->GetLastOp()->SetContained();
         return;
 
+    case NI_AVX_BroadcastScalarToVector128:
+    case NI_AVX_BroadcastScalarToVector256:
+    case NI_AVX2_BroadcastScalarToVector128:
+    case NI_AVX2_BroadcastScalarToVector256:
+        if (varTypeIsVec(node->GetOp(0)->GetType()))
+        {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+            return;
+        }
+        FALLTHROUGH;
     case NI_AVX_MaskLoad:
     case NI_AVX2_MaskLoad:
         TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
@@ -2073,6 +2090,7 @@ void Lowering::LowerVecIToVLong(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_ITOV);
+    assert(varTypeIsIntegral(node->GetVecEltType()));
 
     GenTree* op = node->GetOp(0);
 
@@ -2091,7 +2109,17 @@ void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
         return;
     }
 
-    TryMakeHWIntrinsicMemOp(node, op);
+    if (!varTypeIsSmall(node->GetVecEltType()))
+    {
+        if (IsMemOperand(op, node->GetVecEltType()) && IsSafeToMoveMemOperandForward(node, op))
+        {
+            op->SetContained();
+        }
+        else
+        {
+            op->SetRegOptional();
+        }
+    }
 }
 
 void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
@@ -2804,7 +2832,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            LclVarDsc*       tempLcl = GetSimdMemoryTemp(vec->GetType());
+            LclVarDsc*       tempLcl = GetVecMemTemp(vec->GetType());
             GenTreeLclStore* store   = comp->gtNewLclStore(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 
@@ -2870,16 +2898,10 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
             GenTree* one = comp->gtNewIconNode(1);
             vec          = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, eltType, 32, vec, one);
             BlockRange().InsertBefore(node, one, vec);
-        }
-        else
-        {
-            vec = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_TRUNC, eltType, vec);
-            BlockRange().InsertBefore(node, vec);
+
+            LowerNode(vec);
         }
 
-        LowerNode(vec);
-
-        node->SetIntrinsic(NI_VEC_EXTRACT);
         node->SetVecSize(16);
         node->SetOp(0, vec);
     }
@@ -4535,6 +4557,7 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
         supportsGeneralLoads      = true;
         break;
 
+    case NI_VEC_ITOV:
     case NI_SSE2_Insert:
     case NI_SSE41_Insert:
     case NI_SSE41_X64_Insert:
@@ -4545,15 +4568,8 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
         supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
         break;
 
-    case NI_VEC_ITOV:
-        assert(varTypeIsIntegral(instr->GetVecEltType()));
-        supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
-        break;
-
     case NI_AVX2_BroadcastScalarToVector128:
     case NI_AVX2_BroadcastScalarToVector256:
-        // The memory form of this already takes a pointer, and cannot be further contained.
-        // The containable form is the one that takes a SIMD value, that may be in memory.
         supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
         break;
 

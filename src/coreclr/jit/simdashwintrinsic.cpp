@@ -1583,19 +1583,9 @@ GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
 
     GenTree* e[2];
 
-    e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[0] = NewVecExtractNode(TYP_LONG, uses[0], comp->gtNewIconNode(0));
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[0]);
-
-    if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        e[1] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
-    }
-    else
-    {
-        e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, uses[2], comp->gtNewIconNode(0b00001110));
-        e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, e[1]);
-    }
-
+    e[1] = NewVecExtractNode(TYP_LONG, uses[2], comp->gtNewIconNode(1));
     e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[1]);
     return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[0], e[1]);
 #endif
@@ -1652,9 +1642,9 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     GenTree* e[4];
-    e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[0] = NewVecExtractNode(TYP_LONG, uses[0], comp->gtNewIconNode(0));
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[0]);
-    e[1] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
+    e[1] = NewVecExtractNode(TYP_LONG, uses[2], comp->gtNewIconNode(1));
     e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[1]);
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[0], e[1]);
 
@@ -1662,9 +1652,9 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
     uses[0] = NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, TYP_LONG, uses[0]);
     impMakeMultiUse(uses[0], 4, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
-    e[2] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[2] = NewVecExtractNode(TYP_LONG, uses[0], comp->gtNewIconNode(0));
     e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[2]);
-    e[3] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
+    e[3] = NewVecExtractNode(TYP_LONG, uses[2], comp->gtNewIconNode(1));
     e[3] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[3]);
     e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[2], e[3]);
 

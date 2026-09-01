@@ -271,7 +271,7 @@ private:
     void LowerVecPack(GenTreeHWIntrinsic* node);
     void LowerVecSplat(GenTreeHWIntrinsic* node);
     void LowerVecRegCast(GenTreeHWIntrinsic* node);
-    LclVarDsc* GetSimdMemoryTemp(var_types type);
+    LclVarDsc* GetVecMemTemp(var_types type);
 #ifdef TARGET_X86
     void LowerVecIToVLong(GenTreeHWIntrinsic* node);
 #endif

@@ -909,7 +909,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            LclVarDsc*       tempLcl = GetSimdMemoryTemp(vec->GetType());
+            LclVarDsc*       tempLcl = GetVecMemTemp(vec->GetType());
             GenTreeLclStore* store   = comp->gtNewLclStore(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 

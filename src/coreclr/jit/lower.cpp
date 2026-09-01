@@ -5294,7 +5294,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
-LclVarDsc* Lowering::GetSimdMemoryTemp(var_types type)
+LclVarDsc* Lowering::GetVecMemTemp(var_types type)
 {
 #if defined(TARGET_XARCH)
     assert((type == TYP_SIMD16) || (type == TYP_SIMD32));
