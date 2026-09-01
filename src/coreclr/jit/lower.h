@@ -330,6 +330,7 @@ private:
 
     static bool IsMemStore(GenTree* node);
     static bool IsMemOperand(GenTree* node);
+    static bool IsMemOperand(GenTree* node, var_types loadType);
 
     LIR::Range& BlockRange() const
     {

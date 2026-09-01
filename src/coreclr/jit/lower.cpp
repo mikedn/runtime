@@ -5502,6 +5502,11 @@ bool Lowering::IsMemOperand(GenTree* node)
     return false;
 }
 
+bool Lowering::IsMemOperand(GenTree* node, var_types loadType)
+{
+    return IsMemOperand(node) && (varTypeSize(loadType) <= varTypeSize(node->GetType()));
+}
+
 PhaseStatus Compiler::phLower()
 {
     Lowering lowering(this);

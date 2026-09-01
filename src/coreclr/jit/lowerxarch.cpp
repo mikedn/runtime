@@ -1568,10 +1568,16 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_SSE41_X64_Insert:
         assert(node->IsTernary());
         node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
-        
+
         if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
         {
-            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+            GenTree* value = node->GetOp(1);
+
+            if (IsMemOperand(value, node->GetVecEltType()) && IsSafeToMoveMemOperandForward(node, value))
+            {
+                value->SetContained();
+            }
+
             imm->SetContained();
         }
         return;
@@ -4532,13 +4538,7 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
     case NI_SSE2_Insert:
     case NI_SSE41_Insert:
     case NI_SSE41_X64_Insert:
-        assert(instr->GetOp(1) == op);
-        // insertps has its own special handling
-        assert(instr->GetVecEltType() != TYP_FLOAT);
-        assert(varTypeIsIntegral(op->GetType()));
-
-        supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
-        break;
+        unreached();
 
     case NI_VEC_REGCAST:
         assert(varTypeIsFloating(instr->GetVecEltType()));
