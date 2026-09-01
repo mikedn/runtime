@@ -284,7 +284,6 @@ private:
     void LowerVecExtract(GenTreeHWIntrinsic* node);
     void LowerVecInsert(GenTreeHWIntrinsic* node);
     void LowerSse41InsertFloat(GenTreeHWIntrinsic* node);
-    void ContainSse41InsertFloat(GenTreeHWIntrinsic* node);
     void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
     void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
     void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);

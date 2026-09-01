@@ -1567,15 +1567,11 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_SSE2_Insert:
     case NI_SSE41_X64_Insert:
         assert(node->IsTernary());
-        // Insert takes either a 32-bit register or a memory operand.
-        // In either case, only gtSIMDBaseType bits are read and so
-        // widening or narrowing the operand may be unnecessary and it
-        // can just be used directly.
         node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
-        TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
-
+        
         if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
         {
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
             imm->SetContained();
         }
         return;
@@ -1629,12 +1625,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_SSE2_CompareNotGreaterThanOrEqual:
         assert((node->GetVecEltType() == TYP_FLOAT) || (node->GetVecEltType() == TYP_DOUBLE));
 
-        if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
+        if (comp->codeGen->UseVexEncoding())
         {
             break;
         }
 
-        // pre-AVX doesn't actually support these intrinsics in hardware so we need to swap the operands around
+        // pre-VEX doesn't actually support these intrinsics in hardware so we need to swap the operands around
         std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
         break;
 
@@ -3160,7 +3156,7 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
     if ((imm->AsIntCon()->GetUInt8Value() >> 6) == 0)
     {
         // If the first element of a vector is inserted then we may be able to change that
-        // to a float value so it can be contained if it's a contant or memory location.
+        // to a float value so it can be contained if it's a constant or memory location.
 
         if (GenTreeHWIntrinsic* vecElt = elt->IsHWIntrinsic())
         {
@@ -3192,22 +3188,6 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
         {
             elt->ChangeToLclLoadFld(TYP_FLOAT, elt->AsLclLoad()->GetLcl(), 0, FieldSeqStore::NotAField());
         }
-    }
-
-    ContainSse41InsertFloat(node);
-}
-
-void Lowering::ContainSse41InsertFloat(GenTreeHWIntrinsic* node)
-{
-    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetVecEltType() == TYP_FLOAT));
-
-    GenTree* vec = node->GetOp(0);
-    GenTree* elt = node->GetOp(1);
-    GenTree* imm = node->GetOp(2);
-
-    if (!imm->IsIntCon())
-    {
-        return;
     }
 
     imm->SetContained();
