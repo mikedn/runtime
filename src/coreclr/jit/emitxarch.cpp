@@ -4111,7 +4111,12 @@ private:
             }
         }
 
-        if ((imm > -1000) && (imm < 1000))
+        if ((INS_FIRST_VEX_INSTRUCTION <= id->idIns()) && (id->idIns() <= INS_LAST_AVX2_GATHER_INSTRUCTION) &&
+            ((imm < 0) || (15 < imm)))
+        {
+            printf("0x%02X", static_cast<size_t>(imm) & 0xFF);
+        }
+        else if ((imm > -1000) && (imm < 1000))
         {
             printf("%d", imm);
         }
