@@ -1533,6 +1533,16 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         }
         return;
 
+    case NI_SSE_LoadVector128:
+    case NI_SSE2_LoadVector128:
+    case NI_AVX_LoadVector256:
+        GenTree* addr;
+        addr = node->GetOp(0);
+        node->ChangeOper(GT_IND_LOAD);
+        node->AsIndLoad()->SetAddr(addr);
+        LowerIndir(node->AsIndLoad());
+        return;
+
     case NI_SSE_Prefetch0:
     case NI_SSE_Prefetch1:
     case NI_SSE_Prefetch2:
@@ -3196,7 +3206,6 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
                 BlockRange().Unlink(vecElt);
                 break;
             case NI_SSE_LoadScalarVector128:
-            case NI_SSE_LoadVector128:
             case NI_SSE_LoadAlignedVector128:
                 GenTree* addr;
                 addr = vecElt->GetOp(0);
@@ -4518,10 +4527,9 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
         return loadSize <= varTypeSize(op->GetType()) && IsMemOperand(op);
     }
 
-    bool supportsGeneralLoads      = false;
-    bool supportsScalarVecLoads    = false;
-    bool supportsUnalignedVecLoads = false;
-    bool supportsAlignedVecLoads   = false;
+    bool supportsGeneralLoads    = false;
+    bool supportsScalarVecLoads  = false;
+    bool supportsAlignedVecLoads = false;
 
     switch (intrinsic)
     {
@@ -4540,9 +4548,8 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
         // ConvertToVector128Double has Vector128 operands but the memory versions of
         // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
 
-        supportsAlignedVecLoads   = !comp->opts.MinOpts();
-        supportsUnalignedVecLoads = true;
-        supportsGeneralLoads      = true;
+        supportsAlignedVecLoads = !comp->opts.MinOpts();
+        supportsGeneralLoads    = true;
         break;
 
     case NI_AVX_CompareScalar:
@@ -4551,10 +4558,9 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
         // CompareScalar has Vector128 operands but the memory versions of CMPSS
         // and CMPSD have 32/64 bit operands and don't care about alignment.
 
-        supportsAlignedVecLoads   = !comp->opts.MinOpts();
-        supportsUnalignedVecLoads = true;
-        supportsScalarVecLoads    = true;
-        supportsGeneralLoads      = true;
+        supportsAlignedVecLoads = !comp->opts.MinOpts();
+        supportsScalarVecLoads  = true;
+        supportsGeneralLoads    = true;
         break;
 
     case NI_VEC_ITOV:
@@ -4647,9 +4653,8 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
             return false;
         }
 
-        supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
-        supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
-        supportsGeneralLoads      = supportsUnalignedVecLoads;
+        supportsGeneralLoads    = comp->codeGen->UseVexEncoding();
+        supportsAlignedVecLoads = !supportsGeneralLoads || !comp->opts.MinOpts();
         break;
     }
 
@@ -4671,10 +4676,6 @@ bool Lowering::IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* op, bool* 
     case NI_SSE_LoadScalarVector128:
     case NI_SSE2_LoadScalarVector128:
         return supportsScalarVecLoads;
-    case NI_SSE_LoadVector128:
-    case NI_SSE2_LoadVector128:
-    case NI_AVX_LoadVector256:
-        return supportsUnalignedVecLoads;
     default:
         return false;
     }
@@ -4697,9 +4698,6 @@ void Lowering::MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE2_LoadAlignedVector128:
         case NI_AVX_LoadAlignedVector256:
-        case NI_SSE_LoadVector128:
-        case NI_SSE2_LoadVector128:
-        case NI_AVX_LoadVector256:
             assert(hwi->TypeIs(TYP_SIMD16, TYP_SIMD32));
             intrinsicLoadType = hwi->GetType();
             intrinsicLoadAddr = hwi->GetOp(0);

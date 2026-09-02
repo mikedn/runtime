@@ -10982,14 +10982,6 @@ bool GenTreeHWIntrinsic::IsContainable() const
     switch (m_intrinsic)
     {
 #ifdef TARGET_XARCH
-    case NI_SSE_LoadAlignedVector128:
-    case NI_SSE_LoadScalarVector128:
-    case NI_SSE_LoadVector128:
-    case NI_SSE2_LoadAlignedVector128:
-    case NI_SSE2_LoadScalarVector128:
-    case NI_SSE2_LoadVector128:
-    case NI_AVX_LoadAlignedVector256:
-    case NI_AVX_LoadVector256:
     case NI_AVX_ExtractVector128:
     case NI_AVX2_ExtractVector128:
 #endif
