@@ -200,13 +200,13 @@ ValueNumFuncDef(Unbox, 2, false, true, false)
 ValueNumFuncDef(ObjMT, 1, false, true, false)
 
 #if defined(TARGET_XARCH)
-#define HARDWARE_INTRINSIC(isa, name, size, argCount, ...) \
+#define HWI(isa, name, size, argCount, ...) \
 ValueNumFuncDef(HWI_##isa##_##name, argCount, false, false, false)
 #include "hwintrinsiclistxarch.h"
 #define VNF_HWI_FIRST VNF_HWI_Vector128_As
 
 #elif defined (TARGET_ARM64)
-#define HARDWARE_INTRINSIC(isa, name, size, argCount, ...) \
+#define HWI(isa, name, size, argCount, ...) \
 ValueNumFuncDef(HWI_##isa##_##name, argCount, false, false, false)
 #include "hwintrinsiclistarm64.h"
 #define VNF_HWI_FIRST VNF_HWI_Vector64_As

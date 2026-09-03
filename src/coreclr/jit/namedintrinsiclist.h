@@ -101,12 +101,12 @@ enum NamedIntrinsic : uint16_t
 #ifdef FEATURE_HW_INTRINSICS
     NI_HW_INTRINSIC_START,
 #ifdef TARGET_XARCH
-#define HARDWARE_INTRINSIC(isa, name, ...) NI_##isa##_##name,
+#define HWI(isa, name, ...) NI_##isa##_##name,
 #include "hwintrinsiclistxarch.h"
 #endif
 
 #ifdef TARGET_ARM64
-#define HARDWARE_INTRINSIC(isa, name, ...) NI_##isa##_##name,
+#define HWI(isa, name, ...) NI_##isa##_##name,
 #include "hwintrinsiclistarm64.h"
 #endif
     NI_HW_INTRINSIC_END,

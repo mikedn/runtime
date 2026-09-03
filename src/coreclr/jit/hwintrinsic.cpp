@@ -98,13 +98,13 @@ static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
 // clang-format off
 #if defined(TARGET_XARCH)
 #define InstructionSet_VEC InstructionSet_ILLEGAL
-#define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
+#define HWI(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
     {#name, InstructionSet_##isa, size, numarg, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistxarch.h"
 #undef InstructionSet_VEC
 #elif defined (TARGET_ARM64)
 #define InstructionSet_VEC InstructionSet_ILLEGAL
-#define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
+#define HWI(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
     {#name, InstructionSet_##isa, size, numarg, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistarm64.h"
 #undef InstructionSet_VEC
@@ -152,10 +152,10 @@ const char* GetHWIntrinsicIdName(NamedIntrinsic id)
     static const char* const names[]
     {
 #if defined(TARGET_XARCH)
-#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#define HWI(isa, name, ...) #isa "_" #name,
 #include "hwintrinsiclistxarch.h"
 #elif defined(TARGET_ARM64)
-#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#define HWI(isa, name, ...) #isa "_" #name,
 #include "hwintrinsiclistarm64.h"
 #endif
     };
