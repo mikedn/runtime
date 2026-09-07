@@ -4857,23 +4857,22 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    assert((intrinsic != NI_SSE41_Insert) || (node->GetVecEltType() != TYP_FLOAT));
-
     unsigned numArgs = node->GetNumOps();
     GenTree* op1     = node->GetOp(0);
-    GenTree* op2     = numArgs > 1 ? node->GetOp(1) : nullptr;
-
-    if (HWIntrinsicInfo::IsLoad(intrinsic))
-    {
-        assert((numArgs == 1) || (numArgs == 2));
-        TryMakeHWIntrinsicAddrMode(node, numArgs == 1 ? op1 : op2);
-        return;
-    }
 
     if (HWIntrinsicInfo::IsStore(intrinsic))
     {
         assert((numArgs == 2) || (numArgs == 3));
         TryMakeHWIntrinsicAddrMode(node, op1);
+        return;
+    }
+
+    GenTree* op2 = numArgs > 1 ? node->GetOp(1) : nullptr;
+
+    if (HWIntrinsicInfo::IsLoad(intrinsic))
+    {
+        assert((numArgs == 1) || (numArgs == 2));
+        TryMakeHWIntrinsicAddrMode(node, numArgs == 1 ? op1 : op2);
         return;
     }
 
