@@ -4262,6 +4262,7 @@ private:
     GenTree* moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* destLcl);
 #endif
 #ifdef FEATURE_HW_INTRINSICS
+    GenTree* moSimplifyVecExtract(GenTreeHWIntrinsic* tree);
     GenTree* moMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
 #endif
 
@@ -5597,7 +5598,7 @@ public:
     GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const struct AbiRegFieldMap& map);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
 #ifdef FEATURE_SIMD
-    GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
+    GenTree* abiMorphMultiRegVecArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
     GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg);
     GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg);

@@ -2240,7 +2240,7 @@ REMORPH_POST:
         return moMorphStructStore(tree, op2);
 
     case GT_IND_STORE:
-        if (varTypeIsSIMD(typ))
+        if (varTypeIsVec(typ))
         {
             return moMorphStructStore(tree, op2);
         }
@@ -4274,19 +4274,46 @@ GenTree* Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
+
+GenTree* Compiler::moSimplifyVecExtract(GenTreeHWIntrinsic* tree)
 {
 #ifdef TARGET_AMD64
     if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_VEC_EXTRACT) && tree->GetOp(1)->IsIntCon(0))
     {
-        if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
+        if (GenTreeHWIntrinsic* vec = tree->GetOp(0)->IsHWIntrinsic())
         {
-            if ((create->GetIntrinsic() == NI_VEC_PACK) && (create->GetVecEltType() == TYP_FLOAT) &&
-                (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
+            if (vec->GetIntrinsic() == NI_VEC_ZERO)
             {
-                uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
-                uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+                uint64_t bits = 0;
+
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
+                }
+
+                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
+            }
+
+            if ((vec->GetIntrinsic() == NI_VEC_PACK) && (vec->GetVecEltType() == TYP_FLOAT) &&
+                (vec->GetNumOps() >= 2) && vec->GetOp(0)->IsDblCon() && vec->GetOp(1)->IsDblCon())
+            {
+                uint64_t bits0 = vec->GetOp(0)->AsDblCon()->GetFloatBits();
+                uint64_t bits1 = vec->GetOp(1)->AsDblCon()->GetFloatBits();
                 uint64_t bits  = bits0 | (bits1 << 32);
+
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
+                }
+
+                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
+            }
+
+            if ((vec->GetIntrinsic() == NI_VEC_SPLAT) && (vec->GetVecEltType() == TYP_FLOAT) &&
+                vec->GetOp(0)->IsDblCon())
+            {
+                uint64_t bits0 = vec->GetOp(0)->AsDblCon()->GetFloatBits();
+                uint64_t bits  = bits0 | (bits0 << 32);
 
                 if (tree->TypeIs(TYP_LONG))
                 {
@@ -4299,6 +4326,11 @@ GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
     }
 #endif
 
+    return tree;
+}
+
+GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
+{
     GenTreeFlags sideEffects = GTF_NONE;
 
     if (tree->IsMemoryLoad())
@@ -4318,7 +4350,7 @@ GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 
     tree->SetSideEffects(sideEffects);
 
-    return tree;
+    return moSimplifyVecExtract(tree);
 }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -5063,7 +5095,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
                     {
                         LclVarDsc* promotedFieldLcl = compiler->lvaGetDesc(tempLcl->GetPromotedFieldLclNum(0));
 
-                        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+                        if (varTypeIsVec(promotedFieldLcl->GetType()))
                         {
                             arg->SetType(promotedFieldLcl->GetType());
 
@@ -5077,7 +5109,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
 
                 setupArg = compiler->gtNewLclStore(dstLcl, dstLclType, arg);
             }
-            else if (varTypeIsSIMD(arg->GetType()))
+            else if (varTypeIsVec(arg->GetType()))
             {
                 if (ClassLayout* layout = compiler->typGetVectorLayout(arg))
                 {
@@ -5253,7 +5285,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
         if (typIsLayoutNum(use.GetSigTypeNum()))
         {
-            assert(!typGetLayoutByNum(use.GetSigTypeNum())->IsVector() || varTypeIsSIMD(argType));
+            assert(!typGetLayoutByNum(use.GetSigTypeNum())->IsVector() || varTypeIsVec(argType));
         }
         else
         {
@@ -6449,7 +6481,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
                 return;
             }
         }
-        else if (val->OperIs(GT_LCL_LOAD_FLD) && varTypeIsSIMD(val->GetType()))
+        else if (val->OperIs(GT_LCL_LOAD_FLD) && varTypeIsVec(val->GetType()))
         {
             val->AsLclLoadFld()->SetLayout(info.GetRetLayout(), this);
         }
@@ -6544,9 +6576,9 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             val->SetType(TYP_I_IMPL);
         }
 #ifdef FEATURE_HW_INTRINSICS
-        else if (varTypeIsSIMD(regType))
+        else if (varTypeIsVec(regType))
         {
-            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
+            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for vector types...
             val->ChangeOper(GT_HWINTRINSIC);
             val->SetType(regType);
             val->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(regType), 0);
@@ -6608,6 +6640,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         else
         {
             val = gtNewVecExtractNode(TYP_LONG, val, gtNewIconNode(0));
+            val = moSimplifyVecExtract(val->AsHWIntrinsic());
         }
 
         ret->SetOp(0, val);
@@ -6687,7 +6720,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
             arg->SetType(TYP_I_IMPL);
         }
 #ifdef FEATURE_HW_INTRINSICS
-        else if (varTypeIsSIMD(argRegType))
+        else if (varTypeIsVec(argRegType))
         {
             arg->ChangeOper(GT_HWINTRINSIC);
             arg->SetType(argRegType);
@@ -6783,7 +6816,9 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         else
         {
             assert(arg->TypeIs(TYP_SIMD16));
-            argInfo->SetNode(gtNewVecExtractNode(TYP_LONG, arg, gtNewIconNode(0)));
+            arg = gtNewVecExtractNode(TYP_LONG, arg, gtNewIconNode(0));
+            arg = moSimplifyVecExtract(arg->AsHWIntrinsic());
+            argInfo->SetNode(arg);
         }
 
         return;
@@ -7111,7 +7146,7 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
         {
             regOffset += regSize;
         }
-        else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
+        else if (varTypeIsVec(fieldType) && (regType == TYP_FLOAT))
         {
             regOffset += varTypeSize(fieldType);
         }
@@ -7366,7 +7401,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
         // case on x86 so we don't care what exact SIMD type it is, we just need
         // to get INT values out of it).
 
-        if (varTypeIsSIMD(fieldType))
+        if (varTypeIsVec(fieldType))
         {
             assert(argInfo->GetRegType(regIndex) == TYP_INT);
 
@@ -7387,7 +7422,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             // depending on the remaining size. We might have to extract 2 FLOATS if
             // the current vector offset isn't properly aligned to extract a DOUBLE.
 
-            assert(varTypeIsSIMD(fieldType));
+            assert(varTypeIsVec(fieldType));
 
             unsigned extractOffset = regOffset - fieldOffset;
             unsigned extractSize   = min(REGSIZE_BYTES, varTypeSize(fieldType) - extractOffset);
@@ -7417,7 +7452,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
                 fieldType   = TYP_FLOAT;
             }
         }
-        else if (varTypeIsSIMD(fieldType) && (fieldOffset == regOffset + 4))
+        else if (varTypeIsVec(fieldType) && (fieldOffset == regOffset + 4))
         {
             // The vector overlaps the second half of an eightbyte, extract a FLOAT
             // and continue as if this was a FLOAT field.
@@ -7455,7 +7490,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             {
                 regValue = gtNewBitCastNode(regValue->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, regValue);
             }
-            else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
+            else if (varTypeIsVec(regValue->GetType()) && !varTypeUsesFloatReg(regType))
             {
                 regValue = gtNewVecExtractNode(TYP_LONG, regValue, 0u);
             }
@@ -7515,7 +7550,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
-            if (varTypeIsSIMD(regType))
+            if (varTypeIsVec(regType))
             {
                 fieldList->AddField(this, gtNewVecZeroNode(regType, TYP_FLOAT), regOffset, regType);
             }
@@ -7533,13 +7568,13 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    // TODO-MIKE-CQ: It may make more sense to always use abiMorphMultiRegSimdArg for
-    // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
+    // TODO-MIKE-CQ: It may make more sense to always use abiMorphMultiRegVecArg for
+    // vector args that are memory loads. abiMorphMultiRegObjArg will just generate
     // multiple loads and those loads may have associated optimization issues in VN
     // due to the lack of field sequences. Even if they do get CSEed the result may
-    // still be poor - SIMD typed loads from the same location would get a CSE temp
+    // still be poor - vector typed loads from the same location would get a CSE temp
     // and then those multi reg loads from the same location will get their own CSE
-    // temps. abiMorphMultiRegSimdArg would only generate one SIMD load and then
+    // temps. abiMorphMultiRegVecArg would only generate one vector load and then
     // extract the registers via register to register operations.
 
     if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
@@ -7573,8 +7608,8 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
 #ifdef FEATURE_SIMD
-    // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
-    return abiMorphMultiRegSimdArg(argInfo, arg);
+    // If it's neither a local nor OBJ then it must be an arbitrary vector tree.
+    return abiMorphMultiRegVecArg(argInfo, arg);
 #else
     unreached();
 #endif
@@ -7582,9 +7617,9 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
 #ifdef FEATURE_SIMD
 
-GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
+GenTree* Compiler::abiMorphMultiRegVecArg(CallArgInfo* argInfo, GenTree* arg)
 {
-    assert(varTypeIsSIMD(arg->GetType()));
+    assert(varTypeIsVec(arg->GetType()));
     assert(!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ));
 
     unsigned regCount = argInfo->GetRegCount();
@@ -7814,7 +7849,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* a
     unsigned lclOffset = arg->OperIs(GT_LCL_LOAD_FLD) ? arg->AsLclLoadFld()->GetLclOffs() : 0;
     unsigned lclSize   = lcl->GetTypeSize();
 #ifdef FEATURE_SIMD
-    bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
+    bool lclIsSIMD = varTypeIsVec(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
 
     for (unsigned i = 0, regOffset = 0; i < regCount; i++)
@@ -8149,7 +8184,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
         {
             LclVarDsc* promotedFieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
-            if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+            if (varTypeIsVec(promotedFieldLcl->GetType()))
             {
                 arg->SetType(promotedFieldLcl->GetType());
 
@@ -8342,7 +8377,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     GenTree* store;
 
-    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
+    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsVec(arg->GetType()))
     {
         store = gtNewLclStoreFld(arg->GetType(), tempLcl, 0, arg);
     }
@@ -10128,7 +10163,7 @@ void Compiler::moMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
         init = gtNewZeroConNode(varActualType(lclType));
     }
 #ifdef FEATURE_SIMD
-    else if (varTypeIsSIMD(lclType))
+    else if (varTypeIsVec(lclType))
     {
         init = gtNewVecZeroNode(lcl->GetLayout());
     }
@@ -10689,14 +10724,14 @@ GenTree* Compiler::moMorphStructInitLclStore(GenTreeLclRef* store, GenTree* src)
             var_types            fieldType     = CorTypeToVarType(
                 info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
 
-            assert(!varTypeIsSIMD(fieldType));
+            assert(!varTypeIsVec(fieldType));
 
             if (fieldType == TYP_STRUCT)
             {
                 fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
             }
 
-            if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
+            if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsVec(fieldType) &&
                 !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
 #ifndef TARGET_64BIT
                 && (fieldType != TYP_LONG)
@@ -10718,7 +10753,7 @@ GenTree* Compiler::moMorphStructInitLclStore(GenTreeLclRef* store, GenTree* src)
             {
                 initType = lcl->GetType();
 
-                if (varTypeIsSIMD(initType))
+                if (varTypeIsVec(initType))
                 {
                     initBaseType = lcl->GetLayout()->GetElementType();
                 }
@@ -10737,7 +10772,7 @@ GenTree* Compiler::moMorphStructInitLclStore(GenTreeLclRef* store, GenTree* src)
             // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
             // convert it here to SIMD init and then deal with it in lowering/codegen.
 
-            if (varTypeIsSIMD(store->GetType()))
+            if (varTypeIsVec(store->GetType()))
             {
                 initType     = store->GetType();
                 initBaseType = TYP_FLOAT;
@@ -10791,7 +10826,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
 
     var_types initPatternType;
 
-    if (varTypeIsSIMD(type))
+    if (varTypeIsVec(type))
     {
         if (simdBaseType == TYP_LONG)
         {
@@ -10927,11 +10962,11 @@ GenTree* Compiler::moMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* dest
     {
         LclVarDsc* destFieldLcl = lvaGetDesc(destLcl->GetPromotedFieldLclNum(i));
 
-        var_types type     = destFieldLcl->GetType();
-        var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
+        var_types type       = destFieldLcl->GetType();
+        var_types vecEltType = varTypeIsVec(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
 
         GenTree* value = moMorphStructInitConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
-                                                   destFieldLcl->lvNormalizeOnStore(), baseType);
+                                                   destFieldLcl->lvNormalizeOnStore(), vecEltType);
 
         fieldStores[i] = gtNewLclStore(destFieldLcl, type, value);
 
@@ -11049,7 +11084,7 @@ GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
 
 GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLcl)
 {
-    assert(varTypeIsSIMD(dstLcl->GetType()));
+    assert(varTypeIsVec(dstLcl->GetType()));
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
@@ -11226,7 +11261,7 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
     JITDUMPTREE(store, "\nmoMorphStructCopy: (before)\n");
 
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
-    assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
+    assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsVec(src->GetType()));
     assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
 
     if (GenTreeCall* call = src->IsCall())
@@ -11250,7 +11285,7 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
                     lcl->lvIsMultiRegRet = true;
                 }
             }
-            else if (store->OperIs(GT_IND_STORE_OBJ) && varTypeIsSIMD(store->GetType()))
+            else if (store->OperIs(GT_IND_STORE_OBJ) && varTypeIsVec(store->GetType()))
             {
                 store->ChangeOper(GT_IND_STORE);
             }
@@ -11311,7 +11346,7 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
     }
     else
     {
-        assert(store->OperIs(GT_IND_STORE_OBJ) || (store->OperIs(GT_IND_STORE) && varTypeIsSIMD(store->GetType())));
+        assert(store->OperIs(GT_IND_STORE_OBJ) || (store->OperIs(GT_IND_STORE) && varTypeIsVec(store->GetType())));
     }
 
     LclVarDsc* srcLcl     = nullptr;
@@ -11342,7 +11377,7 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
     else if (!src->OperIs(GT_IND_LOAD_OBJ))
     {
         // For SIMD copies the source can be any SIMD typed tree or a CALL.
-        assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
+        assert(src->OperIs(GT_CALL) || varTypeIsVec(src->GetType()));
     }
 
     // Check to see if we are doing a copy to/from the same local block.
@@ -11395,12 +11430,12 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
     }
 
 #ifdef FEATURE_SIMD
-    if (!destPromote && srcPromote && varTypeIsSIMD(srcLcl->GetType()) && store->OperIs(GT_LCL_STORE))
+    if (!destPromote && srcPromote && varTypeIsVec(srcLcl->GetType()) && store->OperIs(GT_LCL_STORE))
     {
         return moMorphPromoteVecLoad(store->AsLclStore(), srcLcl);
     }
 
-    if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
+    if (destPromote && !srcPromote && varTypeIsVec(destLcl->GetType()) &&
         src->OperIs(GT_LCL_LOAD, GT_BITCAST, GT_HWINTRINSIC))
     {
         return moMorphPromoteVecStore(store->AsLclRef(), destLcl);
@@ -11494,7 +11529,7 @@ GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
         }
         else
         {
-            assert(varTypeIsSIMD(store->GetType()));
+            assert(varTypeIsVec(store->GetType()));
 
             if (src->OperIs(GT_IND_LOAD_OBJ))
             {
