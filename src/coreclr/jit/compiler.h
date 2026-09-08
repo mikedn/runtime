@@ -2272,7 +2272,8 @@ public:
     GenTreeHWIntrinsic* NewVecZeroNode(ClassLayout* layout);
     GenTreeHWIntrinsic* NewVecZeroNode(var_types vecType, var_types eltType);
 
-    GenTreeHWIntrinsic* NewVecExtractNode(var_types eltType, GenTree* value, GenTree* index);
+    GenTreeHWIntrinsic* NewVecExtractNode(var_types eltType, GenTree* vec, GenTree* idx);
+    GenTree* NewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
 #endif // FEATURE_HW_INTRINSICS
 
     bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);

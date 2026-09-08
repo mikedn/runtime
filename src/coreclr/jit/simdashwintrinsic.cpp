@@ -759,8 +759,7 @@ GenTree* Importer::impVector34CtorExtend(const HWIntrinsicSignature& sig, ClassL
     }
     else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        create =
-            NewVecNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, args[0], args[1], comp->gtNewIconNode(insertIndex << 4));
+        create = NewVecInsertNode(TYP_FLOAT, args[0], comp->gtNewIconNode(insertIndex), args[1]);
     }
     else if (insertIndex == 2)
     {

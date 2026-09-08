@@ -16761,9 +16761,14 @@ GenTreeHWIntrinsic* Importer::NewVecZeroNode(var_types vecType, var_types eltTyp
     return comp->gtNewVecZeroNode(vecType, eltType);
 }
 
-GenTreeHWIntrinsic* Importer::NewVecExtractNode(var_types eltType, GenTree* value, GenTree* index)
+GenTreeHWIntrinsic* Importer::NewVecExtractNode(var_types eltType, GenTree* vec, GenTree* idx)
 {
-    return comp->gtNewVecExtractNode(eltType, value, index);
+    return comp->gtNewVecExtractNode(eltType, vec, idx);
+}
+
+GenTree* Importer::NewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
+{
+    return comp->gtNewVecInsertNode(eltType, vec, idx, elt);
 }
 
 #endif // FEATURE_HW_INTRINSICS
