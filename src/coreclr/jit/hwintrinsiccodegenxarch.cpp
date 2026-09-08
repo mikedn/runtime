@@ -329,7 +329,7 @@ void CodeGen::UseHWIntrinsicOp(GenTree* op)
         return;
     }
 
-    assert(op->OperIsLeaf());
+    assert(op->OperIsLeaf() || op->IsVecZero());
 }
 
 bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data)
