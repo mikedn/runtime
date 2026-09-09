@@ -995,7 +995,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
     if (tree->isContained())
     {
 #ifdef TARGET_XARCH
-        // On XArch we can have contained candidate lclVars if they are part of a RMW
+        // On XArch we can have contained candidate locals if they are part of a RMW
         // address computation. In this case we need to check whether it is a last use.
         if (tree->OperIs(GT_LCL_LOAD) && tree->IsLastUse(0))
         {
@@ -1202,7 +1202,7 @@ void LinearScan::insertZeroInitRefPositions()
 
             JITDUMP(" creating ZeroInit\n");
             RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit);
-            pos->setRegOptional(true);
+            pos->SetRegOptional();
         }
         else
         {
@@ -1229,7 +1229,7 @@ void LinearScan::insertZeroInitRefPositions()
                     {
                         JITDUMP(" creating ZeroInit\n");
                         RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit);
-                        pos->setRegOptional(true);
+                        pos->SetRegOptional();
                         lcl->lvMustInit = true;
                     }
                     else
@@ -1338,7 +1338,7 @@ void LinearScan::buildIntervals()
             }
 
             RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeParamDef, nullptr, mask);
-            pos->setRegOptional(true);
+            pos->SetRegOptional();
         }
     }
 
@@ -1469,7 +1469,7 @@ void LinearScan::buildIntervals()
 
                             Interval*    interval = getIntervalForLocalVar(e.Current());
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef);
-                            pos->setRegOptional(true);
+                            pos->SetRegOptional();
                         }
 
                         JITDUMP("Finished creating dummy definitions\n\n");
@@ -1603,7 +1603,7 @@ void LinearScan::buildIntervals()
             {
                 Interval*    interval = getIntervalForLocalVar(e.Current());
                 RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
-                pos->setRegOptional(true);
+                pos->SetRegOptional();
                 JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
             }
             JITDUMP("\n");
@@ -1654,7 +1654,7 @@ void LinearScan::buildIntervals()
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
                 Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
                 RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
-                pos->setRegOptional(true);
+                pos->SetRegOptional();
             }
         }
         // Adjust heuristics for writeThru intervals.
@@ -1722,7 +1722,7 @@ void LinearScan::buildIntervals()
                     JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", lcl->GetLclNum());
                     Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
                     RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
-                    pos->setRegOptional(true);
+                    pos->SetRegOptional();
                 }
             }
         }
@@ -3317,18 +3317,18 @@ void LinearScan::BuildKills(GenTree* node, regMaskTP killMask)
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 }
 
-RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, unsigned regIndex)
+RefPosition* LinearScan::BuildUse(GenTree* operand, RegSet candidates, unsigned regIndex)
 {
     assert(!operand->isContained());
 
     INDEBUG(nodeUseCount++);
 
     Interval* interval;
-    bool      regOptional = operand->IsRegOptional();
+    GenTree*  refNode;
 
     if (IsRegCandidateLclLoad(operand))
     {
-        interval = getIntervalForLocalVarNode(operand->AsLclLoad());
+        interval = GetRegCandidateLclInterval(operand->AsLclLoad());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -3348,17 +3348,24 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, unsign
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         buildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
 #endif
+
+        refNode = operand;
     }
     else
     {
         RefPosition* ref = defList.Remove(operand, regIndex);
         assert(ref->GetRegIndex() == regIndex);
         interval = ref->getInterval();
-        operand  = nullptr;
+        refNode  = nullptr;
     }
 
-    RefPosition* useRefPos = newRefPosition(interval, currentLoc, RefTypeUse, operand, candidates, regIndex);
-    useRefPos->setRegOptional(regOptional);
+    RefPosition* useRefPos = newRefPosition(interval, currentLoc, RefTypeUse, refNode, candidates, regIndex);
+
+    if (operand->IsRegOptional())
+    {
+        useRefPos->SetRegOptional();
+    }
+
     return useRefPos;
 }
 
@@ -3403,7 +3410,7 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candid
         GenTreeLclLoad* load = rmwOp->AsLclLoad();
         assert(!load->IsMultiReg());
 
-        if ((use->getInterval() != getIntervalForLocalVarNode(load)) || (!load->IsLastUse(0) && !use->lastUse))
+        if ((use->getInterval() != GetRegCandidateLclInterval(load)) || (!load->IsLastUse(0) && !use->lastUse))
         {
             setDelayFree(use);
         }

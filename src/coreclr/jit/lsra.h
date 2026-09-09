@@ -761,7 +761,7 @@ private:
         return localVarIntervals[varIndex];
     }
 
-    Interval* getIntervalForLocalVarNode(GenTreeLclVar* lclRef) const
+    Interval* GetRegCandidateLclInterval(GenTreeLclVar* lclRef) const
     {
         return getIntervalForLocalVar(lclRef->GetLcl()->GetLivenessBitIndex());
     }
@@ -1748,9 +1748,9 @@ public:
         return (refType == RefTypeFixedReg) || (refType == RefTypeKill);
     }
 
-    void setRegOptional(bool val)
+    void SetRegOptional()
     {
-        regOptional = val;
+        regOptional = true;
     }
 
     // Returns true whether this ref position is to be allocated

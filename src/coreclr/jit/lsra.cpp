@@ -8407,7 +8407,7 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         }
     }
 
-    Interval* interval = getIntervalForLocalVarNode(lcl);
+    Interval* interval = GetRegCandidateLclInterval(lcl);
     assert(interval->physReg == srcRegNum || (srcRegNum == REG_STK && interval->physReg == REG_NA));
 
     if (srcRegNum != REG_STK)
