@@ -5,9 +5,9 @@
 #include "lsra.h"
 #include "jitgcinfo.h"
 
-void RefInfoList::Add(RefPosition* ref, GenTree* node, Compiler* compiler)
+void RefDefList::Add(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
-    RefInfoListNode* def = AllocDef(ref, node, compiler);
+    RefDefListNode* def = AllocDef(ref, node, compiler);
     assert(def->next == nullptr);
 
     if (tail == nullptr)
@@ -23,11 +23,11 @@ void RefInfoList::Add(RefPosition* ref, GenTree* node, Compiler* compiler)
     tail = def;
 }
 
-RefPosition* RefInfoList::Remove(GenTree* node, unsigned regIndex)
+RefPosition* RefDefList::Remove(GenTree* node, unsigned regIndex)
 {
-    RefInfoListNode* prevDef = nullptr;
+    RefDefListNode* prevDef = nullptr;
 
-    for (RefInfoListNode* def = head; def != nullptr; def = def->next)
+    for (RefDefListNode* def = head; def != nullptr; def = def->next)
     {
         if ((def->node == node) && (def->ref->GetRegIndex() == regIndex))
         {
@@ -44,9 +44,9 @@ RefPosition* RefInfoList::Remove(GenTree* node, unsigned regIndex)
     unreached();
 }
 
-void RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prevDef)
+void RefDefList::Unlink(RefDefListNode* def, RefDefListNode* prevDef)
 {
-    RefInfoListNode* next = def->next;
+    RefDefListNode* next = def->next;
 
     if (prevDef == nullptr)
     {
@@ -65,13 +65,13 @@ void RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prevDef)
     def->next = nullptr;
 }
 
-RefInfoListNode* RefInfoList::AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler)
+RefDefListNode* RefDefList::AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
-    RefInfoListNode* head = freeList;
+    RefDefListNode* head = freeList;
 
     if (head == nullptr)
     {
-        head = compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(1);
+        head = compiler->getAllocator(CMK_LSRA).allocate<RefDefListNode>(1);
     }
     else
     {
@@ -85,11 +85,30 @@ RefInfoListNode* RefInfoList::AllocDef(RefPosition* ref, GenTree* node, Compiler
     return head;
 }
 
-void RefInfoList::FreeDef(RefInfoListNode* def)
+void RefDefList::FreeDef(RefDefListNode* def)
 {
     def->next = freeList;
     freeList  = def;
 }
+
+#ifdef DEBUG
+void LinearScan::dumpDefList() const
+{
+    if (!verbose)
+    {
+        return;
+    }
+    JITDUMP("DefList: { ");
+    bool first = true;
+    for (RefDefListNode* def = defList.Begin(); def != nullptr; def = def->next)
+    {
+        GenTree* node = def->node;
+        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->GetID(), GenTree::OpName(node->GetOper()));
+        first = false;
+    }
+    JITDUMP(" }\n");
+}
+#endif // DEBUG
 
 Interval* LinearScan::newInterval(var_types regType)
 {
@@ -112,7 +131,7 @@ RefPosition* LinearScan::newRefPositionRaw(LsraLocation location, GenTree* node,
 // Set register preferences for an interval based on the given RefPosition
 // This is slightly more general than its name applies, and updates preferences
 // not just for callee-save registers.
-void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp)
+void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp) const
 {
 #ifdef TARGET_AMD64
     if (compiler->opts.compDbgEnC)
@@ -262,7 +281,7 @@ RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree
 }
 
 RefPosition* LinearScan::newRefPosition(
-    Interval* interval, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask, unsigned regIndex)
+    Interval* interval, LsraLocation location, RefType refType, GenTree* node, RegSet mask, unsigned regIndex)
 {
     assert(interval != nullptr);
 
@@ -272,7 +291,7 @@ RefPosition* LinearScan::newRefPosition(
     }
 
 #ifdef DEBUG
-    if (varTypeUsesFloatReg(interval->registerType))
+    if (varTypeUsesVecReg(interval->registerType))
     {
         // In the case we're using floating point registers we must make sure
         // this flag was set previously in the compiler since this will mandate
@@ -842,6 +861,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation lo
         for (VarSetOps::EnumOp<VarSetOps::IntersectionOp> e(compiler, currentLiveVars, largeVectorVars); e.MoveNext();)
         {
             Interval* varInterval = getIntervalForLocalVar(e.Current());
+
             if (!varInterval->isPartiallySpilled)
             {
                 Interval*    upperVectorInterval = getUpperVectorInterval(e.Current());
@@ -860,7 +880,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation lo
     // have a mechanism to communicate any non-lclVar intervals that need to be restored.
     // TODO-CQ: We could consider adding such a mechanism, but it's unclear whether this rare
     // case of a large vector temp live across a call is worth the added complexity.
-    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->next)
+    for (RefDefListNode* def = defList.Begin(); def != nullptr; def = def->next)
     {
         const GenTree* defNode = def->node;
         var_types      regType = defNode->GetType();
@@ -2308,23 +2328,21 @@ void LinearScan::identifyCandidates()
 {
     if (enregisterLocalVars)
     {
-        // Initialize the set of lclVars that are candidates for register allocation.
+        // Initialize the set of locals that are candidates for register allocation.
         registerCandidateVars = VarSetOps::MakeEmpty(compiler);
 
-        // Initialize the sets of lclVars that are used to determine whether, and for which lclVars,
+        // Initialize the sets of locals that are used to determine whether, and for which locals,
         // we need to perform resolution across basic blocks.
-        // Note that we can't do this in the constructor because the number of tracked lclVars may
+        // Note that we can't do this in the constructor because the number of tracked locals may
         // change between the constructor and the actual allocation.
         resolutionCandidateVars = VarSetOps::MakeEmpty(compiler);
         splitOrSpilledVars      = VarSetOps::MakeEmpty(compiler);
 
-        // We set enregisterLocalVars to true only if there are tracked lclVars
+        // We set enregisterLocalVars to true only if there are tracked locals
         assert(compiler->lvaCount != 0);
     }
     else if (compiler->lvaCount == 0)
     {
-        // Nothing to do. Note that even if enregisterLocalVars is false, we still need to set the
-        // lvLRACandidate field on all the lclVars to false if we have any.
         return;
     }
 
@@ -2352,12 +2370,12 @@ void LinearScan::identifyCandidates()
     // This is defined as thresholdLargeVectorRefWeight, as we are likely to use the same mechanism
     // for vectors on Arm64, though the actual value may differ.
 
-    unsigned                   floatLclCount        = 0;
-    BasicBlock::weight_t const thresholdFPRefWeight = 4 * BB_UNITY_WEIGHT;
-    BasicBlock::weight_t const maybeFPRefWeight     = 2 * BB_UNITY_WEIGHT;
-    VARSET_TP                  fpMaybeCandidateVars = VarSetOps::UninitVal();
+    unsigned       floatLclCount        = 0;
+    weight_t const thresholdFPRefWeight = 4 * BB_UNITY_WEIGHT;
+    weight_t const maybeFPRefWeight     = 2 * BB_UNITY_WEIGHT;
+    VARSET_TP      fpMaybeCandidateVars = VarSetOps::UninitVal();
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    BasicBlock::weight_t const thresholdLargeVectorRefWeight = 4 * BB_UNITY_WEIGHT;
+    weight_t const thresholdLargeVectorRefWeight = 4 * BB_UNITY_WEIGHT;
 #endif
 
     if (enregisterLocalVars)
@@ -3152,13 +3170,13 @@ void LinearScan::ValidateLocalIntervals()
 // This may be called for multiple uses, in which case 'interval' will only get preferenced at most
 // to the first one (if it didn't already have a 'relatedInterval'.
 //
-void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
+static void setTgtPref(Interval* interval, RefPosition* use)
 {
-    if (tgtPrefUse != nullptr)
+    if (use != nullptr)
     {
-        Interval* useInterval = tgtPrefUse->getInterval();
+        Interval* useInterval = use->getInterval();
 
-        if (!useInterval->isLocalVar || (tgtPrefUse->node == nullptr) || tgtPrefUse->node->IsLastUse(0))
+        if (!useInterval->isLocalVar || (use->node == nullptr) || use->node->IsLastUse(0))
         {
             // Set the use interval as related to the interval we're defining.
             useInterval->assignRelatedIntervalIfUnassigned(interval);
@@ -3204,7 +3222,7 @@ var_types LinearScan::getDefType(GenTree* node) const
     return type;
 }
 
-RefPosition* LinearScan::BuildDef(GenTree* node, regMaskTP regCandidates)
+RefPosition* LinearScan::BuildDef(GenTree* node, RegSet regCandidates)
 {
     assert(!node->isContained());
     assert(!node->IsMultiRegNode());
@@ -3212,7 +3230,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, regMaskTP regCandidates)
     return BuildDef(node, getDefType(node), regCandidates, 0);
 }
 
-RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex)
+RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCandidates, unsigned regIndex)
 {
     INDEBUG(nodeDefCount++);
 
@@ -3222,7 +3240,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
         assert((node->GetRegNum() == REG_NA) || (regCandidates == genRegMask(node->GetRegNum(regIndex))));
     }
 
-    if (varTypeUsesFloatReg(regType))
+    if (varTypeUsesVecReg(regType))
     {
         compiler->compFloatingPointUsed = true;
     }
@@ -3266,6 +3284,10 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
 
     RefPosition* defRefPosition = newRefPosition(interval, currentLoc + 1, RefTypeDef, node, regCandidates, regIndex);
 
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+    assert(!interval->isPartiallySpilled);
+#endif
+
     if (node->IsUnusedValue())
     {
         defRefPosition->isLocalDefUse = true;
@@ -3278,11 +3300,9 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
 
 #if defined(TARGET_XARCH) || defined(FEATURE_HW_INTRINSICS)
     setTgtPref(interval, tgtPrefUse);
-    setTgtPref(interval, tgtPrefUse2);
 #endif
-
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    assert(!interval->isPartiallySpilled);
+#if defined(TARGET_XARCH)
+    setTgtPref(interval, tgtPrefUse2);
 #endif
 
     return defRefPosition;

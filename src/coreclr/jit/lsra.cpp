@@ -6817,23 +6817,6 @@ void RegRecord::tinyDump() const
     printf("<Reg:%-3s> ", getRegName(regNum));
 }
 
-void LinearScan::dumpDefList() const
-{
-    if (!verbose)
-    {
-        return;
-    }
-    JITDUMP("DefList: { ");
-    bool first = true;
-    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->next)
-    {
-        GenTree* node = def->node;
-        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->GetID(), GenTree::OpName(node->GetOper()));
-        first = false;
-    }
-    JITDUMP(" }\n");
-}
-
 void LinearScan::lsraDumpIntervals(const char* msg) const
 {
     printf("\nLinear scan intervals %s:\n", msg);

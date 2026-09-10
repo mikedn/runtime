@@ -31,23 +31,21 @@ inline regMaskTP callerSaveRegs(RegisterType rt)
 class Interval;
 class RefPosition;
 
-struct RefInfoListNode
+struct RefDefListNode
 {
-    RefPosition*     ref;
-    GenTree*         node;
-    RefInfoListNode* next;
+    RefPosition*    ref;
+    GenTree*        node;
+    RefDefListNode* next;
 };
 
-class RefInfoList final
+class RefDefList final
 {
-    friend class RefInfoListNodePool;
-
-    RefInfoListNode* head     = nullptr;
-    RefInfoListNode* tail     = nullptr;
-    RefInfoListNode* freeList = nullptr;
+    RefDefListNode* head     = nullptr;
+    RefDefListNode* tail     = nullptr;
+    RefDefListNode* freeList = nullptr;
 
 public:
-    RefInfoListNode* Begin() const
+    RefDefListNode* Begin() const
     {
         return head;
     }
@@ -64,7 +62,7 @@ public:
     unsigned Count() const
     {
         unsigned count = 0;
-        for (RefInfoListNode* def = head; def != nullptr; def = def->next)
+        for (RefDefListNode* def = head; def != nullptr; def = def->next)
         {
             count++;
         }
@@ -73,9 +71,9 @@ public:
 #endif // DEBUG
 
 private:
-    RefInfoListNode* AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler);
-    void Unlink(RefInfoListNode* def, RefInfoListNode* prevDef);
-    void FreeDef(RefInfoListNode* def);
+    RefDefListNode* AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler);
+    void Unlink(RefDefListNode* def, RefDefListNode* prevDef);
+    void FreeDef(RefDefListNode* def);
 };
 
 #if TRACK_LSRA_STATS
@@ -790,7 +788,7 @@ private:
                                 regMaskTP    mask     = RBM_NONE,
                                 unsigned     regIndex = 0);
 
-    void applyCalleeSaveHeuristics(RefPosition* rp);
+    void applyCalleeSaveHeuristics(RefPosition* rp) const;
 
     void checkConflictingDefUse(RefPosition* rp);
 
@@ -1267,18 +1265,20 @@ private:
     // handled in 'BuildNode'.
     bool pendingDelayFree = false;
 
-    // When Def RefPositions are built for a node, their RefInfoListNode
+    // When Def RefPositions are built for a node, their RefDefListNode
     // (GenTree* to RefPosition* mapping) is placed in the defList.
-    // As the consuming node is handled, it removes the RefInfoListNode from the
+    // As the consuming node is handled, it removes the RefDefListNode from the
     // defList, use the interval associated with the corresponding Def RefPosition and
     // use it to build the Use RefPosition.
-    RefInfoList defList;
+    RefDefList defList;
 
     // As we build uses, we may want to preference the next definition (i.e. the register produced
     // by the current node) to the same register as one of its uses. This is done by setting
     // 'tgtPrefUse' to that RefPosition.
-    RefPosition* tgtPrefUse  = nullptr;
+    RefPosition* tgtPrefUse = nullptr;
+#if defined(TARGET_XARCH)
     RefPosition* tgtPrefUse2 = nullptr;
+#endif
 
 #ifdef TARGET_X86
     bool needFloatTmpForFPCall  = false;
@@ -1293,8 +1293,10 @@ private:
     // This method clears the "build state" before starting to handle a new node.
     void clearBuildState()
     {
-        tgtPrefUse               = nullptr;
-        tgtPrefUse2              = nullptr;
+        tgtPrefUse = nullptr;
+#if defined(TARGET_XARCH)
+        tgtPrefUse2 = nullptr;
+#endif
         internalCount            = 0;
         setInternalRegsDelayFree = false;
         pendingDelayFree         = false;
