@@ -2851,6 +2851,7 @@ void LinearScan::allocateRegisters()
                 INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_FIXED_REG, nullptr, currentRefPosition->assignedReg()));
                 continue;
             }
+
             if (refType == RefTypeKill)
             {
                 if (assignedInterval != nullptr)
@@ -2859,6 +2860,7 @@ void LinearScan::allocateRegisters()
                     clearConstantReg(regRecord->regNum, assignedInterval->registerType);
                     makeRegAvailable(regRecord->regNum, assignedInterval->registerType);
                 }
+
                 clearRegBusyUntilKill(regRecord->regNum);
                 INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_KEPT_ALLOCATION, nullptr, regRecord->regNum));
                 continue;
@@ -3011,53 +3013,49 @@ void LinearScan::allocateRegisters()
             continue;
         }
 
-        if (currentInterval->isSpecialPutArg)
+        if (currentInterval->isPassThrough)
         {
-            assert(!currentInterval->isLocalVar);
+            assert(!currentInterval->IsLcl());
             Interval* srcInterval = currentInterval->relatedInterval;
-            assert(srcInterval != nullptr && srcInterval->isLocalVar);
-            if (refType == RefTypeDef)
-            {
-                assert(srcInterval->recentRefPosition->nodeLocation == currentLocation - 1);
-                RegRecord* physRegRecord = srcInterval->assignedReg;
+            assert(srcInterval != nullptr && srcInterval->IsLcl());
 
-                // For a putarg_reg to be special, its next use location has to be the same
-                // as fixed reg's next kill location. Otherwise, if source local's next use
-                // is after the kill of fixed reg but before putarg_reg's next use, fixed reg's
-                // kill would lead to spill of source but not the putarg_reg if it were treated
-                // as special.
-                if (srcInterval->isActive &&
-                    (genRegMask(srcInterval->physReg) == currentRefPosition->registerAssignment) &&
-                    (currentInterval->getNextRefLocation() == GetNextFixedRef(srcInterval->physReg)))
-                {
-                    assert(physRegRecord->regNum == srcInterval->physReg);
-
-                    // Special putarg_reg acts as a pass-thru since both source local
-                    // and putarg_reg have the same register allocated.  Physical reg
-                    // record of reg continue to point to source locals's interval
-                    // instead of to putarg_reg's interval.  So if a spill of reg
-                    // allocated to source local happens, to reallocate to another
-                    // tree node, before its use at call node it will lead to spill of
-                    // local instead of putarg_reg since physical reg record is pointing
-                    // to locals's interval. As a result, arg reg would get trashed leading
-                    // to bad codegen. The assumption here is that source local of a
-                    // special putarg_reg doesn't get spilled and re-allocated prior to
-                    // its use at the call node.  This is ensured by marking physical reg
-                    // record as busy until next kill.
-                    setRegBusyUntilKill(srcInterval->physReg, srcInterval->registerType);
-                }
-                else
-                {
-                    currentInterval->isSpecialPutArg = false;
-                }
-            }
-            // If this is still a SpecialPutArg, continue;
-            if (currentInterval->isSpecialPutArg)
+            if (refType != RefTypeDef)
             {
-                INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_SPECIAL_PUTARG, currentInterval,
+                INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_PASS_THROUGH, currentInterval,
                                                 currentRefPosition->assignedReg()));
                 continue;
             }
+
+            assert(srcInterval->recentRefPosition->nodeLocation == currentLocation - 1);
+            RegRecord* physRegRecord = srcInterval->assignedReg;
+
+            // For a pass-through def, its next use location has to be the same as fixed reg's
+            // next kill location. Otherwise, if source local's next use is after the kill
+            // of fixed reg but before pass-through def's next use, fixed reg's kill would lead
+            // to spill of source but not the pass-through def if it were treated as such.
+            if (srcInterval->isActive && (genRegMask(srcInterval->physReg) == currentRefPosition->registerAssignment) &&
+                (currentInterval->getNextRefLocation() == GetNextFixedRef(srcInterval->physReg)))
+            {
+                assert(physRegRecord->regNum == srcInterval->physReg);
+
+                // The physical reg record of reg continue to point to source locals's
+                // interval instead of the pass-through interval. So if a spill of reg
+                // allocated to source local happens, to reallocate to another
+                // node, before its use at call node it will lead to spill of local
+                // instead of pass-through since physical reg record is pointing to
+                // locals's interval. As a result, arg reg would get trashed leading
+                // to bad codegen. The assumption here is that source local of a
+                // pass-through doesn't get spilled and re-allocated prior to its use
+                // at the call node. This is ensured by marking physical reg record
+                // as busy until next kill.
+                setRegBusyUntilKill(srcInterval->physReg, srcInterval->registerType);
+
+                INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_PASS_THROUGH, currentInterval,
+                                                currentRefPosition->assignedReg()));
+                continue;
+            }
+
+            currentInterval->isPassThrough = false;
         }
 
         if (assignedRegister == REG_NA && RefTypeIsUse(refType))
@@ -6736,10 +6734,6 @@ void Interval::dump() const
     {
         printf(" (interfering uses)");
     }
-    if (isSpecialPutArg)
-    {
-        printf(" (specialPutArg)");
-    }
     if (isConstant)
     {
         printf(" (constant)");
@@ -6762,11 +6756,17 @@ void Interval::dump() const
     printf("}");
     printf(" physReg:%s", getRegName(physReg));
     printf(" Preferences=");
-    dumpRegMask(this->registerPreferences);
+    dumpRegMask(registerPreferences);
 
     if (relatedInterval)
     {
         printf(" RelatedInterval ");
+
+        if (isPassThrough)
+        {
+            printf("(pass-through) ");
+        }
+
         relatedInterval->microDump();
     }
 
@@ -6776,9 +6776,15 @@ void Interval::dump() const
 void Interval::tinyDump() const
 {
     printf("<Ivl:%u", intervalIndex);
+
     if (isLocalVar)
     {
         printf(" V%02u", getLocalVar(JitTls::GetCompiler())->GetLclNum());
+
+        if (isPassThrough)
+        {
+            printf(" (pass-through)");
+        }
     }
     else if (IsUpperVector())
     {
@@ -6789,6 +6795,7 @@ void Interval::tinyDump() const
     {
         printf(" internal");
     }
+
     printf("> ");
 }
 
@@ -6797,19 +6804,22 @@ void Interval::microDump() const
     if (isLocalVar)
     {
         printf("<V%02u/L%u>", getLocalVar(JitTls::GetCompiler())->GetLclNum(), intervalIndex);
+
+        if (isPassThrough)
+        {
+            printf(" (pass-through)");
+        }
+
         return;
     }
-    else if (IsUpperVector())
+
+    if (IsUpperVector())
     {
         assert(relatedInterval != nullptr);
         printf(" (U%02u)", relatedInterval->getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
-    char intervalTypeChar = 'I';
-    if (isInternal)
-    {
-        intervalTypeChar = 'T';
-    }
-    printf("<%c%u>", intervalTypeChar, intervalIndex);
+
+    printf("<%c%u>", isInternal ? 'T' : 'I', intervalIndex);
 }
 
 void RegRecord::tinyDump() const
@@ -7386,9 +7396,9 @@ void LinearScan::dumpLsraAllocationEvent(
         dumpRegRecords();
         break;
 
-    case LSRA_EVENT_SPECIAL_PUTARG:
+    case LSRA_EVENT_PASS_THROUGH:
         dumpRefPositionShort(activeRefPosition, currentBlock);
-        printf("PtArg    %-4s ", getRegName(reg));
+        printf("PassT    %-4s ", getRegName(reg));
         break;
 
     case LSRA_EVENT_UPPER_VECTOR_SAVE:
@@ -8021,11 +8031,12 @@ void LinearScan::verifyFinalAllocation()
         case RefTypeZeroInit:
             assert(interval != nullptr);
 
-            if (interval->isSpecialPutArg)
+            if (interval->isPassThrough)
             {
-                dumpLsraAllocationEvent(LSRA_EVENT_SPECIAL_PUTARG, interval, regNum);
+                dumpLsraAllocationEvent(LSRA_EVENT_PASS_THROUGH, interval, regNum);
                 break;
             }
+
             if (currentRefPosition->reload)
             {
                 interval->isActive = true;
@@ -8465,9 +8476,19 @@ void RegisterSelection::reset(Interval* interval, RefPosition* refPos)
     nextRefPos      = refPosition->nextRefPosition;
     candidates      = refPosition->registerAssignment;
     preferences     = currentInterval->registerPreferences;
-    // This is not actually a preference, it's merely to track the local that this "specialPutArg" is using.
-    relatedInterval     = currentInterval->isSpecialPutArg ? nullptr : currentInterval->relatedInterval;
-    relatedPreferences  = relatedInterval == nullptr ? RBM_NONE : relatedInterval->getCurrentPreferences();
+
+    // This is not actually a preference, it's merely to track the local that pass-through is using.
+    if (!currentInterval->isPassThrough && currentInterval->relatedInterval != nullptr)
+    {
+        relatedInterval    = currentInterval->relatedInterval;
+        relatedPreferences = relatedInterval->getCurrentPreferences();
+    }
+    else
+    {
+        relatedInterval    = nullptr;
+        relatedPreferences = RBM_NONE;
+    }
+
     rangeEndLocation    = refPosition->getRangeEndLocation();
     relatedLastLocation = rangeEndLocation;
     preferCalleeSave    = currentInterval->preferCalleeSave;

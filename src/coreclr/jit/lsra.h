@@ -969,7 +969,7 @@ private:
         LSRA_EVENT_ALLOC_REG,
         LSRA_EVENT_NO_REG_ALLOCATED,
         LSRA_EVENT_RELOAD,
-        LSRA_EVENT_SPECIAL_PUTARG,
+        LSRA_EVENT_PASS_THROUGH,
         LSRA_EVENT_REUSE_REG,
     };
 
@@ -1115,10 +1115,10 @@ private:
         return reg;
     }
 
-    static regMaskTP getRegMask(RegNum reg, var_types regType)
+    static RegSet getRegMask(RegNum reg, var_types regType)
     {
-        reg               = getRegForType(reg, regType);
-        regMaskTP regMask = genRegMask(reg);
+        reg            = getRegForType(reg, regType);
+        RegSet regMask = genRegMask(reg);
 
 #ifdef TARGET_ARM
         if (regType == TYP_DOUBLE)
@@ -1217,8 +1217,7 @@ private:
 
     bool isRegBusy(RegNum reg, var_types regType) const
     {
-        regMaskTP regMask = getRegMask(reg, regType);
-        return (regsBusyUntilKill & regMask) != RBM_NONE;
+        return (regsBusyUntilKill & getRegMask(reg, regType)) != RBM_NONE;
     }
 
     void setRegBusyUntilKill(RegNum reg, var_types regType)
@@ -1378,7 +1377,7 @@ private:
 #endif
 #endif
 
-    bool supportsSpecialPutArg();
+    bool SupportsPassThroughPutArgReg();
 #ifdef WINDOWS_AMD64_ABI
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
@@ -1409,7 +1408,7 @@ public:
         , isPromotedStruct(false)
         , hasConflictingDefUse(false)
         , hasInterferingUses(false)
-        , isSpecialPutArg(false)
+        , isPassThrough(false)
         , preferCalleeSave(false)
         , isConstant(false)
         , isWriteThru(false)
@@ -1468,11 +1467,12 @@ public:
     // OR because it requires an internal register that differs from the target.
     bool hasInterferingUses : 1;
 
-    // True if this interval is defined by a putArg, whose source is a non-last-use lclVar.
+    // True if this interval is defined by a node that does not modify the value in the source related interval,
+    // where the source is a non-last-use local.
     // During allocation, this flag will be cleared if the source is not already in the required register.
-    // Otherwise, we will leave the register allocated to the lclVar, but mark the RegRecord as
-    // isBusyUntilKill, so that it won't be reused if the lclVar goes dead before the call.
-    bool isSpecialPutArg : 1;
+    // Otherwise, we will leave the register allocated to the local, but mark the RegRecord as
+    // isBusyUntilKill, so that it won't be reused if the local goes dead before the call.
+    bool isPassThrough : 1;
 
     // True if this interval interferes with a call.
     bool preferCalleeSave : 1;
@@ -1498,6 +1498,11 @@ public:
     unsigned intervalIndex = 0;
 #endif
 
+    bool IsLcl() const
+    {
+        return isLocalVar;
+    }
+
     LclVarDsc* getLocalVar(Compiler* comp) const
     {
         assert(isLocalVar);
@@ -1511,12 +1516,24 @@ public:
         return varIndex;
     }
 
-    void assignRelatedInterval(Interval* newRelatedInterval)
+    void SetPassThroughInterval(Interval* interval)
+    {
+        isPassThrough = true;
+        SetRelatedInterval(interval);
+    }
+
+    void SetRelatedInterval(Interval* newRelatedInterval)
     {
 #ifdef DEBUG
         if (JitTls::GetCompiler()->verbose)
         {
             printf("Assigning related ");
+
+            if (isPassThrough)
+            {
+                printf("pass-through ");
+            }
+
             newRelatedInterval->microDump();
             printf(" to ");
             microDump();

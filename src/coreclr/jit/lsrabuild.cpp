@@ -1119,7 +1119,7 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
                 minRegCount++;
             }
 #endif
-            if (rp->getInterval()->isSpecialPutArg)
+            if (rp->getInterval()->isPassThrough)
             {
                 minRegCount++;
             }
@@ -1152,7 +1152,7 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
                 minRegCountForRef += genCountBits(killMask);
             }
         }
-        else if ((rp->refType) == RefTypeDef && (rp->getInterval()->isSpecialPutArg))
+        else if ((rp->refType) == RefTypeDef && (rp->getInterval()->isPassThrough))
         {
             minRegCountForRef++;
         }
@@ -3188,7 +3188,7 @@ bool Interval::assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval)
 {
     if (relatedInterval == nullptr)
     {
-        assignRelatedInterval(newRelatedInterval);
+        SetRelatedInterval(newRelatedInterval);
         return true;
     }
 
@@ -3477,13 +3477,13 @@ void LinearScan::BuildLclStoreDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPos
             // the source to the dest, if the source's lifetime extends beyond the dest.
             if (!srcInterval->isLocalVar || singleUseRef->node->IsLastUse(0))
             {
-                srcInterval->assignRelatedInterval(varDefInterval);
+                srcInterval->SetRelatedInterval(varDefInterval);
             }
         }
         else if (!srcInterval->isLocalVar)
         {
             // Preference the source to dest, if src is not a local var.
-            srcInterval->assignRelatedInterval(varDefInterval);
+            srcInterval->SetRelatedInterval(varDefInterval);
         }
     }
 
@@ -3879,7 +3879,7 @@ void LinearScan::BuildReturn(GenTreeUnOp* ret)
     BuildUse(src, genRegMask(retDesc.GetRegNum(0)));
 }
 
-bool LinearScan::supportsSpecialPutArg()
+bool LinearScan::SupportsPassThroughPutArgReg()
 {
 #if defined(DEBUG) && defined(TARGET_X86)
     // On x86, `LSRA_LIMIT_CALLER` is too restrictive to allow the use of special put args: this stress mode
@@ -3934,48 +3934,33 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
-    // To avoid redundant moves, have the argument operand computed in the
-    // register in which the argument is passed to the call.
-    regMaskTP    argRegMask = genRegMask(argReg);
-    RefPosition* use        = BuildUse(src, argRegMask);
-
-    bool isSpecialPutArg = false;
-
-    if (supportsSpecialPutArg() && IsRegCandidateLclLoad(src) && !src->IsLastUse(0))
-    {
-        // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
-        // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register
-        // (which is actually what we hope will happen).
-        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use store\n");
-
-        assert(use->getInterval()->isLocalVar);
-
-        // Preference the destination to the interval of the first register defined by the first operand.
-        isSpecialPutArg = true;
-    }
-
 #ifdef TARGET_ARM
     if (putArg->TypeIs(TYP_LONG))
     {
         assert(src->OperIs(GT_BITCAST));
 
-        regMaskTP nextArgRegMask = genRegMask(REG_NEXT(argReg));
+        RegSet argRegSet[]{genRegMask(argReg), genRegMask(REG_NEXT(argReg))};
 
-        BuildUse(src, nextArgRegMask, 1);
+        BuildUse(src, argRegSet[0], 0);
+        BuildUse(src, argRegSet[1], 1);
 
-        BuildDef(putArg, TYP_INT, argRegMask, 0);
-        BuildDef(putArg, TYP_INT, nextArgRegMask, 1);
+        BuildDef(putArg, TYP_INT, argRegSet[0], 0);
+        BuildDef(putArg, TYP_INT, argRegSet[1], 1);
+
+        return;
     }
-    else
 #endif
-    {
-        RefPosition* def = BuildDef(putArg, argRegMask);
 
-        if (isSpecialPutArg)
-        {
-            def->getInterval()->isSpecialPutArg = true;
-            def->getInterval()->assignRelatedInterval(use->getInterval());
-        }
+    RegSet argRegSet = genRegMask(argReg);
+
+    RefPosition* use = BuildUse(src, argRegSet);
+    RefPosition* def = BuildDef(putArg, argRegSet);
+
+    if (SupportsPassThroughPutArgReg() && IsRegCandidateLclLoad(src) && !src->IsLastUse(0))
+    {
+        assert(use->getInterval()->IsLcl());
+
+        def->getInterval()->SetPassThroughInterval(use->getInterval());
     }
 }
 
