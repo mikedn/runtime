@@ -4245,6 +4245,7 @@ private:
     GenTree* moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* moMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
+    void moMorphShiftCount(GenTreeOp* shift, GenTree* op2);
     GenTree* moMorphRemToSubMulDiv(GenTreeOp* tree);
     GenTree* moMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
     GenTree* moMorphAssociative(GenTreeOp* tree);

@@ -394,13 +394,6 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* store)
 }
 
 #ifdef TARGET_XARCH
-regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* node)
-{
-    assert(node->OperIsShiftOrRotate());
-
-    return node->GetOp(1)->isContained() ? RBM_NONE : RBM_RCX;
-}
-
 regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
@@ -548,16 +541,6 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
     switch (node->GetOper())
     {
 #ifdef TARGET_XARCH
-    case GT_LSH:
-    case GT_RSH:
-    case GT_RSZ:
-    case GT_ROL:
-    case GT_ROR:
-#ifdef TARGET_X86
-    case GT_LSH_HI:
-    case GT_RSH_LO:
-#endif
-        return getKillSetForShiftRotate(node->AsOp());
     case GT_MUL:
     case GT_SMULH:
     case GT_UMULH:
@@ -3669,14 +3652,9 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
             {
                 regMaskTP regs = src->OperIsShiftOrRotate() ? RBM_RCX : RBM_NONE;
                 BuildUse(src->AsOp()->GetOp(1), regs);
-
-                if (src->OperIsShiftOrRotate())
-                {
-                    buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
-                }
             }
         }
-        else if (varTypeIsSIMD(store->GetType()))
+        else if (varTypeIsVec(store->GetType()))
         {
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)

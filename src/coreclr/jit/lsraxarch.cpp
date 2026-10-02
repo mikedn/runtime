@@ -690,7 +690,6 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     if (!shiftBy->isContained())
     {
         BuildDelayFreeUse(shiftBy, value, RBM_RCX);
-        buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
     }
 
     BuildDef(tree, regCandidates);
@@ -1867,12 +1866,6 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
 #endif
 
         BuildUse(value, regs);
-
-        if (isShift)
-        {
-            // TODO-MIKE-Review: It's not clear why shifts needs this.
-            buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
-        }
     }
 
 #ifdef FEATURE_SIMD

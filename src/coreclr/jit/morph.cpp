@@ -3244,7 +3244,16 @@ REMORPH_POST:
                 tree->ChangeOper(GT_ADD);
                 i2->SetValue(val1 << val2);
             }
+
+            return tree;
         }
+
+        moMorphShiftCount(tree->AsOp(), op2);
+        return tree;
+
+    case GT_RSZ:
+    case GT_RSH:
+        moMorphShiftCount(tree->AsOp(), op2);
         return tree;
 
     case GT_ROL:
@@ -3579,6 +3588,41 @@ REMORPH_POST:
     default:
         return tree;
     }
+}
+
+void Compiler::moMorphShiftCount(GenTreeOp* shift, GenTree* op2)
+{
+#ifdef TARGET_X86
+    if (shift->TypeIs(TYP_LONG))
+    {
+        // TODO-MIKE-CQ: We could handle LONG on x86 too, because the shift helper also
+        // masks the count. But we need to update shift decomposition to remove the masking,
+        // like lowering does.
+        return;
+    }
+#endif
+
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    const size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
+
+    while (op2->OperIs(GT_AND))
+    {
+        GenTree* maskOp = op2->AsOp()->GetOp(1);
+
+        if (!maskOp->OperIs(GT_CNS_INT))
+        {
+            break;
+        }
+
+        if ((static_cast<size_t>(maskOp->AsIntCon()->GetValue()) & mask) != mask)
+        {
+            break;
+        }
+
+        op2->gtFlags |= GTF_NO_CSE;
+        op2 = op2->AsOp()->GetOp(0);
+    }
+#endif
 }
 
 // Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.

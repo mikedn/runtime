@@ -3956,10 +3956,10 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
     if (shiftBy->OperIs(GT_CNS_INT))
     {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
+#if defined(TARGET_AMD64)
+        const size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86) || defined(TARGET_ARM)
-        size_t           mask           = 0x1f;
+        constexpr size_t mask           = 0x1f;
 #else
 #error Unknown target
 #endif
@@ -4074,17 +4074,15 @@ void Lowering::LowerShift(GenTreeOp* shift)
     }
     else
     {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
+#ifndef TARGET_ARM
+#if defined(TARGET_AMD64)
+        const size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86)
-        size_t           mask           = 0x1f;
-#elif defined(TARGET_ARM)
-        size_t mask = 0xff;
-#elif
+        constexpr size_t mask = 0x1f;
+#else
 #error Unknown target
 #endif
 
-#ifndef TARGET_ARM
         // Remove unnecessary shift count masking. x64/x86/ARM64 shift instructions mask the shift count
         // to 5 bits (or 6 bits for 64 bit operations). ARM32 only masks 8 bits so this isn't likely to
         // be very useful since the main goal is to remove the masking done by the C# compiler.
