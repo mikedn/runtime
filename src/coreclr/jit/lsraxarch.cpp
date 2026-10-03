@@ -649,11 +649,11 @@ void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwOp, regMaskT
     }
 }
 
-void LinearScan::BuildShiftRotate(GenTreeOp* tree)
+void LinearScan::BuildShiftRotate(GenTreeOp* shift)
 {
-    GenTree*  value         = tree->GetOp(0);
-    GenTree*  shiftBy       = tree->GetOp(1);
-    regMaskTP regCandidates = RBM_NONE;
+    GenTree* value         = shift->GetOp(0);
+    GenTree* shiftBy       = shift->GetOp(1);
+    RegSet   regCandidates = RBM_NONE;
 
     if (shiftBy->isContained())
     {
@@ -665,9 +665,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     }
 
 #ifdef TARGET_X86
-    // The first operand of a GT_LSH_HI and GT_RSH_LO oper is a GT_LONG so that
-    // we can have a three operand form.
-    if (tree->OperIs(GT_LSH_HI, GT_RSH_LO))
+    if (shift->OperIs(GT_LSH_HI, GT_RSH_LO))
     {
         assert(value->OperIs(GT_LONG) && value->isContained());
 
@@ -679,7 +677,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
         RefPosition* sourceLoUse = BuildUse(sourceLo, regCandidates);
         RefPosition* sourceHiUse = BuildUse(sourceHi, regCandidates);
 
-        setDelayFree(tree->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
+        setDelayFree(shift->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
     }
     else
 #endif
@@ -692,7 +690,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
         BuildDelayFreeUse(shiftBy, value, RBM_RCX);
     }
 
-    BuildDef(tree, regCandidates);
+    BuildDef(shift, regCandidates);
 }
 
 void LinearScan::BuildCall(GenTreeCall* call)

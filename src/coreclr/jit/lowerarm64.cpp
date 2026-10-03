@@ -918,7 +918,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     }
 }
 
-void Lowering::LowerRotateRight(GenTreeOp* rotate)
+void Lowering::LowerRotate(GenTreeOp* rotate)
 {
     assert(rotate->OperIs(GT_ROR) && rotate->TypeIs(TYP_INT, TYP_LONG));
 

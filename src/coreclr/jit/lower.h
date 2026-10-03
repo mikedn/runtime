@@ -52,7 +52,6 @@ private:
     void ContainCheckJTrue(GenTreeUnOp* node);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckIndStore(GenTreeIndStore* store);
-    void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclRef* store);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
@@ -82,9 +81,8 @@ private:
     void LowerLclHeap(GenTreeUnOp* node);
     GenTree* LowerArrElem(GenTreeArrElem* node);
     void LowerShift(GenTreeOp* shift);
-    void LowerRotateRight(GenTreeOp* node);
+    void LowerRotate(GenTreeOp* node);
 #ifdef TARGET_XARCH
-    void LowerRotateLeft(GenTreeOp* node);
     GenTree* LowerFloatConvert(GenTreeUnOp* node);
 #endif
     GenTree* LowerKeepAlive(GenTreeUnOp* node);
@@ -103,6 +101,8 @@ private:
 #ifdef TARGET_64BIT
     void LowerSignedExtend(GenTreeUnOp* node);
     void LowerUnsignedExtend(GenTreeUnOp* node);
+#else
+    void LowerLongShiftRotate(GenTreeOp* node);
 #endif
 #ifdef TARGET_ARM
     void LowerFloatMul(GenTreeOp* mul);
