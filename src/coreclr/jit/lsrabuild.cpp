@@ -92,12 +92,8 @@ void RefDefList::FreeDef(RefDefListNode* def)
 }
 
 #ifdef DEBUG
-void LinearScan::dumpDefList() const
+void LinearScan::DumpDefList() const
 {
-    if (!verbose)
-    {
-        return;
-    }
     JITDUMP("DefList: { ");
     bool first = true;
     for (RefDefListNode* def = defList.Begin(); def != nullptr; def = def->next)
@@ -982,52 +978,30 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node) const
 }
 #endif // DEBUG
 
-void LinearScan::buildRefPositionsForNode(GenTree* tree)
+void LinearScan::BuildNodeRefPositions(GenTree* node)
 {
-    tree->ClearTempRegs();
-    tree->ClearRegSpillSet();
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        dumpDefList();
-        compiler->dmpLIRNode(tree);
-    }
-#endif
-
-    if (tree->isContained())
-    {
-#ifdef TARGET_XARCH
-        // On XArch we can have contained candidate locals if they are part of a RMW
-        // address computation. In this case we need to check whether it is a last use.
-        if (tree->OperIs(GT_LCL_LOAD) && tree->IsLastUse(0))
-        {
-            LclVarDsc* lcl = tree->AsLclLoad()->GetLcl();
-
-            if (lcl->IsRegCandidate())
-            {
-                VarSetOps::RemoveElemD(compiler, currentLiveVars, lcl->GetLivenessBitIndex());
-            }
-        }
-#else
-        assert(!IsCandidateLclRef(tree));
-#endif
-        JITDUMP("Contained\n");
-
-        return;
-    }
+    assert(!node->isContained());
 
 #ifdef TARGET_XARCH
-    if (varTypeUsesFloatReg(tree->GetType()))
+    if (varTypeUsesFloatReg(node->GetType()))
     {
         SetContainsVexInstructions();
 
-        if (tree->TypeIs(TYP_SIMD32))
+        if (node->TypeIs(TYP_SIMD32))
         {
             compiler->codeGen->SetContainsVex256Instructions();
         }
     }
 #endif
+
+    // We make a final determination about whether a LCL_LOAD is a candidate or contained
+    // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
+    // load of a stack-based local into a register and we'll fall through to the general
+    // local case below.
+    if (node->OperIs(GT_LCL_LOAD) && !IsLclLoad(node->AsLclLoad()))
+    {
+        return;
+    }
 
     clearBuildState();
 
@@ -1039,35 +1013,28 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
     // if produce is as expected. See https://github.com/dotnet/runtime/issues/8678
     // int oldDefListCount = defList.Count();
 
-    // We make a final determination about whether a LCL_LOAD is a candidate or contained
-    // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
-    // load of a stack-based local into a register and we'll fall through to the general
-    // local case below.
-    if (!tree->OperIs(GT_LCL_LOAD) || IsLclLoad(tree->AsLclLoad()))
-    {
-        BuildNode(tree);
-    }
+    BuildNode(node);
 
     // int newDefListCount = defList.Count();
     // unsigned produce = newDefListCount - oldDefListCount;
 
     assert(
-        // RegOptional LCL_VARs may become contained.
-        ((nodeDefCount == 0) && tree->isContained()) ||
+        // RegOptional LCL_LOADs may become contained.
+        ((nodeDefCount == 0) && node->isContained()) ||
         // A reg candidate store is not a value so GetRegisterDstCount returns 0, but it does define a register.
-        ((nodeDefCount == 1) && tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetLcl()->IsRegCandidate()) ||
+        ((nodeDefCount == 1) && node->OperIs(GT_LCL_STORE) && node->AsLclStore()->GetLcl()->IsRegCandidate()) ||
         // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
-        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate()) ||
-        (nodeDefCount == GetRegisterDstCount(tree)));
+        ((nodeDefCount == 0) && node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->IsRegCandidate()) ||
+        (nodeDefCount == GetRegisterDstCount(node)));
 
-    assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
+    assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(node) == nodeUseCount));
 
 #ifdef DEBUG
     // If we are constraining registers, modify all the RefPositions we've just built to specify the
     // minimum reg count required.
     if ((getStressLimitRegs() != LSRA_LIMIT_NONE) || (getSelectionHeuristics() != LSRA_SELECT_DEFAULT))
     {
-        BuildStressConstraints(tree, refPositionMark);
+        BuildStressConstraints(node, refPositionMark);
     }
 #endif
 
@@ -1516,11 +1483,49 @@ void LinearScan::buildIntervals()
             currentLoc += 2;
         }
 
+        INDEBUG(bool dumpDefList = true);
+
         for (GenTree* node : LIR::AsRange(block))
         {
             INDEBUG(node->gtSeqNum = currentLoc);
+            node->ClearTempRegs();
+            node->ClearRegSpillSet();
 
-            buildRefPositionsForNode(node);
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                if (jitstd::exchange(dumpDefList, false))
+                {
+                    DumpDefList();
+                }
+
+                compiler->dmpLIRNode(node);
+            }
+#endif
+
+            if (node->isContained())
+            {
+#ifdef TARGET_XARCH
+                // On XArch we can have contained candidate locals if they are part of a RMW
+                // address computation. In this case we need to check whether it is a last use.
+                if (node->OperIs(GT_LCL_LOAD) && node->IsLastUse(0))
+                {
+                    LclVarDsc* lcl = node->AsLclLoad()->GetLcl();
+
+                    if (lcl->IsRegCandidate())
+                    {
+                        VarSetOps::RemoveElemD(compiler, currentLiveVars, lcl->GetLivenessBitIndex());
+                    }
+                }
+#else
+                assert(!IsCandidateLclRef(node));
+#endif
+            }
+            else
+            {
+                BuildNodeRefPositions(node);
+                INDEBUG(dumpDefList = true);
+            }
 
 #ifdef DEBUG
             if (currentLoc > maxNodeLocation)
@@ -1553,9 +1558,9 @@ void LinearScan::buildIntervals()
         BlockSetOps::AddElemD(compiler, visited, block->bbNum);
 
 #ifdef DEBUG
-        if (!defList.IsEmpty())
+        if (compiler->verbose && !defList.IsEmpty())
         {
-            dumpDefList();
+            DumpDefList();
             assert(!"Found unused reg defs at the end of block");
         }
 #endif

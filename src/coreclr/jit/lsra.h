@@ -572,7 +572,7 @@ private:
     }
 
     // Dump support
-    void dumpDefList() const;
+    void DumpDefList() const;
     void lsraDumpIntervals(const char* msg) const;
     void dumpRefPositions(const char* msg) const;
     void dumpVarRefPositions(const char* msg) const;
@@ -647,7 +647,7 @@ private:
 
     void newRegKillRefPositions(regMaskTP mask, LsraLocation location);
 
-    void buildRefPositionsForNode(GenTree* node);
+    void BuildNodeRefPositions(GenTree* node);
 #ifdef DEBUG
     void BuildStressConstraints(GenTree* node, RefPositionIterator refPositionMark);
 #endif

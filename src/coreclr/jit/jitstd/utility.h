@@ -115,6 +115,14 @@ namespace jitstd
         return (v << ((64 - s) & 63)) | (v >> (s & 63));
     }
 
+    template <class T, class U = T>
+    constexpr T exchange(T& obj, U&& new_value)
+    {
+        T old = std::move(obj);
+        obj   = std::forward<U>(new_value);
+        return old;
+    }
+
     template <typename T>
     class span
     {
