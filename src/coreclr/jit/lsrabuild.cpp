@@ -978,6 +978,21 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node) const
 }
 #endif // DEBUG
 
+void LinearScan::ClearBuildState()
+{
+    internalCount            = 0;
+    setInternalRegsDelayFree = false;
+    pendingDelayFree         = false;
+    tgtPrefUse               = nullptr;
+#if defined(TARGET_XARCH)
+    tgtPrefUse2 = nullptr;
+#endif
+#ifdef DEBUG
+    nodeUseCount = 0;
+    nodeDefCount = 0;
+#endif
+}
+
 void LinearScan::BuildNodeRefPositions(GenTree* node)
 {
     assert(!node->isContained());
@@ -1003,7 +1018,7 @@ void LinearScan::BuildNodeRefPositions(GenTree* node)
         return;
     }
 
-    clearBuildState();
+    ClearBuildState();
 
     // If we are constraining the registers for allocation, we will modify all the RefPositions
     // we've built for this node after we've created them. In order to do that, we'll remember
@@ -1220,7 +1235,7 @@ void LinearScan::AddLiveParamRegs(LclVarDsc* lcl)
 {
     assert(lcl->IsRegParam());
 
-    regMaskTP mask = RBM_NONE;
+    RegSet mask = RBM_NONE;
 
     for (unsigned i = 0, count = lcl->GetParamRegCount(); i < count; i++)
     {
@@ -1276,7 +1291,7 @@ void LinearScan::buildIntervals()
     // Assign these RefPositions to the (nonexistent) BB0.
     curBBNum = 0;
 
-    for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
+    for (unsigned varIndex = 0, trackedCount = compiler->lvaTrackedCount; varIndex < trackedCount; varIndex++)
     {
         LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(varIndex);
 
@@ -1294,9 +1309,8 @@ void LinearScan::buildIntervals()
 
         if (lcl->IsRegCandidate())
         {
-            Interval*       interval = getIntervalForLocalVar(varIndex);
-            const var_types regType  = lcl->GetRegisterType();
-            regMaskTP       mask     = allRegs(regType);
+            Interval* interval = getIntervalForLocalVar(varIndex);
+            RegSet    mask     = allRegs(lcl->GetRegisterType());
 
             if (lcl->IsRegParam())
             {
@@ -1753,8 +1767,8 @@ void LinearScan::buildIntervals()
 
     if (verbose)
     {
-        lsraDumpIntervals("BEFORE VALIDATING INTERVALS");
-        dumpRefPositions("BEFORE VALIDATING INTERVALS");
+        DumpIntervals("BEFORE VALIDATING INTERVALS");
+        DumpRefPositions("BEFORE VALIDATING INTERVALS");
     }
 
     if (enregisterLocalVars)
@@ -1909,7 +1923,6 @@ void LinearScan::setFrameType()
 BlockSet LinearScan::setBlockSequence()
 {
     assert((blockSequence == nullptr) && (bbSeqCount == 0)); // The method should be called only once.
-    assert(blockSequenceWorkList == nullptr);
 
     compiler->UpdateBlockSetVersion();
     INDEBUG(blockSetVersion = compiler->GetBlockSetVersion());
@@ -1930,7 +1943,8 @@ BlockSet LinearScan::setBlockSequence()
     blockInfo[0].weight = BB_UNITY_WEIGHT;
 
     JITDUMP("Start LSRA Block Sequence: \n");
-    bool verifiedAllBBs = false;
+    bool        verifiedAllBBs        = false;
+    BasicBlock* blockSequenceWorkList = nullptr;
 
     for (BasicBlock *block = compiler->fgFirstBB, *nextBlock; block != nullptr; block = nextBlock)
     {
@@ -2022,7 +2036,7 @@ BlockSet LinearScan::setBlockSequence()
             if (!BlockSetOps::IsMember(compiler, readySet, succ->bbNum))
             {
                 JITDUMP("\tSucc block: " FMT_BB, succ->bbNum);
-                addToBlockSequenceWorkList(readySet, succ, predSet);
+                blockSequenceWorkList = addToBlockSequenceWorkList(readySet, succ, blockSequenceWorkList, predSet);
                 BlockSetOps::AddElemD(compiler, readySet, succ->bbNum);
             }
         }
@@ -2051,7 +2065,8 @@ BlockSet LinearScan::setBlockSequence()
                 if (!BlockSetOps::IsMember(compiler, visited, seqBlock->bbNum))
                 {
                     JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
-                    addToBlockSequenceWorkList(readySet, seqBlock, predSet);
+                    blockSequenceWorkList =
+                        addToBlockSequenceWorkList(readySet, seqBlock, blockSequenceWorkList, predSet);
                     BlockSetOps::AddElemD(compiler, readySet, seqBlock->bbNum);
                 }
             }
@@ -2095,7 +2110,7 @@ BlockSet LinearScan::setBlockSequence()
 
 // Compare two basic blocks for sequencing order.
 // Returns true if block2 is preferred, false otherwise.
-bool LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights)
+static bool CompareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights)
 {
     if (useBlockWeights)
     {
@@ -2134,7 +2149,10 @@ bool LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* bloc
 // Note also that, when random traversal order is implemented, this method
 // should insert the blocks into the list in random order, so that we can always
 // simply select the first block in the list.
-void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet)
+BasicBlock* LinearScan::addToBlockSequenceWorkList(BlockSet    sequencedBlockSet,
+                                                   BasicBlock* block,
+                                                   BasicBlock* blockSequenceWorkList,
+                                                   BlockSet&   predSet) const
 {
     // The block that is being added is not already sequenced
     assert(!BlockSetOps::IsMember(compiler, sequencedBlockSet, block->bbNum));
@@ -2160,7 +2178,7 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
         if (nextBlock->isRunRarely())
         {
             // If the block that is yet to be sequenced is a rarely run block, always use block weights for sequencing
-            seqResult = compareBlocksForSequencing(nextBlock, block, true);
+            seqResult = CompareBlocksForSequencing(nextBlock, block, true);
         }
         else if (BlockSetOps::IsMember(compiler, predSet, nextBlock->bbNum))
         {
@@ -2169,7 +2187,7 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
         }
         else
         {
-            seqResult = compareBlocksForSequencing(nextBlock, block, useBlockWeight);
+            seqResult = CompareBlocksForSequencing(nextBlock, block, useBlockWeight);
         }
 
         if (seqResult)
@@ -2200,6 +2218,8 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
     }
     JITDUMP("]\n");
 #endif
+
+    return blockSequenceWorkList;
 }
 
 #if DOUBLE_ALIGN

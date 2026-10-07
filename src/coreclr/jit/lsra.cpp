@@ -774,7 +774,7 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block) const
     dumpVarToRegMap(getOutVarToRegMap(block));
 }
 
-void LinearScan::dumpVarRefPositions(const char* title) const
+void LinearScan::DumpVarRefPositions(const char* title) const
 {
     if (!enregisterLocalVars)
     {
@@ -2331,7 +2331,7 @@ void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
 }
 
 #ifdef DEBUG
-void LinearScan::dumpRefPositions(const char* str) const
+void LinearScan::DumpRefPositions(const char* str) const
 {
     printf("------------\n");
     printf("REFPOSITIONS %s: \n", str);
@@ -2462,7 +2462,7 @@ void LinearScan::freeRegisters(regMaskTP regsToFree)
 void LinearScan::allocateRegisters()
 {
     JITDUMP("*************** In LinearScan::allocateRegisters()\n");
-    DBEXEC(verbose, lsraDumpIntervals("before allocateRegisters"));
+    DBEXEC(verbose, DumpIntervals("before allocateRegisters"));
 
     // at start, nothing is active except for register args
     for (Interval& interval : intervals)
@@ -2517,8 +2517,8 @@ void LinearScan::allocateRegisters()
 #ifdef DEBUG
     if (verbose)
     {
-        dumpRefPositions("BEFORE ALLOCATION");
-        dumpVarRefPositions("BEFORE ALLOCATION");
+        DumpRefPositions("BEFORE ALLOCATION");
+        DumpVarRefPositions("BEFORE ALLOCATION");
 
         printf("\n\nAllocating Registers\n--------------------\n");
         // Start with a small set of commonly used registers, so that we don't keep having to print a new title.
@@ -3575,8 +3575,8 @@ void LinearScan::allocateRegisters()
         dumpRegRecords();
         printf("\n");
 
-        dumpRefPositions("AFTER ALLOCATION");
-        dumpVarRefPositions("AFTER ALLOCATION");
+        DumpRefPositions("AFTER ALLOCATION");
+        DumpVarRefPositions("AFTER ALLOCATION");
 
         // Dump the intervals that remain active
         printf("Active intervals at end of allocation:\n");
@@ -4938,7 +4938,7 @@ void LinearScan::resolveRegisters()
         compiler->fgDispBasicBlocks(true);
     }
 
-    verifyFinalAllocation();
+    VerifyFinalAllocation();
 #endif
 
     recordMaxSpill();
@@ -6827,7 +6827,7 @@ void RegRecord::tinyDump() const
     printf("<Reg:%-3s> ", getRegName(regNum));
 }
 
-void LinearScan::lsraDumpIntervals(const char* msg) const
+void LinearScan::DumpIntervals(const char* msg) const
 {
     printf("\nLinear scan intervals %s:\n", msg);
     for (const Interval& interval : intervals)
@@ -7809,7 +7809,7 @@ static bool IsResolutionNode(LIR::Range& containingRange, GenTree* node)
 
 // Traverse the RefPositions and verify various invariants.
 // If verbose is set, this will also dump a table of the final allocations.
-void LinearScan::verifyFinalAllocation()
+void LinearScan::VerifyFinalAllocation()
 {
     JITDUMP("\nFinal allocation\n");
 
@@ -7891,7 +7891,7 @@ void LinearScan::verifyFinalAllocation()
                     // operands to moves.
                     if (IsResolutionMove(node))
                     {
-                        verifyResolutionMove(node, currentLocation);
+                        VerifyResolutionMove(node, currentLocation);
                     }
                 }
 
@@ -7994,7 +7994,7 @@ void LinearScan::verifyFinalAllocation()
                         {
                             // Only verify nodes that are actually moves; don't bother with the nodes that are
                             // operands to moves.
-                            verifyResolutionMove(node, currentLocation);
+                            VerifyResolutionMove(node, currentLocation);
                         }
                     }
                     else
@@ -8297,7 +8297,7 @@ void LinearScan::verifyFinalAllocation()
                 {
                     // Only verify nodes that are actually moves; don't bother with the nodes that are
                     // operands to moves.
-                    verifyResolutionMove(node, currentLocation);
+                    VerifyResolutionMove(node, currentLocation);
                 }
             }
 
@@ -8330,9 +8330,9 @@ void LinearScan::verifyFinalAllocation()
     JITDUMP("\n");
 }
 
-// Verify a resolution statement. Called by verifyFinalAllocation()
+// Verify a resolution statement. Called by VerifyFinalAllocation()
 // If verbose is set, this will also dump the moves into the table of final allocations.
-void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation currentLocation)
+void LinearScan::VerifyResolutionMove(GenTree* resolutionMove, LsraLocation currentLocation)
 {
     GenTree* dst = resolutionMove;
     assert(IsResolutionMove(dst));

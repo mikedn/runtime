@@ -573,12 +573,12 @@ private:
 
     // Dump support
     void DumpDefList() const;
-    void lsraDumpIntervals(const char* msg) const;
-    void dumpRefPositions(const char* msg) const;
-    void dumpVarRefPositions(const char* msg) const;
+    void DumpIntervals(const char* msg) const;
+    void DumpRefPositions(const char* msg) const;
+    void DumpVarRefPositions(const char* msg) const;
 
-    void verifyFinalAllocation();
-    void verifyResolutionMove(GenTree* resolutionNode, LsraLocation currentLocation);
+    void VerifyFinalAllocation();
+    void VerifyResolutionMove(GenTree* resolutionNode, LsraLocation currentLocation);
     void VerifyEdgeResolution();
 #else  // !DEBUG
     static bool doSelectNearest()
@@ -830,7 +830,8 @@ private:
         unsigned toBBNum;
     };
 
-    using SplitBBNumToTargetBBNumMap                       = JitHashMap<unsigned, SplitEdgeInfo>;
+    using SplitBBNumToTargetBBNumMap = JitHashMap<unsigned, SplitEdgeInfo>;
+
     SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap = nullptr;
     SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap();
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
@@ -1022,15 +1023,16 @@ private:
     BasicBlock** blockSequence = nullptr;
 
     BlockSet setBlockSequence();
-    bool compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
-    BasicBlock* blockSequenceWorkList = nullptr;
 
 #ifdef DEBUG
     // LSRA must not change number of blocks and blockSetVersion that it initializes at start.
     unsigned blockSetVersion;
 #endif
 
-    void addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet);
+    BasicBlock* addToBlockSequenceWorkList(BlockSet    sequencedBlockSet,
+                                           BasicBlock* block,
+                                           BasicBlock* blockSequenceWorkList,
+                                           BlockSet&   predSet) const;
 
     // Indicates whether the allocation pass has been completed.
     bool allocationPassComplete = false;
@@ -1247,6 +1249,13 @@ private:
     // See comment in allocateReg();
     bool isFree(RegRecord* regRecord) const;
 
+    // When Def RefPositions are built for a node, their RefDefListNode
+    // (GenTree* to RefPosition* mapping) is placed in the defList.
+    // As the consuming node is handled, it removes the RefDefListNode from the
+    // defList, use the interval associated with the corresponding Def RefPosition and
+    // use it to build the Use RefPosition.
+    RefDefList defList;
+
     //-----------------------------------------------------------------------
     // Build methods
     //-----------------------------------------------------------------------
@@ -1263,24 +1272,12 @@ private:
     // handled in 'BuildNode'.
     bool pendingDelayFree = false;
 
-    // When Def RefPositions are built for a node, their RefDefListNode
-    // (GenTree* to RefPosition* mapping) is placed in the defList.
-    // As the consuming node is handled, it removes the RefDefListNode from the
-    // defList, use the interval associated with the corresponding Def RefPosition and
-    // use it to build the Use RefPosition.
-    RefDefList defList;
-
     // As we build uses, we may want to preference the next definition (i.e. the register produced
     // by the current node) to the same register as one of its uses. This is done by setting
     // 'tgtPrefUse' to that RefPosition.
     RefPosition* tgtPrefUse = nullptr;
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     RefPosition* tgtPrefUse2 = nullptr;
-#endif
-
-#ifdef TARGET_X86
-    bool needFloatTmpForFPCall  = false;
-    bool needDoubleTmpForFPCall = false;
 #endif
 
 #ifdef DEBUG
@@ -1288,21 +1285,12 @@ private:
     unsigned nodeDefCount;
 #endif
 
-    // This method clears the "build state" before starting to handle a new node.
-    void clearBuildState()
-    {
-        tgtPrefUse = nullptr;
-#if defined(TARGET_XARCH)
-        tgtPrefUse2 = nullptr;
+#ifdef TARGET_X86
+    bool needFloatTmpForFPCall  = false;
+    bool needDoubleTmpForFPCall = false;
 #endif
-        internalCount            = 0;
-        setInternalRegsDelayFree = false;
-        pendingDelayFree         = false;
-#ifdef DEBUG
-        nodeUseCount = 0;
-        nodeDefCount = 0;
-#endif
-    }
+
+    void ClearBuildState();
 
     bool IsRegCandidateLclStoreMultiReg(GenTreeLclStore* store);
     bool IsLclLoad(GenTreeLclLoad* load);
