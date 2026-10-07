@@ -337,7 +337,7 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
     // TODO-AMD64-CQ: Revisit this conservative approach as it could create more shadow slots than
     // required. There are two cases under which a reg arg could potentially be used from its
     // home location:
-    //   a) LSRA marks it as DoNotEnregister (see LinearScan::identifyCandidates())
+    //   a) LSRA marks it as DoNotEnregister (see LinearScan::IdentifyCandidates())
     //   b) LSRA spills it
     //
     // Possible solution to address case (a)

@@ -431,7 +431,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 #if TRACK_LSRA_STATS
     if (JitConfig.DisplayLsraStats() == 2)
     {
-        m_lsra->dumpLsraStatsCsv(jitstdout);
+        m_lsra->DumpStatsCsv(jitstdout);
     }
 #endif
 
@@ -749,7 +749,7 @@ void CodeGen::genEmitMachineCode()
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
         {
-            m_lsra->dumpLsraStatsSummary(jitstdout);
+            m_lsra->DumpStatsSummary(jitstdout);
         }
 #endif
 

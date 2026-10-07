@@ -33,7 +33,7 @@
       the non-RMW operand as for the destination.
 
   Overview:
-    - Walk all blocks, building intervals and RefPositions (buildIntervals)
+    - Walk all blocks, building intervals and RefPositions (BuildIntervals)
     - Allocate registers (allocateRegisters)
     - Annotate nodes with register assignments (resolveRegisters)
     - Add move nodes as needed to resolve conflicting register
@@ -82,8 +82,8 @@ LinearScan::LinearScan(Compiler* compiler)
     , lsraStressMask(JitConfig.JitStressRegs())
 #endif
     , intervals(compiler->getAllocator(CMK_LSRA_Interval))
-    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
     , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
+    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
     , physRegs{
 #define REGDEF(name, ...) {REG_##name},
 #include "register.h"
@@ -182,7 +182,7 @@ LinearScan::LinearScan(Compiler* compiler)
 
 void LinearScan::Run()
 {
-    buildIntervals();
+    BuildIntervals();
     compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
 
     allocateRegisters();
@@ -3772,9 +3772,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
     interval->recentRefPosition = currentRefPosition;
 
     // NOTE: we set the LastUse flag here unless we are extending lifetimes, in which case we write
-    // this bit in checkLastUses. This is a bit of a hack, but is necessary because codegen requires
+    // this bit in CheckLastUses. This is a bit of a hack, but is necessary because codegen requires
     // accurate last use info that is not reflected in the lastUse bit on ref positions when we are extending
-    // lifetimes. See also the comments in checkLastUses.
+    // lifetimes. See also the comments in CheckLastUses.
     if ((node != nullptr) && !extendLifetimes())
     {
         node->SetLastUse(currentRefPosition->GetRegIndex(), currentRefPosition->lastUse);
@@ -6457,7 +6457,7 @@ void LinearScan::dumpLsraStats(FILE* file) const
     printf("\n");
 }
 
-void LinearScan::dumpLsraStatsCsv(FILE* file) const
+void LinearScan::DumpStatsCsv(FILE* file) const
 {
     unsigned sumStats[LsraStat::COUNT]{};
 
@@ -6501,7 +6501,7 @@ void LinearScan::dumpLsraStatsCsv(FILE* file) const
     fprintf(file, ",%.2f\n", compiler->codeGen->GetPerfScore());
 }
 
-void LinearScan::dumpLsraStatsSummary(FILE* file) const
+void LinearScan::DumpStatsSummary(FILE* file) const
 {
     unsigned             sumStats[LsraStat::STAT_FREE]{};
     BasicBlock::weight_t wtdStats[LsraStat::STAT_FREE]{};

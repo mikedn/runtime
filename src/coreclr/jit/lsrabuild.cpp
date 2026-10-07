@@ -106,7 +106,7 @@ void LinearScan::DumpDefList() const
 }
 #endif // DEBUG
 
-Interval* LinearScan::newInterval(var_types regType)
+Interval* LinearScan::NewInterval(var_types regType)
 {
     intervals.emplace_back(regType, allRegs(regType));
     Interval* newInt = &intervals.back();
@@ -116,7 +116,7 @@ Interval* LinearScan::newInterval(var_types regType)
     return newInt;
 }
 
-RefPosition* LinearScan::newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType)
+RefPosition* LinearScan::NewRefPositionRaw(LsraLocation location, GenTree* node, RefType refType)
 {
     refPositions.emplace_back(curBBNum, location, node, refType);
     RefPosition* newRP = &refPositions.back();
@@ -127,7 +127,7 @@ RefPosition* LinearScan::newRefPositionRaw(LsraLocation location, GenTree* node,
 // Set register preferences for an interval based on the given RefPosition
 // This is slightly more general than its name applies, and updates preferences
 // not just for callee-save registers.
-void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp) const
+void LinearScan::ApplyCalleeSaveHeuristics(RefPosition* rp) const
 {
 #ifdef TARGET_AMD64
     if (compiler->opts.compDbgEnC)
@@ -162,7 +162,7 @@ void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp) const
 // more PhysReg RefPositions (a throughput impact), and a large number of diffs that require
 // further analysis to determine benefit.
 // See Issue #11274.
-void LinearScan::checkConflictingDefUse(RefPosition* useRP)
+void LinearScan::CheckConflictingDefUse(RefPosition* useRP)
 {
     assert(useRP->refType == RefTypeUse);
     Interval* theInterval = useRP->getInterval();
@@ -187,11 +187,11 @@ void LinearScan::checkConflictingDefUse(RefPosition* useRP)
     }
 }
 
-void LinearScan::associateRefPosWithInterval(RefPosition* rp)
+void LinearScan::AssociateRefPosWithInterval(RefPosition* rp)
 {
     assert(rp->isIntervalRef());
 
-    applyCalleeSaveHeuristics(rp);
+    ApplyCalleeSaveHeuristics(rp);
 
     Interval* interval = rp->getInterval();
 
@@ -212,7 +212,7 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
     }
     else if (rp->refType == RefTypeUse)
     {
-        checkConflictingDefUse(rp);
+        CheckConflictingDefUse(rp);
         rp->lastUse = true;
     }
 
@@ -239,13 +239,13 @@ void Referenceable::LinkRefPosition(RefPosition* ref)
     lastRefPosition   = ref;
 }
 
-RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
+RefPosition* LinearScan::NewRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
 {
     assert((refType == RefTypeFixedReg) || (refType == RefTypeKill));
 
     RegRecord* regRecord = GetRegRecord(reg);
 
-    RefPosition* newRP = newRefPositionRaw(location, nullptr, refType);
+    RefPosition* newRP = NewRefPositionRaw(location, nullptr, refType);
     newRP->setReg(regRecord);
     newRP->registerAssignment = genRegMask(reg);
 
@@ -260,16 +260,16 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
     return newRP;
 }
 
-RefPosition* LinearScan::newBlockRefPosition(LsraLocation location)
+RefPosition* LinearScan::NewBlockRefPosition(LsraLocation location)
 {
-    RefPosition* newRP = newRefPositionRaw(location, nullptr, RefTypeBB);
+    RefPosition* newRP = NewRefPositionRaw(location, nullptr, RefTypeBB);
     DBEXEC(verbose, newRP->dump(this));
     return newRP;
 }
 
-RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree* node, regMaskTP mask)
+RefPosition* LinearScan::NewKillGCRegsRefPosition(LsraLocation location, GenTree* node, regMaskTP mask)
 {
-    RefPosition* newRP        = newRefPositionRaw(location, node, RefTypeKillGCRefs);
+    RefPosition* newRP        = NewRefPositionRaw(location, node, RefTypeKillGCRefs);
     newRP->isFixedRegRef      = isSingleRegister(mask);
     newRP->registerAssignment = mask;
     DBEXEC(verbose, newRP->dump(this));
@@ -314,11 +314,11 @@ RefPosition* LinearScan::newRefPosition(
 
     if (insertFixedRef)
     {
-        newRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
+        NewRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
         assert((allRegs(interval->registerType) & mask) != RBM_NONE);
     }
 
-    RefPosition* newRP = newRefPositionRaw(location, node, refType);
+    RefPosition* newRP = NewRefPositionRaw(location, node, refType);
     newRP->setInterval(interval);
     newRP->isFixedRegRef = isFixedRegister;
 
@@ -336,7 +336,7 @@ RefPosition* LinearScan::newRefPosition(
     newRP->registerAssignment = mask;
     newRP->SetRegIndex(regIndex);
 
-    associateRefPosWithInterval(newRP);
+    AssociateRefPosWithInterval(newRP);
 
     if (RefTypeIsDef(newRP->refType))
     {
@@ -351,13 +351,13 @@ RefPosition* LinearScan::newRefPosition(
     return newRP;
 }
 
-void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation location)
+void LinearScan::NewRegKillRefPositions(RegSet mask, LsraLocation location)
 {
     for (RegNum reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
     {
         if ((mask & 1) != RBM_NONE)
         {
-            RefPosition* pos = newRegRefPosition(reg, location, RefTypeKill);
+            RefPosition* pos = NewRegRefPosition(reg, location, RefTypeKill);
             pos->lastUse     = true;
         }
     }
@@ -626,7 +626,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
         // which is too late.
         m_allocateRegs |= killMask;
 
-        newRegKillRefPositions(killMask, location);
+        NewRegKillRefPositions(killMask, location);
 
         // TODO-CQ: It appears to be valuable for both fp and int registers to avoid killing the callee
         // save regs on infrequently executed paths.  However, it results in a large number of asmDiffs,
@@ -668,7 +668,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
                 // We are more conservative about allocating callee-saves registers to write-thru vars, since
                 // a call only requires reloading after (not spilling before). So we record (above) the fact
                 // that we'd prefer a callee-save register, but we don't update the preferences at this point.
-                // See the "heuristics for writeThru intervals" in 'buildIntervals()'.
+                // See the "heuristics for writeThru intervals" in 'BuildIntervals()'.
                 if (!interval->isWriteThru || !isCallKill)
                 {
                     regMaskTP newPreferences = allRegs(interval->registerType) & (~killMask);
@@ -693,7 +693,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
 
     if (KillGCRefs(node))
     {
-        newKillGCRegsRefPosition(location, node, allIntRegs() & ~RBM_ARG_REGS);
+        NewKillGCRegsRefPosition(location, node, allIntRegs() & ~RBM_ARG_REGS);
         insertedKills = true;
     }
 
@@ -760,9 +760,9 @@ bool LinearScan::IsLclLoad(GenTreeLclLoad* load)
     return !load->GetLcl()->IsRegCandidate();
 }
 
-RefPosition* LinearScan::defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask)
+RefPosition* LinearScan::DefineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask)
 {
-    Interval* current   = newInterval(regType);
+    Interval* current   = NewInterval(regType);
     current->isInternal = true;
     RefPosition* newDef = newRefPosition(current, currentLoc, RefTypeDef, node, regMask);
     assert(internalCount < _countof(internalDefs));
@@ -770,19 +770,19 @@ RefPosition* LinearScan::defineNewInternalTemp(GenTree* node, RegisterType regTy
     return newDef;
 }
 
-RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* node, regMaskTP regMask)
+RefPosition* LinearScan::BuildInternalIntDef(GenTree* node, regMaskTP regMask)
 {
     assert((regMask & ~allIntRegs()) == RBM_NONE);
-    return defineNewInternalTemp(node, IntRegisterType, regMask);
+    return DefineNewInternalTemp(node, IntRegisterType, regMask);
 }
 
-RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* node, regMaskTP regMask)
+RefPosition* LinearScan::BuildInternalFloatDef(GenTree* node, regMaskTP regMask)
 {
     assert((regMask & ~allFloatRegs()) == RBM_NONE);
-    return defineNewInternalTemp(node, FloatRegisterType, regMask);
+    return DefineNewInternalTemp(node, FloatRegisterType, regMask);
 }
 
-void LinearScan::buildInternalRegisterUses()
+void LinearScan::BuildInternalRegisterUses()
 {
     assert(internalCount <= _countof(internalDefs));
 
@@ -800,16 +800,16 @@ void LinearScan::buildInternalRegisterUses()
 }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-void LinearScan::makeUpperVectorInterval(unsigned varIndex)
+void LinearScan::MakeUpperVectorInterval(unsigned varIndex)
 {
     Interval* lclVarInterval = getIntervalForLocalVar(varIndex);
     assert(varTypeNeedsPartialCalleeSave(lclVarInterval->registerType));
-    Interval* newInt        = newInterval(LargeVectorSaveType);
+    Interval* newInt        = NewInterval(LargeVectorSaveType);
     newInt->relatedInterval = lclVarInterval;
     newInt->isUpperVector   = true;
 }
 
-Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
+Interval* LinearScan::GetUpperVectorInterval(unsigned varIndex)
 {
     // TODO-Throughput: Consider creating a map from varIndex to upperVector interval.
     for (Interval& interval : intervals)
@@ -827,7 +827,7 @@ Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
     unreached();
 }
 
-void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation location, regMaskTP fpCalleeKillSet)
+void LinearScan::BuildUpperVectorSaveRefPositions(GenTree* node, LsraLocation location, regMaskTP fpCalleeKillSet)
 {
     if (enregisterLocalVars && !VarSetOps::IsEmpty(compiler, largeVectorVars))
     {
@@ -843,7 +843,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation lo
 
             if (!varInterval->isPartiallySpilled)
             {
-                Interval*    upperVectorInterval = getUpperVectorInterval(e.Current());
+                Interval*    upperVectorInterval = GetUpperVectorInterval(e.Current());
                 RefPosition* pos =
                     newRefPosition(upperVectorInterval, location, RefTypeUpperVectorSave, node, RBM_FLT_CALLEE_SAVED);
                 varInterval->isPartiallySpilled = true;
@@ -893,12 +893,12 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation lo
     }
 }
 
-void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation location, GenTree* node)
+void LinearScan::BuildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation location, GenTree* node)
 {
     if (lclVarInterval->isPartiallySpilled)
     {
         unsigned     varIndex            = lclVarInterval->getVarIndex();
-        Interval*    upperVectorInterval = getUpperVectorInterval(varIndex);
+        Interval*    upperVectorInterval = GetUpperVectorInterval(varIndex);
         RefPosition* pos = newRefPosition(upperVectorInterval, location, RefTypeUpperVectorRestore, node);
         lclVarInterval->isPartiallySpilled = false;
 #ifdef TARGET_XARCH
@@ -1133,7 +1133,7 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
 
             if ((rp->registerAssignment != oldAssignment) && (rp->refType == RefTypeUse) && !interval->isLocalVar)
             {
-                checkConflictingDefUse(rp);
+                CheckConflictingDefUse(rp);
             }
         }
     }
@@ -1156,7 +1156,7 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
 //   not expected to warrant the analysis required to determine the best placement of
 //   an initialization.
 //
-void LinearScan::insertZeroInitRefPositions()
+void LinearScan::InsertZeroInitRefPositions()
 {
     assert(enregisterLocalVars);
 
@@ -1246,7 +1246,7 @@ void LinearScan::AddLiveParamRegs(LclVarDsc* lcl)
     compiler->codeGen->paramRegState.floatRegLiveIn |= mask & RBM_ALLFLOAT;
 }
 
-void LinearScan::buildIntervals()
+void LinearScan::BuildIntervals()
 {
     JITDUMP("\nbuildIntervals ========\n");
 
@@ -1272,15 +1272,15 @@ void LinearScan::buildIntervals()
     }
 #endif // DEBUG
 
-    identifyCandidates();
+    IdentifyCandidates();
 
     // Figure out if we're going to use a frame pointer. We need to do this before building
     // the ref positions, because those objects will embed the frame register in various register masks
-    // if the frame pointer is not reserved. If we decide to have a frame pointer, setFrameType() will
+    // if the frame pointer is not reserved. If we decide to have a frame pointer, SetFrameType() will
     // remove the frame pointer from the masks.
-    setFrameType();
+    SetFrameType();
 
-    BlockSet visited = setBlockSequence();
+    BlockSet visited = SetBlockSequence();
 
     DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_PRE));
 
@@ -1386,7 +1386,7 @@ void LinearScan::buildIntervals()
         curBBNum = block->bbNum;
 
         INDEBUG(bool predBlockIsAllocated = false);
-        BasicBlock* predBlock = findPredBlockForLiveIn(block, prevBlock, visited DEBUGARG(&predBlockIsAllocated));
+        BasicBlock* predBlock = FindPredBlockForLiveIn(block, prevBlock, visited DEBUGARG(&predBlockIsAllocated));
         if (predBlock != nullptr)
         {
             JITDUMP("\n\nSetting " FMT_BB " as the predecessor for determining incoming variable registers of " FMT_BB
@@ -1402,7 +1402,7 @@ void LinearScan::buildIntervals()
 
             if (block == compiler->fgFirstBB)
             {
-                insertZeroInitRefPositions();
+                InsertZeroInitRefPositions();
                 // The first real location is at 1; 0 is for the entry.
                 currentLoc = 1;
             }
@@ -1467,7 +1467,7 @@ void LinearScan::buildIntervals()
         // register positions for those exposed uses need to be recorded at
         // this point.
 
-        RefPosition* pos = newBlockRefPosition(currentLoc);
+        RefPosition* pos = NewBlockRefPosition(currentLoc);
         currentLoc += 2;
         JITDUMP("\n");
 
@@ -1493,7 +1493,7 @@ void LinearScan::buildIntervals()
         // into the scratch register, so it will be killed here.
         if (compiler->compShouldPoisonFrame() && compiler->fgFirstBBisScratch() && block == compiler->fgFirstBB)
         {
-            newRegKillRefPositions(genRegMask(REG_SCRATCH), currentLoc + 1);
+            NewRegKillRefPositions(genRegMask(REG_SCRATCH), currentLoc + 1);
             currentLoc += 2;
         }
 
@@ -1564,7 +1564,7 @@ void LinearScan::buildIntervals()
             for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
             {
                 Interval* lclVarInterval = getIntervalForLocalVar(e.Current());
-                buildUpperVectorRestoreRefPosition(lclVarInterval, currentLoc, nullptr);
+                BuildUpperVectorRestoreRefPosition(lclVarInterval, currentLoc, nullptr);
             }
         }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -1647,7 +1647,7 @@ void LinearScan::buildIntervals()
             }
 
 #ifdef DEBUG
-            checkLastUses(block);
+            CheckLastUses(block);
 
             if (verbose)
             {
@@ -1755,7 +1755,7 @@ void LinearScan::buildIntervals()
 
     if (prevBlock->NumSucc(compiler) > 0)
     {
-        newBlockRefPosition(currentLoc);
+        NewBlockRefPosition(currentLoc);
     }
 
 #ifdef DEBUG
@@ -1863,11 +1863,9 @@ static bool MustUseFramePointer(Compiler* compiler)
 }
 
 // Set the default rpFrameType based upon codeGen->isFramePointerRequired()
-// This was lifted from the register predictor
-//
-void LinearScan::setFrameType()
+void LinearScan::SetFrameType()
 {
-    regMaskTP removeMask = RBM_NONE;
+    RegSet removeMask = RBM_NONE;
 
 #if DOUBLE_ALIGN
     if (doDoubleAlign)
@@ -1920,7 +1918,7 @@ void LinearScan::setFrameType()
 // Determine the block order for register allocation.
 // On return, the blockSequence array contains the blocks,
 // in the order in which they will be allocated.
-BlockSet LinearScan::setBlockSequence()
+BlockSet LinearScan::SetBlockSequence()
 {
     assert((blockSequence == nullptr) && (bbSeqCount == 0)); // The method should be called only once.
 
@@ -2036,7 +2034,7 @@ BlockSet LinearScan::setBlockSequence()
             if (!BlockSetOps::IsMember(compiler, readySet, succ->bbNum))
             {
                 JITDUMP("\tSucc block: " FMT_BB, succ->bbNum);
-                blockSequenceWorkList = addToBlockSequenceWorkList(readySet, succ, blockSequenceWorkList, predSet);
+                blockSequenceWorkList = AddToBlockSequenceWorkList(readySet, succ, blockSequenceWorkList, predSet);
                 BlockSetOps::AddElemD(compiler, readySet, succ->bbNum);
             }
         }
@@ -2066,7 +2064,7 @@ BlockSet LinearScan::setBlockSequence()
                 {
                     JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
                     blockSequenceWorkList =
-                        addToBlockSequenceWorkList(readySet, seqBlock, blockSequenceWorkList, predSet);
+                        AddToBlockSequenceWorkList(readySet, seqBlock, blockSequenceWorkList, predSet);
                     BlockSetOps::AddElemD(compiler, readySet, seqBlock->bbNum);
                 }
             }
@@ -2104,7 +2102,7 @@ BlockSet LinearScan::setBlockSequence()
     JITDUMP("\n");
 #endif
 
-    // Return the visited block set so that buildIntervals can reuse the already allocated memory.
+    // Return the visited block set so that BuildIntervals can reuse the already allocated memory.
     return visited;
 }
 
@@ -2149,7 +2147,7 @@ static bool CompareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, b
 // Note also that, when random traversal order is implemented, this method
 // should insert the blocks into the list in random order, so that we can always
 // simply select the first block in the list.
-BasicBlock* LinearScan::addToBlockSequenceWorkList(BlockSet    sequencedBlockSet,
+BasicBlock* LinearScan::AddToBlockSequenceWorkList(BlockSet    sequencedBlockSet,
                                                    BasicBlock* block,
                                                    BasicBlock* blockSequenceWorkList,
                                                    BlockSet&   predSet) const
@@ -2332,7 +2330,7 @@ static bool ShouldAlignDoubleLocals(Compiler*      compiler,
 
 #endif // DOUBLE_ALIGN
 
-void LinearScan::identifyCandidates()
+void LinearScan::IdentifyCandidates()
 {
     if (enregisterLocalVars)
     {
@@ -2356,7 +2354,7 @@ void LinearScan::identifyCandidates()
 
     if (compiler->compHndBBtabCount > 0)
     {
-        identifyCandidatesExceptionDataflow();
+        IdentifyCandidatesExceptionDataflow();
     }
 
     // While we build intervals for the candidate lclVars, we will determine the floating point
@@ -2542,7 +2540,7 @@ void LinearScan::identifyCandidates()
             compiler->compFloatingPointUsed = true;
         }
 
-        Interval* newInt   = newInterval(type);
+        Interval* newInt   = NewInterval(type);
         newInt->isLocalVar = true;
         newInt->varIndex   = lcl->GetLivenessBitIndex();
         assert(newInt->varIndex < compiler->lvaTrackedCount);
@@ -2617,7 +2615,7 @@ void LinearScan::identifyCandidates()
     {
         for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
         {
-            makeUpperVectorInterval(e.Current());
+            MakeUpperVectorInterval(e.Current());
         }
     }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -2687,7 +2685,7 @@ void LinearScan::identifyCandidates()
     }
 }
 
-void LinearScan::identifyCandidatesExceptionDataflow()
+void LinearScan::IdentifyCandidatesExceptionDataflow()
 {
     exceptVars  = VarSetOps::MakeEmpty(compiler);
     finallyVars = VarSetOps::MakeEmpty(compiler);
@@ -2804,7 +2802,7 @@ bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 // the RefPositions will not be marked lastUse in that case, we still need to correctly
 // mark the last uses on the nodes, which is done by this method.
 //
-void LinearScan::checkLastUses(BasicBlock* block)
+void LinearScan::CheckLastUses(BasicBlock* block)
 {
     if (verbose)
     {
@@ -2931,8 +2929,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// findPredBlockForLiveIn: Determine which block should be used for the register locations of the live-in variables.
+// Determine which block should be used for the register locations of the live-in variables.
 //
 // Arguments:
 //    block                 - The block for which we're selecting a predecesor.
@@ -2958,7 +2955,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
 //                                    the register locations will be "rotated" to stress the resolution and allocation
 //                                    code.
 
-BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
+BasicBlock* LinearScan::FindPredBlockForLiveIn(BasicBlock* block,
                                                BasicBlock* prevBlock,
                                                BlockSet visited DEBUGARG(bool* pPredBlockIsAllocated))
 {
@@ -3214,7 +3211,7 @@ bool Interval::assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval)
 
 #endif // TARGET_XARCH || FEATURE_HW_INTRINSICS
 
-var_types LinearScan::getDefType(GenTree* node) const
+var_types LinearScan::GetDefType(GenTree* node) const
 {
     var_types type = node->GetType();
 
@@ -3235,7 +3232,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, RegSet regCandidates)
     assert(!node->isContained());
     assert(!node->IsMultiRegNode());
 
-    return BuildDef(node, getDefType(node), regCandidates, 0);
+    return BuildDef(node, GetDefType(node), regCandidates, 0);
 }
 
 RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCandidates, unsigned regIndex)
@@ -3253,7 +3250,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCa
         compiler->compFloatingPointUsed = true;
     }
 
-    Interval* interval = newInterval(regType);
+    Interval* interval = NewInterval(regType);
 
     if (node->GetRegNum() != REG_NA)
     {
@@ -3339,7 +3336,7 @@ void LinearScan::BuildKills(GenTree* node, regMaskTP killMask)
         //
         if ((killMask & RBM_FLT_CALLEE_TRASH) != RBM_NONE)
         {
-            buildUpperVectorSaveRefPositions(node, currentLoc + 1, killMask);
+            BuildUpperVectorSaveRefPositions(node, currentLoc + 1, killMask);
         }
     }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -3374,7 +3371,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, RegSet candidates, unsigned 
         }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        buildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
+        BuildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
 #endif
 
         refNode = operand;
