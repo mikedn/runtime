@@ -285,10 +285,10 @@ private:
 #endif
 
     // This is where the actual assignment is done
-    void allocateRegisters();
+    void AllocateRegisters();
 
     // This is the resolution phase, where cross-block mismatches are fixed up
-    void resolveRegisters();
+    void ResolveRegisters();
 
     void writeRegisters(RefPosition* currentRefPosition, GenTree* node);
 
@@ -348,7 +348,7 @@ private:
     // Note that the field values are declared in a public enum, but the actual bits are
     // only accessed via accessors.
 
-    unsigned lsraStressMask;
+    unsigned stressMode;
 
     // This controls the registers available for allocation
     enum LsraStressLimitRegs
@@ -395,7 +395,7 @@ private:
 
     LsraStressLimitRegs getStressLimitRegs() const
     {
-        return static_cast<LsraStressLimitRegs>(lsraStressMask & LSRA_LIMIT_MASK);
+        return static_cast<LsraStressLimitRegs>(stressMode & LSRA_LIMIT_MASK);
     }
 
     static RegSet getConstrainedRegMask(RegSet regMaskActual, RegSet regMaskConstrain, unsigned minRegCount);
@@ -414,22 +414,22 @@ private:
 
     LsraSelect getSelectionHeuristics() const
     {
-        return static_cast<LsraSelect>(lsraStressMask & LSRA_SELECT_MASK);
+        return static_cast<LsraSelect>(stressMode & LSRA_SELECT_MASK);
     }
 
     bool doReverseSelect() const
     {
-        return (lsraStressMask & LSRA_SELECT_REVERSE_HEURISTICS) != 0;
+        return (stressMode & LSRA_SELECT_REVERSE_HEURISTICS) != 0;
     }
 
     bool doReverseCallerCallee() const
     {
-        return (lsraStressMask & LSRA_SELECT_REVERSE_CALLER_CALLEE) != 0;
+        return (stressMode & LSRA_SELECT_REVERSE_CALLER_CALLEE) != 0;
     }
 
     bool doSelectNearest() const
     {
-        return (lsraStressMask & LSRA_SELECT_NEAREST) != 0;
+        return (stressMode & LSRA_SELECT_NEAREST) != 0;
     }
 
     // This controls the order in which basic blocks are visited during allocation
@@ -444,12 +444,12 @@ private:
 
     LsraTraversalOrder getLsraTraversalOrder() const
     {
-        if ((lsraStressMask & LSRA_TRAVERSE_MASK) == 0)
+        if ((stressMode & LSRA_TRAVERSE_MASK) == 0)
         {
             return LSRA_TRAVERSE_DEFAULT;
         }
 
-        return static_cast<LsraTraversalOrder>(lsraStressMask & LSRA_TRAVERSE_MASK);
+        return static_cast<LsraTraversalOrder>(stressMode & LSRA_TRAVERSE_MASK);
     }
 
     bool isTraversalLayoutOrder() const
@@ -473,7 +473,7 @@ private:
 
     LsraExtendLifetimes getLsraExtendLifeTimes() const
     {
-        return static_cast<LsraExtendLifetimes>(lsraStressMask & LSRA_EXTEND_LIFETIMES_MASK);
+        return static_cast<LsraExtendLifetimes>(stressMode & LSRA_EXTEND_LIFETIMES_MASK);
     }
 
     bool extendLifetimes() const
@@ -494,7 +494,7 @@ private:
 
     LsraBlockBoundaryLocations getLsraBlockBoundaryLocations() const
     {
-        return static_cast<LsraBlockBoundaryLocations>(lsraStressMask & LSRA_BLOCK_BOUNDARY_MASK);
+        return static_cast<LsraBlockBoundaryLocations>(stressMode & LSRA_BLOCK_BOUNDARY_MASK);
     }
 
     RegNum rotateBlockStartLocation(Interval* interval, RegNum targetReg, RegSet availableRegs);
@@ -510,7 +510,7 @@ private:
 
     LsraReload getLsraReload() const
     {
-        return static_cast<LsraReload>(lsraStressMask & LSRA_RELOAD_MASK);
+        return static_cast<LsraReload>(stressMode & LSRA_RELOAD_MASK);
     }
 
     bool alwaysInsertReload() const
@@ -528,7 +528,7 @@ private:
 
     LsraSpill getLsraSpill() const
     {
-        return static_cast<LsraSpill>(lsraStressMask & LSRA_SPILL_MASK);
+        return static_cast<LsraSpill>(stressMode & LSRA_SPILL_MASK);
     }
 
     bool spillAlways() const
@@ -547,7 +547,7 @@ private:
 
     LsraRegOptionalControl getLsraRegOptionalControl() const
     {
-        return static_cast<LsraRegOptionalControl>(lsraStressMask & LSRA_REG_OPTIONAL_MASK);
+        return static_cast<LsraRegOptionalControl>(stressMode & LSRA_REG_OPTIONAL_MASK);
     }
 
     bool regOptionalNoAlloc() const
@@ -557,7 +557,7 @@ private:
 
     bool candidatesAreStressLimited() const
     {
-        return (lsraStressMask & (LSRA_LIMIT_MASK | LSRA_SELECT_MASK)) != 0;
+        return (stressMode & (LSRA_LIMIT_MASK | LSRA_SELECT_MASK)) != 0;
     }
 
     // Dump support
@@ -627,7 +627,9 @@ private:
     void updatePreviousInterval(RegRecord* reg, Interval* interval, RegisterType regType);
     bool canRestorePreviousInterval(RegRecord* regRec, Interval* assignedInterval);
     bool isAssignedToInterval(Interval* interval, RegRecord* regRec);
+#ifdef DEBUG
     bool isRefPositionActive(RefPosition* refPosition, LsraLocation refLocation) const;
+#endif
     bool canSpillReg(RegRecord* physRegRecord, LsraLocation refLocation) const;
     float getSpillWeight(RegRecord* physRegRecord);
 
@@ -694,16 +696,16 @@ private:
         return localVarIntervals[index];
     }
 
-    Interval* getIntervalForLocalVar(unsigned varIndex) const
+    Interval* GetLclInterval(unsigned varIndex) const
     {
         assert(varIndex < compiler->lvaTrackedCount);
         assert(localVarIntervals[varIndex] != nullptr);
         return localVarIntervals[varIndex];
     }
 
-    Interval* GetRegCandidateLclInterval(GenTreeLclVar* lclRef) const
+    Interval* GetLclInterval(GenTreeLclVar* lclRef) const
     {
-        return getIntervalForLocalVar(lclRef->GetLcl()->GetLivenessBitIndex());
+        return GetLclInterval(lclRef->GetLcl()->GetLivenessBitIndex());
     }
 
     RegRecord* GetRegRecord(RegNum regNum)
@@ -788,17 +790,17 @@ private:
     //   - In LSRA_DUMP_POST, which is after register allocation, the registers are
     //     shown.
 
-    enum LsraTupleDumpMode
+    enum TupleDumpMode
     {
         LSRA_DUMP_PRE,
         LSRA_DUMP_REFPOS,
         LSRA_DUMP_POST
     };
 
-    void lsraGetOperandString(GenTree* node, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
-    void lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const;
-    void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode) const;
-    void TupleStyleDump(LsraTupleDumpMode mode);
+    void lsraGetOperandString(GenTree* node, TupleDumpMode mode, char* buffer, unsigned bufferSize) const;
+    void lsraDispNode(GenTree* node, TupleDumpMode mode) const;
+    void DumpOperandDefs(GenTree* operand, bool& first, TupleDumpMode mode) const;
+    void TupleStyleDump(TupleDumpMode mode);
 
     LsraLocation maxNodeLocation = 0;
 
@@ -850,7 +852,7 @@ private:
     void dumpIntervalName(Interval* interval) const;
 
     // Events during the allocation phase that cause some dump output
-    enum LsraDumpEvent
+    enum DumpEvent
     {
         // Conflicting def/use
         LSRA_EVENT_DEFUSE_CONFLICT,
@@ -900,11 +902,11 @@ private:
         LSRA_EVENT_REUSE_REG,
     };
 
-    void dumpLsraAllocationEvent(LsraDumpEvent event,
-                                 Interval*     interval      = nullptr,
-                                 RegNum        reg           = REG_NA,
-                                 BasicBlock*   currentBlock  = nullptr,
-                                 RegisterScore registerScore = NONE);
+    void DumpAllocationEvent(DumpEvent     event,
+                             Interval*     interval      = nullptr,
+                             RegNum        reg           = REG_NA,
+                             BasicBlock*   currentBlock  = nullptr,
+                             RegisterScore registerScore = NONE);
 
     // This is used for dumping
     RefPosition* activeRefPosition = nullptr;
@@ -915,8 +917,8 @@ private:
     LsraStat        firstRegSelStat = STAT_FREE;
     LsraBlockStats* blockStats      = nullptr;
 
-    void updateLsraStat(LsraStat stat, unsigned currentBBNum);
-    void dumpLsraStats(FILE* file) const;
+    void UpdateStat(LsraStat stat, unsigned currentBBNum);
+    void DumpStats(FILE* file) const;
 #define INTRACK_STATS(x) x
 #else
 #define INTRACK_STATS(x)

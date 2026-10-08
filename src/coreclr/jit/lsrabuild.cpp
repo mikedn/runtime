@@ -657,7 +657,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
                 {
                     continue;
                 }
-                Interval*  interval   = getIntervalForLocalVar(varIndex);
+                Interval*  interval   = GetLclInterval(varIndex);
                 const bool isCallKill = ((killMask == RBM_INT_CALLEE_TRASH) || (killMask == RBM_CALLEE_TRASH));
 
                 if (isCallKill)
@@ -802,7 +802,7 @@ void LinearScan::BuildInternalRegisterUses()
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 void LinearScan::MakeUpperVectorInterval(unsigned varIndex)
 {
-    Interval* lclVarInterval = getIntervalForLocalVar(varIndex);
+    Interval* lclVarInterval = GetLclInterval(varIndex);
     assert(varTypeNeedsPartialCalleeSave(lclVarInterval->registerType));
     Interval* newInt        = NewInterval(LargeVectorSaveType);
     newInt->relatedInterval = lclVarInterval;
@@ -839,7 +839,7 @@ void LinearScan::BuildUpperVectorSaveRefPositions(GenTree* node, LsraLocation lo
         // We only need to save the upper half of any large vector vars that are currently live.
         for (VarSetOps::EnumOp<VarSetOps::IntersectionOp> e(compiler, currentLiveVars, largeVectorVars); e.MoveNext();)
         {
-            Interval* varInterval = getIntervalForLocalVar(e.Current());
+            Interval* varInterval = GetLclInterval(e.Current());
 
             if (!varInterval->isPartiallySpilled)
             {
@@ -1171,8 +1171,8 @@ void LinearScan::InsertZeroInitRefPositions()
         }
 
         JITDUMP("V%02u was live in to first block:", lcl->GetLclNum());
+        Interval* interval = GetLclInterval(e.Current());
 
-        Interval* interval = getIntervalForLocalVar(e.Current());
         if (compiler->info.compInitMem || varTypeIsGC(lcl->GetType()))
         {
             lcl->lvMustInit = true;
@@ -1206,7 +1206,7 @@ void LinearScan::InsertZeroInitRefPositions()
             if (!lcl->IsParam() && lcl->IsRegCandidate())
             {
                 JITDUMP("V%02u is a finally var:", lcl->GetLclNum());
-                Interval* interval = getIntervalForLocalVar(e.Current());
+                Interval* interval = GetLclInterval(e.Current());
 
                 if (compiler->info.compInitMem || varTypeIsGC(lcl->GetType()))
                 {
@@ -1309,7 +1309,7 @@ void LinearScan::BuildIntervals()
 
         if (lcl->IsRegCandidate())
         {
-            Interval* interval = getIntervalForLocalVar(varIndex);
+            Interval* interval = GetLclInterval(varIndex);
             RegSet    mask     = allRegs(lcl->GetRegisterType());
 
             if (lcl->IsRegParam())
@@ -1451,7 +1451,7 @@ void LinearScan::BuildIntervals()
                             // Add a dummyDef for any candidate vars that are in the "newLiveIn" set.
                             assert(compiler->lvaGetDescByTrackedIndex(e.Current())->IsRegCandidate());
 
-                            Interval*    interval = getIntervalForLocalVar(e.Current());
+                            Interval*    interval = GetLclInterval(e.Current());
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef);
                             pos->SetRegOptional();
                         }
@@ -1563,7 +1563,7 @@ void LinearScan::BuildIntervals()
         {
             for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
             {
-                Interval* lclVarInterval = getIntervalForLocalVar(e.Current());
+                Interval* lclVarInterval = GetLclInterval(e.Current());
                 BuildUpperVectorRestoreRefPosition(lclVarInterval, currentLoc, nullptr);
             }
         }
@@ -1623,7 +1623,7 @@ void LinearScan::BuildIntervals()
             JITDUMP("Exposed uses:");
             for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
             {
-                Interval*    interval = getIntervalForLocalVar(e.Current());
+                Interval*    interval = GetLclInterval(e.Current());
                 RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                 pos->SetRegOptional();
                 JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
@@ -1674,7 +1674,7 @@ void LinearScan::BuildIntervals()
             if (lcl->IsRegCandidate())
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
-                Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
+                Interval*    interval = GetLclInterval(lcl->GetLivenessBitIndex());
                 RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                 pos->SetRegOptional();
             }
@@ -1686,7 +1686,7 @@ void LinearScan::BuildIntervals()
             for (VarSetOps::Enumerator e(compiler, exceptVars); e.MoveNext();)
             {
                 LclVarDsc* lcl      = compiler->lvaGetDescByTrackedIndex(e.Current());
-                Interval*  interval = getIntervalForLocalVar(e.Current());
+                Interval*  interval = GetLclInterval(e.Current());
                 assert(interval->isWriteThru);
                 weight_t weight = lcl->GetRefWeight();
 
@@ -1741,7 +1741,7 @@ void LinearScan::BuildIntervals()
                 if (lcl->IsRegCandidate())
                 {
                     JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", lcl->GetLclNum());
-                    Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
+                    Interval*    interval = GetLclInterval(lcl->GetLivenessBitIndex());
                     RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                     pos->SetRegOptional();
                 }
@@ -3113,7 +3113,7 @@ void LinearScan::ValidateLocalIntervals()
             continue;
         }
 
-        Interval* interval = getIntervalForLocalVar(i);
+        Interval* interval = GetLclInterval(i);
         assert(interval->getLocalVar(compiler) == lcl);
         bool     defined      = false;
         unsigned lastUseBBNum = 0;
@@ -3349,7 +3349,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, RegSet candidates, unsigned 
 
     if (IsRegCandidateLclLoad(operand))
     {
-        interval = GetRegCandidateLclInterval(operand->AsLclLoad());
+        interval = GetLclInterval(operand->AsLclLoad());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -3431,7 +3431,7 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candid
         GenTreeLclLoad* load = rmwOp->AsLclLoad();
         assert(!load->IsMultiReg());
 
-        if ((use->getInterval() != GetRegCandidateLclInterval(load)) || (!load->IsLastUse(0) && !use->lastUse))
+        if ((use->getInterval() != GetLclInterval(load)) || (!load->IsLastUse(0) && !use->lastUse))
         {
             setDelayFree(use);
         }
@@ -3458,7 +3458,7 @@ void LinearScan::setDelayFree(RefPosition* use)
 
 void LinearScan::BuildLclStoreDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
-    Interval* varDefInterval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
+    Interval* varDefInterval = GetLclInterval(lcl->GetLivenessBitIndex());
 
     // TODO-MIKE-Review: How does this work on multi reg stores exactly,
     // it's only checking the first reg?
