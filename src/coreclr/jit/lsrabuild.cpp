@@ -1679,6 +1679,7 @@ void LinearScan::BuildIntervals()
                 pos->SetRegOptional();
             }
         }
+
         // Adjust heuristics for writeThru intervals.
         if (compiler->compHndBBtabCount > 0)
         {
@@ -1694,15 +1695,13 @@ void LinearScan::BuildIntervals()
                 // that we may have to insert an additional copy).
                 // However, we don't currently have that information available. Instead, we'll
                 // aggressively assume that these vars are defined once, at their first RefPosition.
-                //
                 RefPosition* firstRefPosition = interval->firstRefPosition;
 
                 // Incoming reg args are given an initial weight of 2 * BB_UNITY_WEIGHT
                 // (see lvaComputeRefCounts(); this may be reviewed/changed in future).
-                //
-                BasicBlock::weight_t initialWeight = (firstRefPosition->refType == RefTypeParamDef)
-                                                         ? (2 * BB_UNITY_WEIGHT)
-                                                         : blockInfo[firstRefPosition->bbNum].weight;
+                weight_t initialWeight = (firstRefPosition->refType == RefTypeParamDef)
+                                             ? (2 * BB_UNITY_WEIGHT)
+                                             : blockInfo[firstRefPosition->bbNum].weight;
                 weight -= initialWeight;
 
                 // If the remaining weight is less than the initial weight, we'd like to allocate it only
@@ -2112,14 +2111,11 @@ static bool CompareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, b
 {
     if (useBlockWeights)
     {
-        BasicBlock::weight_t weight1 = block1->bbWeight;
-        BasicBlock::weight_t weight2 = block2->bbWeight;
-
-        if (weight1 > weight2)
+        if (block1->bbWeight > block2->bbWeight)
         {
             return false;
         }
-        else if (weight1 < weight2)
+        else if (block1->bbWeight < block2->bbWeight)
         {
             return true;
         }
@@ -2586,7 +2582,7 @@ void LinearScan::IdentifyCandidates()
             if (varTypeUsesFloatReg(type))
         {
             floatLclCount++;
-            BasicBlock::weight_t refWeight = lcl->GetRefWeight();
+            weight_t refWeight = lcl->GetRefWeight();
 
             if (lcl->IsRegParam())
             {

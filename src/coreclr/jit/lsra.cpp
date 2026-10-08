@@ -340,15 +340,15 @@ void LinearScan::updateSpillCost(RegRecord* reg, Interval* interval) const
 #endif
 }
 
-BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
+weight_t LinearScan::getWeight(const RefPosition* refPos) const
 {
     if (GenTree* node = refPos->node)
     {
         if (IsCandidateLclRef(node))
         {
             // Tracked locals: use weighted ref cnt as the weight of the ref position.
-            LclVarDsc*           lcl    = node->AsLclVar()->GetLcl();
-            BasicBlock::weight_t weight = lcl->GetRefWeight();
+            LclVarDsc* lcl    = node->AsLclVar()->GetLcl();
+            weight_t   weight = lcl->GetRefWeight();
 
             if (refPos->getInterval()->isSpilled)
             {
@@ -1947,16 +1947,15 @@ void LinearScan::unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap in
 }
 
 // Update var locations on entry to 'currentBlock' and clear constant registers.
-// During the allocation pass (allocationPassComplete = false), we use the outVarToRegMap
-// of the selected predecessor to determine the local locations for the inVarToRegMap.
-// During the resolution (write-back when allocationPassComplete = true) pass, we only
-// modify the inVarToRegMap in cases where a local was spilled after the block had been
-// completed.
-void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
+// During the allocation pass, we use the outVarToRegMap of the selected predecessor
+// to determine the local locations for the inVarToRegMap.
+// During the resolution pass, we only modify the inVarToRegMap in cases where a local
+// was spilled after the block had been completed.
+void LinearScan::processBlockStartLocations(BasicBlock* currentBlock, const bool resolveRegistersPass)
 {
     // If we have no register candidates we should only call this method during allocation.
 
-    assert(enregisterLocalVars || !allocationPassComplete);
+    assert(enregisterLocalVars || !resolveRegistersPass);
 
     if (!enregisterLocalVars)
     {
@@ -1989,7 +1988,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
     if (predBB == nullptr)
     {
 #if DEBUG
-        if (blockInfo[currentBlock->bbNum].hasEHBoundaryIn || !allocationPassComplete)
+        if (blockInfo[currentBlock->bbNum].hasEHBoundaryIn || !resolveRegistersPass)
         {
             // This should still be in its initialized empty state.
             for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
@@ -2051,7 +2050,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 
         regNumber targetReg;
 
-        if (!allocationPassComplete)
+        if (!resolveRegistersPass)
         {
             targetReg = getVarReg(predVarToRegMap, varIndex);
             if (leaveOnStack)
@@ -2068,7 +2067,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 #endif // DEBUG
             setVarReg(inVarToRegMap, varIndex, targetReg);
         }
-        else // allocationPassComplete (i.e. resolution/write-back pass)
+        else // resolveRegistersPass (i.e. resolution/write-back pass)
         {
             targetReg = getVarReg(inVarToRegMap, varIndex);
             // There are four cases that we need to consider during the resolution pass:
@@ -2137,7 +2136,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                     interval->physReg = REG_NA;
                 }
             }
-            else if (!allocationPassComplete)
+            else if (!resolveRegistersPass)
             {
                 // Keep the register assignment - if another var has it, it will get unassigned.
                 // Otherwise, resolution will fix it up later, and it will be more
@@ -2158,7 +2157,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
             RegRecord* targetRegRecord = GetRegRecord(targetReg);
             liveRegs |= getRegMask(targetReg, interval->registerType);
 
-            if (!allocationPassComplete)
+            if (!resolveRegistersPass)
             {
                 updateNextIntervalRef(targetReg, interval);
                 updateSpillCost(targetRegRecord, interval);
@@ -2183,7 +2182,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                 {
                     assert(genIsValidDoubleReg(targetReg));
                     unassignIntervalBlockStart(targetRegRecord->GetDoublePairNextReg(),
-                                               allocationPassComplete ? nullptr : inVarToRegMap);
+                                               resolveRegistersPass ? nullptr : inVarToRegMap);
                 }
 
                 // If this is a FLOAT interval, and the assigned interval was DOUBLE, we also
@@ -2198,7 +2197,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                 }
 #endif // TARGET_ARM
 
-                unassignIntervalBlockStart(targetRegRecord, allocationPassComplete ? nullptr : inVarToRegMap);
+                unassignIntervalBlockStart(targetRegRecord, resolveRegistersPass ? nullptr : inVarToRegMap);
                 assignPhysReg(targetRegRecord, interval);
             }
 
@@ -2211,7 +2210,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
     }
 
     // Unassign any registers that are no longer live, and set register state, if allocating.
-    if (!allocationPassComplete)
+    if (!resolveRegistersPass)
     {
         resetRegState();
         setRegsInUse(liveRegs);
@@ -2796,7 +2795,7 @@ void LinearScan::allocateRegisters()
                 if (blockSeqIndex < blockSeqCount)
                 {
                     currentBlock = blockSequence[blockSeqIndex++];
-                    processBlockStartLocations(currentBlock);
+                    processBlockStartLocations(currentBlock, false);
                     curBBNum = currentBlock->bbNum;
                 }
                 else
@@ -3596,9 +3595,9 @@ void LinearScan::allocateRegisters()
 
         printf("\n");
     }
-#endif // DEBUG
 
     allocationPassComplete = true;
+#endif // DEBUG
 }
 
 // Update assigned interval of register.
@@ -4521,7 +4520,7 @@ void LinearScan::resolveRegisters()
             curBBStartLocation = refPosIterator->nodeLocation;
             if (block != compiler->fgFirstBB)
             {
-                processBlockStartLocations(block);
+                processBlockStartLocations(block, true);
             }
 
             // Handle the DummyDefs, updating the incoming var location.
@@ -6322,8 +6321,8 @@ void LinearScan::updateLsraStat(LsraStat stat, unsigned bbNum)
 
 void LinearScan::dumpLsraStats(FILE* file) const
 {
-    unsigned             sumStats[LsraStat::COUNT]{};
-    BasicBlock::weight_t wtdStats[LsraStat::COUNT]{};
+    unsigned sumStats[LsraStat::COUNT]{};
+    weight_t wtdStats[LsraStat::COUNT]{};
 
     fprintf(file, "----------\n");
     fprintf(file, "LSRA Stats");
@@ -6503,8 +6502,8 @@ void LinearScan::DumpStatsCsv(FILE* file) const
 
 void LinearScan::DumpStatsSummary(FILE* file) const
 {
-    unsigned             sumStats[LsraStat::STAT_FREE]{};
-    BasicBlock::weight_t wtdStats[LsraStat::STAT_FREE]{};
+    unsigned sumStats[LsraStat::STAT_FREE]{};
+    weight_t wtdStats[LsraStat::STAT_FREE]{};
 
     // Iterate for block 0
     for (int statIndex = 0; statIndex < LsraStat::STAT_FREE; statIndex++)

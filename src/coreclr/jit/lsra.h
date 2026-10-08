@@ -97,13 +97,13 @@ struct LsraBlockInfo
 {
     // The block to use as predecessor to use for the register location of live-in variables.
     // null for fgFirstBB.
-    BasicBlock*          predBlock;
-    BasicBlock::weight_t weight;
-    bool                 hasCriticalInEdge : 1;
-    bool                 hasCriticalOutEdge : 1;
-    bool                 hasEHBoundaryIn : 1;
-    bool                 hasEHBoundaryOut : 1;
-    bool                 hasEHPred : 1;
+    BasicBlock* predBlock;
+    weight_t    weight;
+    bool        hasCriticalInEdge : 1;
+    bool        hasCriticalOutEdge : 1;
+    bool        hasEHBoundaryIn : 1;
+    bool        hasEHBoundaryOut : 1;
+    bool        hasEHPred : 1;
 };
 
 enum RegisterScore
@@ -381,8 +381,8 @@ private:
 #elif defined(TARGET_ARM)
     // On ARM, we may need two registers to set up the target register for a virtual call,
     // so we need to have at least the maximum number of arg registers, plus 2.
-    static const RegSet    LsraLimitSmallIntSet = RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5;
-    static const RegSet    LsraLimitSmallFPSet  = RBM_F0 | RBM_F1 | RBM_F2 | RBM_F16 | RBM_F17;
+    static const RegSet        LsraLimitSmallIntSet = RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5;
+    static const RegSet        LsraLimitSmallFPSet  = RBM_F0 | RBM_F1 | RBM_F2 | RBM_F16 | RBM_F17;
 #elif defined(TARGET_ARM64)
     static const RegSet LsraLimitSmallIntSet = RBM_R0 | RBM_R1 | RBM_R2 | RBM_R19 | RBM_R20;
     static const RegSet LsraLimitSmallFPSet  = RBM_V0 | RBM_V1 | RBM_V2 | RBM_V8 | RBM_V9;
@@ -615,7 +615,7 @@ private:
     void unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap inVarToRegMap);
 
     // Record variable locations at start/end of block
-    void processBlockStartLocations(BasicBlock* current);
+    void processBlockStartLocations(BasicBlock* current, bool resolveRegistersPass);
     void processBlockEndLocations(BasicBlock* current);
 
 #ifdef TARGET_ARM
@@ -719,7 +719,7 @@ private:
         return &physRegs[regNum];
     }
 
-    BasicBlock::weight_t getWeight(const RefPosition* refPos) const;
+    weight_t getWeight(const RefPosition* refPos) const;
 
     RegNum allocateReg(Interval* current, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
     RegNum assignCopyReg(RefPosition* refPosition);
@@ -952,10 +952,11 @@ private:
 #ifdef DEBUG
     // LSRA must not change number of blocks and blockSetVersion that it initializes at start.
     unsigned blockSetVersion;
-#endif
 
     // Indicates whether the allocation pass has been completed.
     bool allocationPassComplete = false;
+#endif
+
     // True if the method contains any critical edges.
     bool hasCriticalEdges = false;
     // True if there are any register candidate lclVars available for allocation.
@@ -1001,9 +1002,9 @@ private:
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 #if defined(TARGET_AMD64)
-    static const var_types LargeVectorSaveType = TYP_SIMD16;
+    static constexpr var_types LargeVectorSaveType = TYP_SIMD16;
 #elif defined(TARGET_ARM64)
-    static const var_types LargeVectorSaveType  = TYP_DOUBLE;
+    static constexpr var_types LargeVectorSaveType  = TYP_DOUBLE;
 #endif
 
     // Set of large vector (TYP_SIMD32 on AVX) variables.
@@ -1029,7 +1030,7 @@ private:
         {
             reg = REG_PREV(reg);
         }
-#endif // TARGET_ARM
+#endif
         return reg;
     }
 
