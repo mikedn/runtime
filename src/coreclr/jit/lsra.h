@@ -723,10 +723,10 @@ private:
 
     weight_t getWeight(const RefPosition* refPos) const;
 
-    RegNum allocateReg(Interval* current, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
-    RegNum assignCopyReg(RefPosition* refPosition);
+    RegNum AllocateReg(Interval* current, RefPosition& refPosition DEBUG_ARG(RegisterScore* registerScore));
+    RegNum AssignCopyReg(RefPosition& refPosition);
 
-    bool isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* reg) const;
+    bool IsSpillCandidate(Interval* current, RefPosition& refPosition, RegRecord* reg) const;
     void checkAndAssignInterval(RegRecord* regRec, Interval* interval);
     void assignPhysReg(RegRecord* regRec, Interval* interval);
 
@@ -740,7 +740,7 @@ private:
     void setIntervalAsSplit(Interval* interval);
     void spillInterval(Interval* interval, RefPosition* fromRefPosition DEBUGARG(RefPosition* toRefPosition));
 
-    void spillGCRefs(RefPosition* killRefPosition);
+    void SpillGCRefs(const RefPosition& killRefPosition);
 
     // When we split edges, we create new blocks, and instead of expanding the VarToRegMaps, we
     // rely on the property that the "in" map is the same as the "from" block of the edge, and the
@@ -1110,7 +1110,7 @@ private:
         return (m_RegistersWithConstants & regMask) == regMask;
     }
 
-    RegSet getMatchingConstants(RegSet mask, Interval* currentInterval, RefPosition* refPosition);
+    RegSet GetMatchingConstants(RegSet mask, Interval* currentInterval, RefPosition& refPosition);
     bool isMatchingConstant(GenTree* node, GenTree* regNode);
 
     RegSet fixedRegs;
@@ -1163,11 +1163,11 @@ private:
         regsBusyUntilKill = RBM_NONE;
     }
 
-    bool conflictingFixedRegReference(RegNum regNum, RefPosition* refPosition) const;
+    bool ConflictingFixedRegReference(RegNum regNum, RefPosition& refPosition) const;
 
     // This method should not be used and is here to retain old behavior.
     // It should be replaced by isRegAvailable().
-    // See comment in allocateReg();
+    // See comment in AllocateReg().
     bool isFree(RegRecord* regRecord) const;
 
     // When Def RefPositions are built for a node, their RefDefListNode
