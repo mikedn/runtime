@@ -166,8 +166,8 @@ public:
     Interval* previousInterval = nullptr;
 
     RegNum   regNum;
-    unsigned regOrder;
     float    spillCost;
+    unsigned unused; // Removing changes the size of this class and causes a regression in pin.
 
     RegRecord(RegNum reg) : regNum(reg)
     {

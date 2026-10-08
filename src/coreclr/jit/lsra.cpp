@@ -89,19 +89,6 @@ LinearScan::LinearScan(Compiler* compiler)
 #include "register.h"
       }
 {
-    static const RegNumSmall RegOrder[]{REG_VAR_ORDER};
-    static const RegNumSmall RegOrderFlt[]{REG_VAR_ORDER_FLT};
-
-    for (unsigned i = 0; i < _countof(RegOrder); i++)
-    {
-        physRegs[RegOrder[i]].regOrder = static_cast<uint8_t>(i);
-    }
-
-    for (unsigned i = 0; i < _countof(RegOrderFlt); i++)
-    {
-        physRegs[RegOrderFlt[i]].regOrder = static_cast<uint8_t>(i);
-    }
-
 #ifdef DEBUG
 #if 0
     if (stressMode != 0)
@@ -8619,6 +8606,33 @@ bool RegisterSelection::try_IS_PREV_REG()
     return (prevRegRec != nullptr) && ((score & COVERS_FULL) != 0) && applySingleRegSelection(IS_PREV_REG, prevRegBit);
 }
 
+static const struct RegOrder
+{
+    unsigned order[REG_COUNT]{};
+
+    constexpr RegOrder()
+    {
+        RegNumSmall RegOrder[]{REG_VAR_ORDER};
+        RegNumSmall RegOrderFlt[]{REG_VAR_ORDER_FLT};
+
+        for (unsigned i = 0; i < _countof(RegOrder); i++)
+        {
+            order[RegOrder[i]] = static_cast<uint8_t>(i);
+        }
+
+        for (unsigned i = 0; i < _countof(RegOrderFlt); i++)
+        {
+            order[RegOrderFlt[i]] = static_cast<uint8_t>(i);
+        }
+    }
+
+    unsigned operator[](RegNum reg) const
+    {
+        assert((REG_FIRST <= reg) && (reg <= REG_LAST));
+        return order[reg - REG_FIRST];
+    }
+} RegOrder;
+
 bool RegisterSelection::try_REG_ORDER()
 {
     if (freeCandidates == RBM_NONE)
@@ -8636,7 +8650,7 @@ bool RegisterSelection::try_REG_ORDER()
     {
         RegSet regOrderCandidateBit = genFindLowestBit(regOrderCandidates);
         regOrderCandidates &= ~regOrderCandidateBit;
-        unsigned thisRegOrder = linearScan->GetRegRecord(genRegNumFromMask(regOrderCandidateBit))->regOrder;
+        unsigned thisRegOrder = RegOrder[genRegNumFromMask(regOrderCandidateBit)];
 
         if (thisRegOrder < lowestRegOrder)
         {
