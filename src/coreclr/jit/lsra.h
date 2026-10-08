@@ -165,44 +165,49 @@ public:
     // assignedInterval becomes inactive.
     Interval* previousInterval = nullptr;
 
-    RegNum   regNum;
+    RegNum   num;
     float    spillCost;
     unsigned unused; // Removing changes the size of this class and causes a regression in pin.
 
-    RegRecord(RegNum reg) : regNum(reg)
+    RegRecord(RegNum num) : num(num)
     {
-        assert((REG_FIRST <= reg) && (reg <= REG_LAST));
+        assert((REG_FIRST <= num) && (num <= REG_LAST));
     }
 
     RegRecord(const RegRecord&) = delete;
     RegRecord& operator=(const RegRecord&) = delete;
 
+    bool operator==(const RegRecord& other) const
+    {
+        return this == &other;
+    }
+
     RegisterType registerType() const
     {
-        return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
+        return IsFloatReg(num) ? FloatRegisterType : IntRegisterType;
     }
 
     bool IsAssigned(ARM_ONLY(RegisterType newRegType)) const;
 
 #ifdef TARGET_ARM
-    RegRecord* GetDoublePairNextReg() const
+    RegRecord& GetDoublePairNextReg() const
     {
-        assert(genIsValidDoubleReg(regNum));
+        assert(genIsValidDoubleReg(num));
         // We assume that all RegRecord objects are stored in an array.
-        return const_cast<RegRecord*>(this + 1);
+        return const_cast<RegRecord&>(*(this + 1));
     }
 
-    RegRecord* GetDoublePairPrevReg() const
+    RegRecord& GetDoublePairPrevReg() const
     {
-        assert(genIsValidFloatReg(regNum) && genIsValidDoubleReg(REG_PREV(regNum)));
-        assert(this[-1].regNum == REG_PREV(regNum));
+        assert(genIsValidFloatReg(num) && genIsValidDoubleReg(REG_PREV(num)));
+        assert(this[-1].num == REG_PREV(num));
         // We assume that all RegRecord objects are stored in an array.
-        return const_cast<RegRecord*>(this - 1);
+        return const_cast<RegRecord&>(*(this - 1));
     }
 
-    RegRecord* GetDoublePairOtherReg() const
+    RegRecord& GetDoublePairOtherReg() const
     {
-        return genIsValidDoubleReg(regNum) ? GetDoublePairNextReg() : GetDoublePairPrevReg();
+        return genIsValidDoubleReg(num) ? GetDoublePairNextReg() : GetDoublePairPrevReg();
     }
 #endif
 
@@ -612,26 +617,26 @@ private:
 #endif // !DEBUG
 
     // Update allocations at start/end of block
-    void unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap inVarToRegMap);
+    void UnassignIntervalBlockStart(RegRecord& reg, VarToRegMap inVarToRegMap);
 
     // Record variable locations at start/end of block
     void processBlockStartLocations(BasicBlock* current, bool resolveRegistersPass);
     void processBlockEndLocations(BasicBlock* current);
 
 #ifdef TARGET_ARM
-    bool isSecondHalfReg(RegRecord* regRec, Interval* interval);
-    bool canSpillDoubleReg(RegRecord* physRegRecord, LsraLocation refLocation) const;
-    void unassignDoublePhysReg(RegRecord* doubleRegRecord);
+    bool IsSecondHalfReg(RegRecord& reg, Interval* interval);
+    bool CanSpillDoubleReg(RegRecord& reg, LsraLocation refLocation) const;
+    void UnassignDoublePhysReg(RegRecord& reg);
 #endif
-    void updateAssignedInterval(RegRecord* reg, Interval* interval, RegisterType regType);
-    void updatePreviousInterval(RegRecord* reg, Interval* interval, RegisterType regType);
-    bool canRestorePreviousInterval(RegRecord* regRec, Interval* assignedInterval);
-    bool isAssignedToInterval(Interval* interval, RegRecord* regRec);
+    void UpdateAssignedInterval(RegRecord& reg, Interval* interval, RegisterType regType);
+    void UpdatePreviousInterval(RegRecord& reg, Interval* interval, RegisterType regType);
+    bool CanRestorePreviousInterval(RegRecord& regRec, Interval* assignedInterval);
+    bool IsAssignedToInterval(Interval* interval, RegRecord& reg);
 #ifdef DEBUG
     bool isRefPositionActive(RefPosition* refPosition, LsraLocation refLocation) const;
 #endif
-    bool canSpillReg(RegRecord* physRegRecord, LsraLocation refLocation) const;
-    float getSpillWeight(RegRecord* physRegRecord);
+    bool CanSpillReg(const RegRecord& reg, LsraLocation refLocation) const;
+    float GetSpillWeight(const RegRecord& reg);
 
     bool IsCandidateLclRef(GenTree* node) const
     {
@@ -674,9 +679,9 @@ private:
     RegSet allFloatRegs() const;
     RegSet internalFloatRegCandidates() const;
 
-    void makeRegisterInactive(RegRecord* physRegRecord);
-    void freeRegister(RegRecord* physRegRecord);
-    void freeRegisters(RegSet regsToFree);
+    void MakeRegisterInactive(RegRecord& reg);
+    void FreeRegister(RegRecord& reg);
+    void FreeRegisters(RegSet regsToFree);
 
     void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg);
     void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
@@ -708,17 +713,17 @@ private:
         return GetLclInterval(lclRef->GetLcl()->GetLivenessBitIndex());
     }
 
-    RegRecord* GetRegRecord(RegNum regNum)
+    RegRecord& GetRegRecord(RegNum regNum)
     {
         assert((REG_FIRST <= regNum) && (regNum <= REG_LAST) && (regNum < _countof(physRegs)));
-        return &physRegs[regNum];
+        return physRegs[regNum];
     }
 
-    const RegRecord* GetRegRecord(RegNum regNum) const
+    const RegRecord& GetRegRecord(RegNum regNum) const
     {
         // TODO-MIKE-Review: Do we really need a RegRecord for STK?!?
         assert((REG_FIRST <= regNum) && (regNum <= REG_STK) && (regNum < _countof(physRegs)));
-        return &physRegs[regNum];
+        return physRegs[regNum];
     }
 
     weight_t getWeight(const RefPosition* refPos) const;
@@ -726,15 +731,15 @@ private:
     RegNum AllocateReg(Interval* current, RefPosition& refPosition DEBUG_ARG(RegisterScore* registerScore));
     RegNum AssignCopyReg(RefPosition& refPosition);
 
-    bool IsSpillCandidate(Interval* current, RefPosition& refPosition, RegRecord* reg) const;
-    void checkAndAssignInterval(RegRecord* regRec, Interval* interval);
-    void assignPhysReg(RegRecord* regRec, Interval* interval);
+    bool IsSpillCandidate(Interval* current, RefPosition& refPosition, RegRecord& reg) const;
+    void CheckAndAssignInterval(RegRecord& reg, Interval* interval);
+    void AssignPhysReg(RegRecord& reg, Interval* interval);
 
-    void checkAndClearInterval(RegRecord* reg, RefPosition* spillRefPosition);
-    void unassignPhysReg(RegRecord* reg ARM_ARG(RegisterType newRegType));
-    void unassignPhysReg(RegRecord* reg, RefPosition* spillRefPosition);
-    void unassignPhysRegRecentRef(RegRecord* reg);
-    void unassignPhysRegNoSpill(RegRecord* reg);
+    void CheckAndClearInterval(RegRecord& reg, RefPosition* spillRefPosition);
+    void UnassignPhysReg(RegRecord& reg ARM_ARG(RegisterType newRegType));
+    void UnassignPhysReg(RegRecord& reg, RefPosition* spillRefPosition);
+    void UnassignPhysRegRecentRef(RegRecord& reg);
+    void UnassignPhysRegNoSpill(RegRecord& reg);
 
     void setIntervalAsSpilled(Interval* interval);
     void setIntervalAsSplit(Interval* interval);
@@ -1052,70 +1057,68 @@ private:
         return regMask;
     }
 
-    void resetAvailableRegs()
+    void ResetAvailableRegs()
     {
         m_AvailableRegs          = allIntRegs() | allFloatRegs();
         m_RegistersWithConstants = RBM_NONE;
     }
 
-    bool isRegAvailable(RegNum reg, var_types regType) const
+    bool IsRegAvailable(RegNum reg, var_types regType) const
     {
-        RegSet regMask = getRegMask(reg, regType);
-        return (m_AvailableRegs & regMask) == regMask;
+        RegSet regs = getRegMask(reg, regType);
+        return (m_AvailableRegs & regs) == regs;
     }
 
-    void setRegsInUse(RegSet regMask)
+    void SetRegsInUse(RegSet regs)
     {
-        m_AvailableRegs &= ~regMask;
+        m_AvailableRegs &= ~regs;
     }
 
-    void setRegInUse(RegNum reg, var_types regType)
+    void SetRegInUse(RegNum reg, var_types regType)
     {
-        RegSet regMask = getRegMask(reg, regType);
-        setRegsInUse(regMask);
+        SetRegsInUse(getRegMask(reg, regType));
     }
 
-    void makeRegsAvailable(RegSet regMask)
+    void MakeRegsAvailable(RegSet regs)
     {
-        m_AvailableRegs |= regMask;
+        m_AvailableRegs |= regs;
     }
 
-    void makeRegAvailable(RegNum reg, var_types regType)
+    void MakeRegAvailable(RegNum reg, var_types regType)
     {
-        RegSet regMask = getRegMask(reg, regType);
-        makeRegsAvailable(regMask);
+        MakeRegsAvailable(getRegMask(reg, regType));
     }
 
-    void clearNextIntervalRef(RegNum reg, var_types regType);
-    void updateNextIntervalRef(RegNum reg, Interval* interval);
+    void ClearNextIntervalRef(RegNum reg, var_types regType);
+    void UpdateNextIntervalRef(RegNum reg, Interval* interval);
 
-    void clearSpillCost(RegRecord* reg, var_types regType) const;
-    void updateSpillCost(RegRecord* reg, Interval* interval) const;
+    void ClearSpillCost(RegRecord& reg, var_types regType) const;
+    void UpdateSpillCost(RegRecord& reg, Interval* interval) const;
 
     RegSet m_RegistersWithConstants;
 
-    void clearConstantReg(RegNum reg, var_types regType)
+    void ClearConstantReg(RegNum reg, var_types regType)
     {
         m_RegistersWithConstants &= ~getRegMask(reg, regType);
     }
 
-    void setConstantReg(RegNum reg, var_types regType)
+    void SetConstantReg(RegNum reg, var_types regType)
     {
         m_RegistersWithConstants |= getRegMask(reg, regType);
     }
 
-    bool isRegConstant(RegNum reg, var_types regType) const
+    bool IsRegConstant(RegNum reg, var_types regType) const
     {
         RegSet regMask = getRegMask(getRegForType(reg, regType), regType);
         return (m_RegistersWithConstants & regMask) == regMask;
     }
 
     RegSet GetMatchingConstants(RegSet mask, Interval* currentInterval, RefPosition& refPosition);
-    bool isMatchingConstant(GenTree* node, GenTree* regNode);
+    bool IsMatchingConstant(GenTree* node, GenTree* regNode);
 
     RegSet fixedRegs;
 
-    void updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPosition);
+    void UpdateNextFixedRef(RegRecord& reg, RefPosition* nextRefPosition);
 
     LsraLocation GetNextFixedRef(RegNum reg) const
     {
@@ -1137,38 +1140,38 @@ private:
     RegSet regsInUseThisLocation;
     RegSet regsInUseNextLocation;
 
-    bool isRegBusy(RegNum reg, var_types regType) const
+    bool IsRegBusy(RegNum reg, var_types regType) const
     {
         return (regsBusyUntilKill & getRegMask(reg, regType)) != RBM_NONE;
     }
 
-    void setRegBusyUntilKill(RegNum reg, var_types regType)
+    void SetRegBusyUntilKill(RegNum reg, var_types regType)
     {
         regsBusyUntilKill |= getRegMask(reg, regType);
     }
 
-    void clearRegBusyUntilKill(RegNum reg)
+    void ClearRegBusyUntilKill(RegNum reg)
     {
         regsBusyUntilKill &= ~genRegMask(reg);
     }
 
-    bool isRegInUse(RegNum reg, var_types regType) const
+    bool IsRegInUse(RegNum reg, var_types regType) const
     {
         return (regsInUseThisLocation & getRegMask(reg, regType)) != RBM_NONE;
     }
 
-    void resetRegState()
+    void ResetRegState()
     {
-        resetAvailableRegs();
+        ResetAvailableRegs();
         regsBusyUntilKill = RBM_NONE;
     }
 
     bool ConflictingFixedRegReference(RegNum regNum, RefPosition& refPosition) const;
 
     // This method should not be used and is here to retain old behavior.
-    // It should be replaced by isRegAvailable().
+    // It should be replaced by IsRegAvailable().
     // See comment in AllocateReg().
-    bool isFree(RegRecord* regRecord) const;
+    bool IsFree(RegRecord& reg) const;
 
     // When Def RefPositions are built for a node, their RefDefListNode
     // (GenTree* to RefPosition* mapping) is placed in the defList.
@@ -1520,7 +1523,7 @@ public:
     // the 'registerPreferences' otherwise.
     RegSet getCurrentPreferences() const
     {
-        return assignedReg == nullptr ? registerPreferences : genRegMask(assignedReg->regNum);
+        return assignedReg == nullptr ? registerPreferences : genRegMask(assignedReg->num);
     }
 
     void mergeRegisterPreferences(RegSet preferences);
@@ -1695,7 +1698,7 @@ public:
     {
         referent           = r;
         isPhysRegRef       = true;
-        registerAssignment = genRegMask(r->regNum);
+        registerAssignment = genRegMask(r->num);
     }
 
     RegNum assignedReg() const

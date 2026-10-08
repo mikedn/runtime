@@ -243,15 +243,15 @@ RefPosition* LinearScan::NewRegRefPosition(RegNum reg, LsraLocation location, Re
 {
     assert((refType == RefTypeFixedReg) || (refType == RefTypeKill));
 
-    RegRecord* regRecord = GetRegRecord(reg);
+    RegRecord& regRecord = GetRegRecord(reg);
 
     RefPosition* newRP = NewRefPositionRaw(location, nullptr, refType);
-    newRP->setReg(regRecord);
+    newRP->setReg(&regRecord);
     newRP->registerAssignment = genRegMask(reg);
 
     // We can't have two RefPositions on a RegRecord at the same location, unless they are different types.
-    assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < location) ||
-           (regRecord->lastRefPosition->refType != refType));
+    assert((regRecord.lastRefPosition == nullptr) || (regRecord.lastRefPosition->nodeLocation < location) ||
+           (regRecord.lastRefPosition->refType != refType));
 
     newRP->LinkRefPosition();
 
@@ -1316,7 +1316,7 @@ void LinearScan::BuildIntervals()
             {
                 // Set this interval as currently assigned to that register
                 RegNum paramReg = lcl->GetParamReg();
-                assignPhysReg(GetRegRecord(paramReg), interval);
+                AssignPhysReg(GetRegRecord(paramReg), interval);
                 INDEBUG(registersToDump |= getRegMask(paramReg, interval->registerType));
                 mask = genRegMask(paramReg);
             }
