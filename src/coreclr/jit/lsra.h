@@ -165,9 +165,9 @@ public:
     // assignedInterval becomes inactive.
     Interval* previousInterval = nullptr;
 
-    RegNum   num;
-    float    spillCost;
-    unsigned unused; // Removing changes the size of this class and causes a regression in pin.
+    const RegNum num;
+    float        spillCost;
+    unsigned     unused; // Removing changes the size of this class and causes a regression in pin.
 
     RegRecord(RegNum num) : num(num)
     {
