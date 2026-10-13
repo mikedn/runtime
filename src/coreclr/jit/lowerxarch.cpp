@@ -38,169 +38,97 @@ GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
     return node->gtNext;
 }
 
-void Lowering::LowerRotate(GenTreeOp* node)
+void Lowering::RemoveShiftCountMasking(GenTreeOp* shift, GenTree* shiftBy)
 {
-    assert(node->OperIs(GT_ROL, GT_ROR) && node->TypeIs(TYP_INT, TYP_I_IMPL));
-
-    GenTree* shiftBy = node->GetOp(1);
-
-    if (IsImmOperand(shiftBy, node) && FitsIn<uint8_t>(shiftBy->AsIntCon()->GetValue()))
-    {
-        shiftBy->SetContained();
-    }
-}
-
-void Lowering::LowerShift(GenTreeOp* shift)
-{
-    assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
-
-    GenTree* shiftBy = shift->GetOp(1);
 #ifdef TARGET_64BIT
     const size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #else
-    constexpr size_t mask = 0x1f;
+    constexpr size_t     mask = 0x1f;
 #endif
 
-    if (!shiftBy->OperIs(GT_CNS_INT))
+    while (shiftBy->OperIs(GT_AND))
     {
-        // Remove unnecessary shift count masking.
+        GenTree* maskOp = shiftBy->AsOp()->GetOp(1);
 
-        while (shiftBy->OperIs(GT_AND))
-        {
-            GenTree* maskOp = shiftBy->AsOp()->GetOp(1);
-
-            if (!maskOp->OperIs(GT_CNS_INT))
-            {
-                break;
-            }
-
-            if ((static_cast<size_t>(maskOp->AsIntCon()->GetValue()) & mask) != mask)
-            {
-                break;
-            }
-
-            BlockRange().Unlink(shiftBy);
-            BlockRange().Unlink(maskOp);
-
-            shiftBy = shiftBy->AsOp()->GetOp(0);
-            shiftBy->ClearContained();
-        }
-
-        shift->SetOp(1, shiftBy);
-
-        return;
-    }
-
-    assert(!shiftBy->AsIntCon()->ImmedValNeedsReloc(comp));
-
-    unsigned shiftByBits = static_cast<unsigned>(shiftBy->AsIntCon()->GetValue()) & mask;
-    shiftBy->AsIntCon()->SetValue(shiftByBits);
-    shiftBy->SetContained();
-
-    if ((shiftByBits < 24) || !shift->OperIs(GT_LSH) || !comp->opts.OptimizationEnabled())
-    {
-        return;
-    }
-
-    // Remove source casts if the shift discards the produced sign/zero bits.
-    //
-    // Some of this would probably be better done during morph or some sort
-    // of tree narrowing phase. The problem is that this removes INT to LONG
-    // casts, transforming
-    //     LSH.long(CAST.long(x.int), 32)
-    // into
-    //     LSH.long(x.int, 32)
-    //
-    // While there's nothing intrinsically wrong about having a node with
-    // different source and destination types, it is possible that some
-    // frontend phases might get confused by such a shift node.
-
-    unsigned consumedBits = varTypeBitSize(shift->GetType());
-
-    assert((consumedBits == 32) || (consumedBits == 64));
-    assert(shiftByBits < consumedBits);
-
-    consumedBits -= shiftByBits;
-
-    GenTree* src = shift->GetOp(0);
-
-    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
-    {
-        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
-                shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = src->AsUnOp()->GetOp(0);
-        src->ClearContained();
-    }
-
-    if (src->OperIs(GT_TRUNC) && (consumedBits <= 32))
-    {
-        GenTreeUnOp* cast = src->AsUnOp();
-
-        JITDUMP("Removing TRUNC [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
-                shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = cast->GetOp(0);
-        src->ClearContained();
-
-#ifndef TARGET_64BIT
-        if (src->OperIs(GT_LONG))
-        {
-            // We're run into a long to int cast on a 32 bit target. The LONG node
-            // needs to be removed since the shift wouldn't know what to do with it.
-            // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
-
-            BlockRange().Unlink(src);
-            src->AsOp()->GetOp(1)->SetUnusedValue();
-            src = src->AsOp()->GetOp(0);
-        }
-#endif
-    }
-
-    while (src->OperIs(GT_CONV))
-    {
-        GenTreeUnOp* cast = src->AsUnOp();
-
-        assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
-        assert(varTypeIsSmall(cast->GetType()));
-
-        unsigned producedBits = varTypeBitSize(cast->GetType());
-
-        if (consumedBits > producedBits)
+        if (!maskOp->OperIs(GT_CNS_INT))
         {
             break;
         }
 
-        JITDUMP("Removing CONV [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
-                producedBits, shift->GetID(), consumedBits);
+        if ((static_cast<size_t>(maskOp->AsIntCon()->GetValue()) & mask) != mask)
+        {
+            break;
+        }
 
-        BlockRange().Unlink(src);
-        src = cast->GetOp(0);
-        src->ClearContained();
+        BlockRange().Unlink(shiftBy);
+        BlockRange().Unlink(maskOp);
+
+        shiftBy = shiftBy->AsOp()->GetOp(0);
+        shiftBy->ClearContained();
     }
 
-    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+    shift->SetOp(1, shiftBy);
+}
+
+bool Lowering::MakeShiftImm(GenTreeOp* node, GenTree* count)
+{
+    if (GenTreeIntCon* imm = count->IsIntCon())
     {
-        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
-                shift->GetID(), consumedBits);
+        assert(!imm->ImmedValNeedsReloc(comp));
 
-        BlockRange().Unlink(src);
-        src = src->AsUnOp()->GetOp(0);
-        src->ClearContained();
+#ifdef TARGET_64BIT
+        const size_t mask = node->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
+#else
+        constexpr size_t mask = 0x1f;
+#endif
+
+        imm->SetValue(imm->GetValue() & mask);
+        imm->SetContained();
+
+        return true;
     }
 
-    // If the source is a small signed int memory operand then we can make it unsigned
-    // if the sign bits aren't consumed, movzx has smaller encoding than movsx.
+    return false;
+}
 
-    if (src->OperIs(GT_LCL_LOAD_FLD, GT_IND_LOAD) && varTypeIsSmall(src->GetType()) &&
-        (consumedBits <= varTypeBitSize(src->GetType())))
+void Lowering::LowerRotate(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ROL, GT_ROR) && node->TypeIs(TYP_INT, TYP_I_IMPL));
+
+    MakeShiftImm(node, node->GetOp(1));
+}
+
+void Lowering::LowerRightShift(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_RSH, GT_RSZ) && node->TypeIs(TYP_INT, TYP_I_IMPL));
+
+    GenTree* shiftBy = node->GetOp(1);
+
+    if (MakeShiftImm(node, shiftBy))
     {
-        src->SetType(varTypeToSmallUnsigned(src->GetType()));
+        return;
     }
 
-    shift->SetOp(0, src);
+    RemoveShiftCountMasking(node, shiftBy);
+}
+
+void Lowering::LowerLeftShift(GenTreeOp* shift)
+{
+    assert(shift->OperIs(GT_LSH) && shift->TypeIs(TYP_INT, TYP_I_IMPL));
+
+    GenTree* shiftBy = shift->GetOp(1);
+
+    if (MakeShiftImm(shift, shiftBy))
+    {
+        if ((shiftBy->AsIntCon()->GetUInt32Value() >= 24) && comp->opts.OptimizationEnabled())
+        {
+            RemoveLeftShiftValueCast(shift, shiftBy->AsIntCon()->GetUInt32Value());
+        }
+
+        return;
+    }
+
+    RemoveShiftCountMasking(shift, shiftBy);
 }
 
 void Lowering::LowerLclStoreArch(GenTreeLclStore* store)

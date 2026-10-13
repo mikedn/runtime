@@ -80,7 +80,6 @@ private:
     void LowerLclStoreFld(GenTreeLclStoreFld* store);
     void LowerLclHeap(GenTreeUnOp* node);
     GenTree* LowerArrElem(GenTreeArrElem* node);
-    void LowerShift(GenTreeOp* shift);
     void LowerRotate(GenTreeOp* node);
 #ifdef TARGET_XARCH
     GenTree* LowerFloatConvert(GenTreeUnOp* node);
@@ -139,6 +138,15 @@ private:
 #ifndef TARGET_ARM64
     GenTree* OptimizeConstCompare(GenTreeOp* cmp);
     GenTree* LowerCompare(GenTreeOp* cmp);
+    void LowerLeftShift(GenTreeOp* shift);
+    void LowerRightShift(GenTreeOp* shift);
+#endif
+#ifdef TARGET_XARCH
+    void RemoveShiftCountMasking(GenTreeOp* shift, GenTree* count);
+#endif
+#ifndef TARGET_ARM64
+    bool MakeShiftImm(GenTreeOp* shift, GenTree* count);
+    void RemoveLeftShiftValueCast(GenTreeOp* shift, unsigned shiftByBits);
 #endif
     void RemoveNonRegCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL
@@ -214,6 +222,7 @@ private:
 #endif
 
 #ifdef TARGET_ARM64
+    void LowerShift(GenTreeOp* shift);
     void LowerNot(GenTreeUnOp* node);
     void CombineNot(GenTreeInstr* instr);
     void LowerLogical(GenTreeOp* logical);

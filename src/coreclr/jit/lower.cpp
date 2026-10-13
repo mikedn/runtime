@@ -244,6 +244,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
         LowerLogical(node->AsOp());
         break;
 
+    case GT_LSH:
+    case GT_RSH:
+    case GT_RSZ:
+        LowerShift(node->AsOp());
+        break;
+
     case GT_NEG:
         LowerNegate(node->AsUnOp());
         break;
@@ -396,13 +402,21 @@ GenTree* Lowering::LowerNode(GenTree* node)
     case GT_SDIV:
     case GT_SREM:
         return LowerSignedDivRem(node);
+
+    case GT_LSH:
+        LowerLeftShift(node->AsOp());
+        break;
+
+    case GT_RSH:
+    case GT_RSZ:
+        LowerRightShift(node->AsOp());
+        break;
 #endif // !TARGET_ARM64
 
     case GT_ROL:
 #ifndef TARGET_XARCH
         unreached();
 #endif
-        FALLTHROUGH;
     case GT_ROR:
         LowerRotate(node->AsOp());
         break;
@@ -480,12 +494,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         LowerLongShiftRotate(node->AsOp());
         break;
 #endif
-
-    case GT_LSH:
-    case GT_RSH:
-    case GT_RSZ:
-        LowerShift(node->AsOp());
-        break;
 
     case GT_LCLHEAP:
         LowerLclHeap(node->AsUnOp());
@@ -3943,6 +3951,113 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
 
     return nullptr;
 }
+
+#ifndef TARGET_ARM64
+void Lowering::RemoveLeftShiftValueCast(GenTreeOp* shift, unsigned shiftByBits)
+{
+    // Remove source casts if the shift discards the produced sign/zero bits.
+    //
+    // Some of this would probably be better done during morph or some sort
+    // of tree narrowing phase. The problem is that this removes INT to LONG
+    // casts, transforming
+    //     LSH.long(CAST.long(x.int), 32)
+    // into
+    //     LSH.long(x.int, 32)
+    //
+    // While there's nothing intrinsically wrong about having a node with
+    // different source and destination types, it is possible that some
+    // frontend phases might get confused by such a shift node.
+
+    unsigned consumedBits = varTypeBitSize(shift->GetType());
+
+    assert((consumedBits == 32) || (consumedBits == 64));
+    assert(shiftByBits < consumedBits);
+
+    consumedBits -= shiftByBits;
+
+    GenTree* src = shift->GetOp(0);
+
+    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+    {
+        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
+                shift->GetID(), consumedBits);
+
+        BlockRange().Unlink(src);
+        src = src->AsUnOp()->GetOp(0);
+        src->ClearContained();
+    }
+
+    if (src->OperIs(GT_TRUNC) && (consumedBits <= 32))
+    {
+        GenTreeUnOp* cast = src->AsUnOp();
+
+        JITDUMP("Removing TRUNC [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
+                shift->GetID(), consumedBits);
+
+        BlockRange().Unlink(src);
+        src = cast->GetOp(0);
+        src->ClearContained();
+
+#ifndef TARGET_64BIT
+        if (src->OperIs(GT_LONG))
+        {
+            // We're run into a long to int cast on a 32 bit target. The LONG node
+            // needs to be removed since the shift wouldn't know what to do with it.
+            // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
+
+            BlockRange().Unlink(src);
+            src->AsOp()->GetOp(1)->SetUnusedValue();
+            src = src->AsOp()->GetOp(0);
+        }
+#endif
+    }
+
+    while (src->OperIs(GT_CONV))
+    {
+        GenTreeUnOp* cast = src->AsUnOp();
+
+        assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
+        assert(varTypeIsSmall(cast->GetType()));
+
+        unsigned producedBits = varTypeBitSize(cast->GetType());
+
+        if (consumedBits > producedBits)
+        {
+            break;
+        }
+
+        JITDUMP("Removing CONV [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
+                producedBits, shift->GetID(), consumedBits);
+
+        BlockRange().Unlink(src);
+        src = cast->GetOp(0);
+        src->ClearContained();
+    }
+
+    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+    {
+        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
+                shift->GetID(), consumedBits);
+
+        BlockRange().Unlink(src);
+        src = src->AsUnOp()->GetOp(0);
+        src->ClearContained();
+    }
+
+#ifdef TARGET_XARCH
+    // If the source is a small signed int memory operand then we can make it unsigned
+    // if the sign bits aren't consumed, movzx has smaller encoding than movsx.
+
+    if (src->OperIs(GT_LCL_LOAD_FLD, GT_IND_LOAD) && varTypeIsSmall(src->GetType()) &&
+        (consumedBits <= varTypeBitSize(src->GetType())))
+    {
+        src->SetType(varTypeToSmallUnsigned(src->GetType()));
+    }
+#endif
+
+    shift->SetOp(0, src);
+}
+#endif // !TARGET_ARM64
 
 #ifdef FEATURE_SIMD
 void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)

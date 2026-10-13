@@ -246,120 +246,67 @@ void Lowering::LowerRotate(GenTreeOp* node)
 {
     assert(node->OperIs(GT_ROR) && node->TypeIs(TYP_INT));
 
-    if (GenTree* shiftBy = node->GetOp(1)->IsIntCon())
+    if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
     {
-        shiftBy->SetContained();
+        assert(!imm->ImmedValNeedsReloc(comp));
+
+        imm->SetValue(imm->GetUInt8Value() & 31);
+        imm->SetContained();
     }
 }
 
-void Lowering::LowerShift(GenTreeOp* shift)
+bool Lowering::MakeShiftImm(GenTreeOp* node, GenTree* count)
 {
-    assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
+    assert(node->OperIs(GT_LSH, GT_RSH, GT_RSZ) && node->TypeIs(TYP_INT));
+
+    if (GenTreeIntCon* imm = count->IsIntCon())
+    {
+        assert(!imm->ImmedValNeedsReloc(comp));
+        unsigned count = imm->GetUInt8Value();
+
+        if (count > 31)
+        {
+            if (node->OperIs(GT_LSH, GT_RSZ))
+            {
+                node->GetOp(0)->SetUnusedValue();
+                BlockRange().Unlink(imm);
+                node->ChangeToIntCon(0);
+
+                return false;
+            }
+
+            count = 31;
+        }
+
+        imm->SetValue(count);
+        imm->SetContained();
+
+        return true;
+    }
+
+    return false;
+}
+
+void Lowering::LowerRightShift(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_RSH, GT_RSZ) && node->TypeIs(TYP_INT));
+
+    MakeShiftImm(node, node->GetOp(1));
+}
+
+void Lowering::LowerLeftShift(GenTreeOp* shift)
+{
+    assert(shift->OperIs(GT_LSH) && shift->TypeIs(TYP_INT));
 
     GenTree* shiftBy = shift->GetOp(1);
 
-    if (!shift->OperIs(GT_LSH) || !shiftBy->OperIs(GT_CNS_INT))
+    if (MakeShiftImm(shift, shiftBy))
     {
-        return;
-    }
-
-    unsigned shiftByBits = static_cast<unsigned>(shiftBy->AsIntCon()->GetValue()) & 31;
-    shiftBy->AsIntCon()->SetValue(shiftByBits);
-    shiftBy->SetContained();
-
-    if ((shiftByBits < 24) || !comp->opts.OptimizationEnabled())
-    {
-        return;
-    }
-
-    // Remove source casts if the shift discards the produced sign/zero bits.
-    //
-    // Some of this would probably be better done during morph or some sort
-    // of tree narrowing phase. The problem is that this removes INT to LONG
-    // casts, transforming
-    //     LSH.long(CAST.long(x.int), 32)
-    // into
-    //     LSH.long(x.int, 32)
-    //
-    // While there's nothing intrinsically wrong about having a node with
-    // different source and destination types, it is possible that some
-    // frontend phases might get confused by such a shift node.
-
-    unsigned consumedBits = varTypeBitSize(shift->GetType());
-
-    assert((consumedBits == 32) || (consumedBits == 64));
-    assert(shiftByBits < consumedBits);
-
-    consumedBits -= shiftByBits;
-
-    GenTree* src = shift->GetOp(0);
-
-    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
-    {
-        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
-                shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = src->AsUnOp()->GetOp(0);
-        src->ClearContained();
-    }
-
-    if (src->OperIs(GT_TRUNC) && (consumedBits <= 32))
-    {
-        GenTreeUnOp* cast = src->AsUnOp();
-
-        JITDUMP("Removing TRUNC [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
-                shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = cast->GetOp(0);
-        src->ClearContained();
-
-        if (src->OperIs(GT_LONG))
+        if ((shiftBy->AsIntCon()->GetUInt32Value() >= 24) && comp->opts.OptimizationEnabled())
         {
-            // We're run into a long to int cast on a 32 bit target. The LONG node
-            // needs to be removed since the shift wouldn't know what to do with it.
-            // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
-
-            BlockRange().Unlink(src);
-            src->AsOp()->GetOp(1)->SetUnusedValue();
-            src = src->AsOp()->GetOp(0);
+            RemoveLeftShiftValueCast(shift, shiftBy->AsIntCon()->GetUInt32Value());
         }
     }
-
-    while (src->OperIs(GT_CONV))
-    {
-        GenTreeUnOp* cast = src->AsUnOp();
-
-        assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
-        assert(varTypeIsSmall(cast->GetType()));
-
-        unsigned producedBits = varTypeBitSize(cast->GetType());
-
-        if (consumedBits > producedBits)
-        {
-            break;
-        }
-
-        JITDUMP("Removing CONV [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
-                producedBits, shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = cast->GetOp(0);
-        src->ClearContained();
-    }
-
-    if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
-    {
-        JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
-                shift->GetID(), consumedBits);
-
-        BlockRange().Unlink(src);
-        src = src->AsUnOp()->GetOp(0);
-        src->ClearContained();
-    }
-
-    shift->SetOp(0, src);
 }
 
 void Lowering::LowerLongShiftRotate(GenTreeOp* node)
