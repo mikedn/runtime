@@ -773,13 +773,13 @@ RefPosition* LinearScan::DefineNewInternalTemp(GenTree* node, RegisterType regTy
 RefPosition* LinearScan::BuildInternalIntDef(GenTree* node, regMaskTP regMask)
 {
     assert((regMask & ~allIntRegs()) == RBM_NONE);
-    return DefineNewInternalTemp(node, IntRegisterType, regMask);
+    return DefineNewInternalTemp(node, TYP_INT, regMask);
 }
 
 RefPosition* LinearScan::BuildInternalFloatDef(GenTree* node, regMaskTP regMask)
 {
     assert((regMask & ~allFloatRegs()) == RBM_NONE);
-    return DefineNewInternalTemp(node, FloatRegisterType, regMask);
+    return DefineNewInternalTemp(node, TYP_FLOAT, regMask);
 }
 
 void LinearScan::BuildInternalRegisterUses()

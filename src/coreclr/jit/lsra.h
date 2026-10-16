@@ -15,9 +15,6 @@ constexpr LsraLocation MaxLocation = UINT_MAX;
 
 using RegisterType = var_types;
 
-constexpr RegisterType IntRegisterType   = TYP_INT;
-constexpr RegisterType FloatRegisterType = TYP_FLOAT;
-
 inline RegSet calleeSaveRegs(RegisterType rt)
 {
     return varTypeIsIntegralOrI(rt) ? RBM_INT_CALLEE_SAVED : RBM_FLT_CALLEE_SAVED;
@@ -180,11 +177,6 @@ public:
     bool operator==(const RegRecord& other) const
     {
         return this == &other;
-    }
-
-    RegisterType registerType() const
-    {
-        return IsFloatReg(num) ? FloatRegisterType : IntRegisterType;
     }
 
     bool IsAssigned(ARM_ONLY(RegisterType newRegType)) const;
@@ -735,7 +727,7 @@ private:
     void CheckAndAssignInterval(RegRecord& reg, Interval* interval);
     void AssignPhysReg(RegRecord& reg, Interval* interval);
 
-    void CheckAndClearInterval(RegRecord& reg, RefPosition* spillRefPosition);
+    void CheckInterval(const RegRecord& reg, RefPosition* spillRefPosition);
     void UnassignPhysReg(RegRecord& reg ARM_ARG(RegisterType newRegType));
     void UnassignPhysReg(RegRecord& reg, RefPosition* spillRefPosition);
     void UnassignPhysRegRecentRef(RegRecord& reg);

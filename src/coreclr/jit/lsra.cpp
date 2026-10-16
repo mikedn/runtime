@@ -373,11 +373,7 @@ weight_t LinearScan::getWeight(const RefPosition* refPos) const
 
 bool LinearScan::IsFree(RegRecord& reg) const
 {
-    return (reg.assignedInterval == nullptr || !reg.assignedInterval->isActive) &&
-           // TODO-MIKE-Cleanup: There are a lot of places that use RegRecord::registerType to deal
-           // with ARM's DOUBLE regs, but then reg records are never DOUBLE, they're either INT or
-           // FLOAT. So we may as well delete registerType and pass UNDEF or something like that.
-           !IsRegBusy(reg.num, reg.registerType());
+    return (reg.assignedInterval == nullptr || !reg.assignedInterval->isActive) && !IsRegBusy(reg.num, TYP_INT);
 }
 
 #ifdef DEBUG
@@ -1396,35 +1392,20 @@ void LinearScan::UnassignPhysRegNoSpill(RegRecord& reg)
     assignedInterval->isActive = true;
 }
 
-// Clear the assignedInterval for the given physical register record
-//
-// Arguments:
-//    spillRefPosition - The RefPosition at which the assignedInterval is to be spilled
-//                       or nullptr if we aren't spilling
-//
-// Assumptions:
-//    see UnassignPhysReg
-//
-void LinearScan::CheckAndClearInterval(RegRecord& reg, RefPosition* spillRefPosition)
+void LinearScan::CheckInterval(const RegRecord& reg, RefPosition* spillRefPosition)
 {
     Interval* assignedInterval = reg.assignedInterval;
     assert(assignedInterval != nullptr);
-    RegNum thisRegNum = reg.num;
 
     if (spillRefPosition == nullptr)
     {
         // Note that we can't assert for the copyReg case
-        if (assignedInterval->physReg == thisRegNum)
-        {
-            assert(!assignedInterval->isActive);
-        }
+        assert((assignedInterval->physReg != reg.num) || !assignedInterval->isActive);
     }
     else
     {
         assert(spillRefPosition->getInterval() == assignedInterval);
     }
-
-    UpdateAssignedInterval(reg, nullptr, assignedInterval->registerType);
 }
 
 // Unassign the given physical register record, and spill the
@@ -1500,7 +1481,7 @@ void LinearScan::UnassignPhysReg(RegRecord& regRec, RefPosition* spillRefPositio
 #ifdef TARGET_ARM
     if (assignedInterval->registerType == TYP_DOUBLE)
     {
-        assert(varTypeUsesFloatReg(regRec.registerType()));
+        assert(IsFloatReg(regRec.num));
 
         RegNum     regToUnassign = regRec.num;
         RegRecord* regs[2];
@@ -1528,7 +1509,8 @@ void LinearScan::UnassignPhysReg(RegRecord& regRec, RefPosition* spillRefPositio
 
         ClearNextIntervalRef(regToUnassign, TYP_DOUBLE);
         ClearSpillCost(GetRegRecord(regToUnassign), TYP_DOUBLE);
-        CheckAndClearInterval(*regs[0], spillRefPosition);
+        CheckInterval(*regs[0], spillRefPosition);
+        UpdateAssignedInterval(*regs[0], nullptr, TYP_DOUBLE);
 
         // Both RegRecords should have been unassigned together.
         assert(regs[0]->assignedInterval == nullptr);
@@ -1539,10 +1521,11 @@ void LinearScan::UnassignPhysReg(RegRecord& regRec, RefPosition* spillRefPositio
     else
 #endif // TARGET_ARM
     {
-        ClearNextIntervalRef(regRec.num, assignedInterval->registerType);
-        ClearSpillCost(regRec, assignedInterval->registerType);
-        CheckAndClearInterval(regRec, spillRefPosition);
-        MakeRegAvailable(regRec.num, assignedInterval->registerType);
+        ClearNextIntervalRef(regRec.num, TYP_INT);
+        ClearSpillCost(regRec, TYP_INT);
+        CheckInterval(regRec, spillRefPosition);
+        UpdateAssignedInterval(regRec, nullptr, TYP_INT);
+        MakeRegAvailable(regRec.num, TYP_INT);
     }
 
     RefPosition* nextRefPosition = nullptr;
@@ -1728,7 +1711,7 @@ void LinearScan::SpillGCRefs(const RefPosition& killRefPosition)
         {
             INDEBUG(killedRegs = true);
             UnassignPhysReg(regRecord, assignedInterval->recentRefPosition);
-            MakeRegAvailable(nextReg, assignedInterval->registerType);
+            MakeRegAvailable(nextReg, TYP_INT);
         }
     }
 
@@ -1893,8 +1876,8 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock, const bool
             RegRecord& regRecord        = GetRegRecord(reg);
             Interval*  assignedInterval = regRecord.assignedInterval;
 
-            ClearNextIntervalRef(reg, regRecord.registerType());
-            ClearSpillCost(regRecord, regRecord.registerType());
+            ClearNextIntervalRef(reg, TYP_INT);
+            ClearSpillCost(regRecord, TYP_INT);
 
             if (assignedInterval != nullptr)
             {
@@ -2149,7 +2132,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock, const bool
 
         if ((liveRegs & genRegMask(reg)) == RBM_NONE)
         {
-            MakeRegAvailable(reg, regRecord.registerType());
+            MakeRegAvailable(reg, TYP_INT);
             Interval* assignedInterval = regRecord.assignedInterval;
 
             if (assignedInterval != nullptr)
@@ -2191,7 +2174,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock, const bool
                     // Skip next float register, because we already addressed a double register
                     assert(genIsValidDoubleReg(reg));
                     reg = REG_NEXT(reg);
-                    MakeRegAvailable(reg, regRecord.registerType());
+                    MakeRegAvailable(reg, TYP_INT);
                 }
 #endif // TARGET_ARM
             }
@@ -2297,8 +2280,9 @@ void LinearScan::MakeRegisterInactive(RegRecord& reg)
 void LinearScan::FreeRegister(RegRecord& reg)
 {
     Interval* assignedInterval = reg.assignedInterval;
-    MakeRegAvailable(reg.num, reg.registerType());
-    ClearSpillCost(reg, reg.registerType());
+
+    MakeRegAvailable(reg.num, TYP_INT);
+    ClearSpillCost(reg, TYP_INT);
     MakeRegisterInactive(reg);
 
     if (assignedInterval == nullptr)
@@ -2414,8 +2398,8 @@ void LinearScan::AllocateRegisters()
         }
         else
         {
-            ClearNextIntervalRef(reg, regRecord.registerType());
-            ClearSpillCost(regRecord, regRecord.registerType());
+            ClearNextIntervalRef(reg, TYP_INT);
+            ClearSpillCost(regRecord, TYP_INT);
         }
     }
 
@@ -2468,7 +2452,7 @@ void LinearScan::AllocateRegisters()
             tempRegsToMakeInactive &= ~nextRegBit;
             RegNum     nextReg   = genRegNumFromMask(nextRegBit);
             RegRecord& regRecord = GetRegRecord(nextReg);
-            ClearSpillCost(regRecord, regRecord.registerType());
+            ClearSpillCost(regRecord, TYP_INT);
             MakeRegisterInactive(regRecord);
         }
 
@@ -2633,8 +2617,8 @@ void LinearScan::AllocateRegisters()
                     }
                     else
                     {
-                        assert(IsRegAvailable(reg, regRecord.registerType()));
-                        assert(!IsRegConstant(reg, regRecord.registerType()));
+                        assert(IsRegAvailable(reg, TYP_INT));
+                        assert(!IsRegConstant(reg, TYP_INT));
                         assert(GetNextIntervalRef(reg) == MaxLocation);
                         assert(regRecord.spillCost == 0);
                     }
@@ -3602,8 +3586,8 @@ void LinearScan::UpdateAssignedInterval(RegRecord& reg, Interval* interval, Regi
     }
     else
     {
-        ClearNextIntervalRef(reg.num, reg.registerType());
-        ClearSpillCost(reg, reg.registerType());
+        ClearNextIntervalRef(reg.num, TYP_INT);
+        ClearSpillCost(reg, TYP_INT);
     }
 }
 
