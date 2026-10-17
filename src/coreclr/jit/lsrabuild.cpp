@@ -1181,7 +1181,7 @@ void LinearScan::InsertZeroInitRefPositions()
             if (compiler->lvaIsOSRLocal(lcl))
             {
                 JITDUMP(" will be initialized by OSR\n");
-                // setIntervalAsSpilled(interval);
+                // SetIntervalAsSpilled(interval);
                 lcl->lvMustInit = false;
             }
 
@@ -1191,7 +1191,7 @@ void LinearScan::InsertZeroInitRefPositions()
         }
         else
         {
-            setIntervalAsSpilled(interval);
+            SetIntervalAsSpilled(interval);
             JITDUMP(" marking as spilled\n");
         }
     }
@@ -2554,7 +2554,7 @@ void LinearScan::IdentifyCandidates()
         if (lcl->lvLiveInOutOfHndlr)
         {
             newInt->isWriteThru = lcl->lvSingleDefRegCandidate;
-            setIntervalAsSpilled(newInt);
+            SetIntervalAsSpilled(newInt);
         }
 
         INTRACK_STATS(regCandidateVarCount++);
@@ -2850,7 +2850,7 @@ void LinearScan::CheckLastUses(BasicBlock* block)
                 if (extendLifetimes())
                 {
                     // NOTE: this is a bit of a hack. When extending lifetimes, the "last use" bit will be clear.
-                    // This bit, however, would normally be used during resolveLocalRef to set the value of
+                    // This bit, however, would normally be used during ResolveLocalRef to set the value of
                     // LastUse on the node for a ref position. If this bit is not set correctly even when
                     // extending lifetimes, the code generator will assert as it expects to have accurate last
                     // use information. To avoid these asserts, set the LastUse bit here.

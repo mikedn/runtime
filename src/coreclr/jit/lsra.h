@@ -292,7 +292,7 @@ private:
     // Insert a copy in the case where a value node must be moved to a different
     // register at the point of use, or it is reloaded to a different register
     // than the one it was spilled from
-    void insertCopyOrReload(BasicBlock* block, GenTree* value, unsigned regIndex, RefPosition* refPosition);
+    void InsertCopyOrReload(BasicBlock* block, GenTree* value, unsigned regIndex, RefPosition* refPosition);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     // Save the upper half of a vector that lives in a callee-save register at the point of a call.
@@ -326,9 +326,9 @@ private:
                              RegNum fromReg DEBUG_ARG(ResolveType resolveType));
 #endif
 
-    void handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet);
-    void resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet);
-    void resolveEdges();
+    void HandleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet);
+    void ResolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet);
+    void ResolveEdges();
 
     // Keep track of how many temp locations we'll need for spill
     void updateMaxSpill(RefPosition* refPosition);
@@ -612,8 +612,8 @@ private:
     void UnassignIntervalBlockStart(RegRecord& reg, VarToRegMap inVarToRegMap);
 
     // Record variable locations at start/end of block
-    void processBlockStartLocations(BasicBlock* current, bool resolveRegistersPass);
-    void processBlockEndLocations(BasicBlock* current);
+    void ProcessBlockStartLocations(BasicBlock* current, bool resolveRegistersPass);
+    void ProcessBlockEndLocations(BasicBlock* current);
 
 #ifdef TARGET_ARM
     bool IsSecondHalfReg(RegRecord& reg, Interval* interval);
@@ -675,9 +675,9 @@ private:
     void FreeRegister(RegRecord& reg);
     void FreeRegisters(RegSet regsToFree);
 
-    void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg);
-    void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
-    void resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition);
+    void WriteLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg);
+    void ClearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
+    void ResolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition);
 
     void InsertRegCopy(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg, RegNum fromReg);
     void InsertRegLoad(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg);
@@ -718,7 +718,7 @@ private:
         return physRegs[regNum];
     }
 
-    weight_t getWeight(const RefPosition* refPos) const;
+    weight_t GetWeight(const RefPosition* refPos) const;
 
     RegNum AllocateReg(Interval* current, RefPosition& refPosition DEBUG_ARG(RegisterScore* registerScore));
     RegNum AssignCopyReg(RefPosition& refPosition);
@@ -733,8 +733,8 @@ private:
     void UnassignPhysRegRecentRef(RegRecord& reg);
     void UnassignPhysRegNoSpill(RegRecord& reg);
 
-    void setIntervalAsSpilled(Interval* interval);
-    void setIntervalAsSplit(Interval* interval);
+    void SetIntervalAsSpilled(Interval* interval);
+    void SetIntervalAsSplit(Interval* interval);
     void spillInterval(Interval* interval, RefPosition* fromRefPosition DEBUGARG(RefPosition* toRefPosition));
 
     void SpillGCRefs(const RefPosition& killRefPosition);
@@ -761,15 +761,15 @@ private:
 
     SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap();
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
-    void initVarRegMaps();
+    void InitVarRegMaps();
     void setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg);
-    VarToRegMap getInVarToRegMap(BasicBlock* block) const;
-    VarToRegMap getInVarToRegMap(unsigned bbNum) const;
-    VarToRegMap getOutVarToRegMap(BasicBlock* block) const;
+    VarToRegMap GetInVarToRegMap(BasicBlock* block) const;
+    VarToRegMap GetInVarToRegMap(unsigned bbNum) const;
+    VarToRegMap GetOutVarToRegMap(BasicBlock* block) const;
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, RegNum reg);
     RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex) const;
 
-    RegNum getTempRegForResolution(BasicBlock* fromBlock, BasicBlock* toBlock, var_types type);
+    RegNum GetTempRegForResolution(BasicBlock* fromBlock, BasicBlock* toBlock, var_types type);
 
 #ifdef DEBUG
     void dumpVarToRegMap(VarToRegMap map) const;
@@ -1082,10 +1082,10 @@ private:
     }
 
     void ClearNextIntervalRef(RegNum reg, var_types regType);
-    void UpdateNextIntervalRef(RegNum reg, Interval* interval);
+    void SetNextIntervalRef(RegNum reg, Interval* interval);
 
     void ClearSpillCost(RegRecord& reg, var_types regType) const;
-    void UpdateSpillCost(RegRecord& reg, Interval* interval) const;
+    void SetSpillCost(RegRecord& reg, Interval* interval) const;
 
     RegSet m_RegistersWithConstants;
 
@@ -1163,7 +1163,7 @@ private:
     // This method should not be used and is here to retain old behavior.
     // It should be replaced by IsRegAvailable().
     // See comment in AllocateReg().
-    bool IsFree(RegRecord& reg) const;
+    bool IsFree(const RegRecord& reg) const;
 
     // When Def RefPositions are built for a node, their RefDefListNode
     // (GenTree* to RefPosition* mapping) is placed in the defList.

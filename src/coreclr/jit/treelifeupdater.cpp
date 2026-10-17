@@ -84,7 +84,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                 if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
                 {
                     // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
-                    // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
+                    // "DbgInfoVarRange" which should change to be according "GetInVarToRegMap"
                     JITDUMP("\n");
                     UpdateRange(codeGen, lcl);
                 }
