@@ -502,7 +502,7 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
     case NI_SSE2_MaskMove:
         // maskmovdqu uses edi as the implicit address register.
         // Although it is set as the srcCandidate on the address, if there is also a fixed
-        // assignment for the definition of the address, resolveConflictingDefAndUse() may
+        // assignment for the definition of the address, ResolveConflictingDefAndUse() may
         // change the register assignment on the def or use of a node temp (SDSU) when there
         // is a conflict, and the FixedRef on edi won't be sufficient to ensure that another
         // Interval will not be allocated there.

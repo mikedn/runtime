@@ -802,8 +802,8 @@ class RegisterSelection
     LsraLocation relatedLastLocation;
     bool         preferCalleeSave;
 
-    RefPosition* rangeEndRefPosition;
     LsraLocation lastLocation;
+    RefPosition* rangeEndRefPosition;
 
     RegSet callerCalleePrefs;
     RegSet prevRegBit;
@@ -843,15 +843,15 @@ public:
 
     // If the register is from unassigned set such that it was not already
     // assigned to the current interval
-    bool foundUnassignedReg() const
+    bool FoundUnassignedReg() const
     {
         assert(found && LinearScan::isSingleRegister(foundRegBit));
         bool isUnassignedReg = (foundRegBit & unassignedSet) != RBM_NONE;
-        return isUnassignedReg && !isAlreadyAssigned();
+        return isUnassignedReg && !IsAlreadyAssigned();
     }
 
     // Did register selector decide to spill this interval
-    bool isSpilling() const
+    bool IsSpilling() const
     {
         return (foundRegBit & freeCandidates) == RBM_NONE;
     }
@@ -864,7 +864,7 @@ public:
     }
 
 #ifdef DEBUG
-    bool isConstAvailable() const
+    bool IsConstAvailable() const
     {
         return (score & CONST_AVAILABLE) != 0;
     }
@@ -877,13 +877,13 @@ public:
 
 private:
     // If the selected register is already assigned to the current internal
-    bool isAlreadyAssigned() const
+    bool IsAlreadyAssigned() const
     {
         assert(found && LinearScan::isSingleRegister(candidates));
         return (prevRegBit & preferences) == foundRegBit;
     }
 
-    RegSet getFreeCandidates(RegSet candidates, var_types regType) const
+    RegSet GetFreeCandidates(RegSet candidates, var_types regType) const
     {
         RegSet available = linearScan.m_AvailableRegs;
         RegSet result    = candidates & available;
@@ -899,10 +899,10 @@ private:
         return result;
     }
 
-    bool applySelection(RegisterScore selectionScore, RegSet selectionCandidates);
-    bool applySingleRegSelection(RegisterScore selectionScore, RegSet selectionCandidate);
-    void calculateCoversSets();
-    void resolveConflictingDefAndUse();
+    bool ApplySelection(RegisterScore selectionScore, RegSet selectionCandidates);
+    bool ApplySingleRegSelection(RegisterScore selectionScore, RegSet selectionCandidate);
+    void CalculateCoversSets();
+    void ResolveConflictingDefAndUse();
     void Reset(Interval* interval, RefPosition& refPosition);
 
 #define REG_SEL_DEF(name, ...) bool try_##name();
@@ -961,7 +961,7 @@ RegNum LinearScan::AllocateReg(Interval*    currentInterval,
 
     if ((assignedInterval != currentInterval) && foundRegRecord.IsAssigned(ARM_ONLY(currentInterval->registerType)))
     {
-        if (regSelector.isSpilling())
+        if (regSelector.IsSpilling())
         {
 #ifdef TARGET_ARM
             if (currentInterval->registerType == TYP_DOUBLE)
@@ -989,7 +989,7 @@ RegNum LinearScan::AllocateReg(Interval*    currentInterval,
             // the current interval to a previous assignment, we don't remember the previous interval.
             // Note that we need to compute this condition before calling UnassignPhysReg, which wil reset
             // assignedInterval->physReg.
-            bool wasAssigned = regSelector.foundUnassignedReg() && (assignedInterval != nullptr) &&
+            bool wasAssigned = regSelector.FoundUnassignedReg() && (assignedInterval != nullptr) &&
                                (assignedInterval->physReg == foundReg);
 
             UnassignPhysReg(foundRegRecord ARM_ARG(currentInterval->registerType));
@@ -1005,7 +1005,7 @@ RegNum LinearScan::AllocateReg(Interval*    currentInterval,
             }
             else
             {
-                assert(!regSelector.isConstAvailable());
+                assert(!regSelector.IsConstAvailable());
             }
         }
     }
@@ -1681,8 +1681,8 @@ void LinearScan::SpillGCRefs(const RefPosition& killRefPosition)
     {
         RegSet nextRegBit = genFindLowestBit(candidateRegs);
         candidateRegs &= ~nextRegBit;
+        RegNum nextReg = genRegNumFromMask(nextRegBit);
 
-        RegNum     nextReg          = genRegNumFromMask(nextRegBit);
         RegRecord& regRecord        = GetRegRecord(nextReg);
         Interval*  assignedInterval = regRecord.assignedInterval;
 
@@ -2338,9 +2338,9 @@ void LinearScan::FreeRegisters(RegSet regsToFree)
     {
         RegSet nextRegBit = genFindLowestBit(regsToFree);
         regsToFree &= ~nextRegBit;
+        RegNum nextReg = genRegNumFromMask(nextRegBit);
 
-        RegNum     nextReg = genRegNumFromMask(nextRegBit);
-        RegRecord& reg     = GetRegRecord(nextReg);
+        RegRecord& reg = GetRegRecord(nextReg);
 
 #ifdef TARGET_ARM
         if (reg.assignedInterval != nullptr && (reg.assignedInterval->registerType == TYP_DOUBLE))
@@ -2459,7 +2459,8 @@ void LinearScan::AllocateRegisters()
         {
             RegSet nextRegBit = genFindLowestBit(tempRegsToMakeInactive);
             tempRegsToMakeInactive &= ~nextRegBit;
-            RegNum     nextReg   = genRegNumFromMask(nextRegBit);
+            RegNum nextReg = genRegNumFromMask(nextRegBit);
+
             RegRecord& regRecord = GetRegRecord(nextReg);
             ClearSpillCost(regRecord, TYP_INT);
             MakeRegisterInactive(regRecord);
@@ -8082,7 +8083,9 @@ void LinearScan::VerifyFinalAllocation()
             {
                 RegSet nextRegBit = genFindLowestBit(candidateRegs);
                 candidateRegs &= ~nextRegBit;
-                Interval* assignedInterval = GetRegRecord(genRegNumFromMask(nextRegBit)).assignedInterval;
+                RegNum nextReg = genRegNumFromMask(nextRegBit);
+
+                Interval* assignedInterval = GetRegRecord(nextReg).assignedInterval;
                 assert(assignedInterval == nullptr || !varTypeIsGC(assignedInterval->registerType));
             }
             break;
@@ -8402,16 +8405,20 @@ void RegisterSelection::Reset(Interval* interval, RefPosition& refPos)
     currentInterval = interval;
     refPosition     = &refPos;
 
-    regType         = currentInterval->registerType;
     currentLocation = refPosition->nodeLocation;
     nextRefPos      = refPosition->nextRefPosition;
     candidates      = refPosition->registerAssignment;
-    preferences     = currentInterval->registerPreferences;
+
+    regType          = interval->registerType;
+    preferences      = interval->registerPreferences;
+    preferCalleeSave = interval->preferCalleeSave;
+    lastRefPosition  = interval->lastRefPosition;
+    prevRegRec       = interval->assignedReg;
 
     // This is not actually a preference, it's merely to track the local that pass-through is using.
-    if (!currentInterval->isPassThrough && currentInterval->relatedInterval != nullptr)
+    if (!interval->isPassThrough && interval->relatedInterval != nullptr)
     {
-        relatedInterval    = currentInterval->relatedInterval;
+        relatedInterval    = interval->relatedInterval;
         relatedPreferences = relatedInterval->getCurrentPreferences();
     }
     else
@@ -8422,9 +8429,6 @@ void RegisterSelection::Reset(Interval* interval, RefPosition& refPos)
 
     rangeEndLocation    = refPosition->getRangeEndLocation();
     relatedLastLocation = rangeEndLocation;
-    preferCalleeSave    = currentInterval->preferCalleeSave;
-    lastRefPosition     = currentInterval->lastRefPosition;
-    prevRegRec          = currentInterval->assignedReg;
 
     rangeEndRefPosition  = nullptr;
     lastLocation         = MinLocation;
@@ -8454,7 +8458,7 @@ void RegisterSelection::Reset(Interval* interval, RefPosition& refPos)
 //  Return Values:
 //      'true' if there was a single register candidate available after the heuristic is applied.
 //
-bool RegisterSelection::applySelection(RegisterScore selectionScore, RegSet selectionCandidates)
+bool RegisterSelection::ApplySelection(RegisterScore selectionScore, RegSet selectionCandidates)
 {
     if (RegSet newCandidates = candidates & selectionCandidates)
     {
@@ -8475,7 +8479,7 @@ bool RegisterSelection::applySelection(RegisterScore selectionScore, RegSet sele
 //  Return Values:
 //      'true' if there was a single register candidate available after the heuristic is applied.
 //
-bool RegisterSelection::applySingleRegSelection(RegisterScore selectionScore, RegSet selectionCandidate)
+bool RegisterSelection::ApplySingleRegSelection(RegisterScore selectionScore, RegSet selectionCandidate)
 {
     assert(LinearScan::isSingleRegister(selectionCandidate));
 
@@ -8490,74 +8494,74 @@ bool RegisterSelection::applySingleRegSelection(RegisterScore selectionScore, Re
 
 bool RegisterSelection::try_FREE()
 {
-    return (freeCandidates != RBM_NONE) && applySelection(FREE, freeCandidates);
+    return (freeCandidates != RBM_NONE) && ApplySelection(FREE, freeCandidates);
 }
 
 bool RegisterSelection::try_CONST_AVAILABLE()
 {
     // Note: we always need to define the 'matchingConstants' set.
     return (freeCandidates != RBM_NONE) && currentInterval->isConstant && RefTypeIsDef(refPosition->refType) &&
-           applySelection(CONST_AVAILABLE, matchingConstants);
+           ApplySelection(CONST_AVAILABLE, matchingConstants);
 }
 
 bool RegisterSelection::try_THIS_ASSIGNED()
 {
     return (freeCandidates != RBM_NONE) && (prevRegRec != nullptr) &&
-           applySelection(THIS_ASSIGNED, freeCandidates & preferences & prevRegBit);
+           ApplySelection(THIS_ASSIGNED, freeCandidates & preferences & prevRegBit);
 }
 
 bool RegisterSelection::try_COVERS()
 {
-    calculateCoversSets();
+    CalculateCoversSets();
 
-    return applySelection(COVERS, coversSet & preferenceSet);
+    return ApplySelection(COVERS, coversSet & preferenceSet);
 }
 
 bool RegisterSelection::try_OWN_PREFERENCE()
 {
 #ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
-    calculateCoversSets();
+    CalculateCoversSets();
 #endif
 
     // Note: 'preferenceSet' already includes only freeCandidates.
-    return applySelection(OWN_PREFERENCE, preferenceSet & freeCandidates);
+    return ApplySelection(OWN_PREFERENCE, preferenceSet & freeCandidates);
 }
 
 bool RegisterSelection::try_COVERS_RELATED()
 {
 #ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
-    calculateCoversSets();
+    CalculateCoversSets();
 #endif
 
-    return applySelection(COVERS_RELATED, (coversRelatedSet & freeCandidates));
+    return ApplySelection(COVERS_RELATED, (coversRelatedSet & freeCandidates));
 }
 
 bool RegisterSelection::try_RELATED_PREFERENCE()
 {
-    return applySelection(RELATED_PREFERENCE, relatedPreferences & freeCandidates);
+    return ApplySelection(RELATED_PREFERENCE, relatedPreferences & freeCandidates);
 }
 
 bool RegisterSelection::try_CALLER_CALLEE()
 {
-    return applySelection(CALLER_CALLEE, callerCalleePrefs & freeCandidates);
+    return ApplySelection(CALLER_CALLEE, callerCalleePrefs & freeCandidates);
 }
 
 bool RegisterSelection::try_UNASSIGNED()
 {
 #ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
-    calculateCoversSets();
+    CalculateCoversSets();
 #endif
 
-    return applySelection(UNASSIGNED, unassignedSet);
+    return ApplySelection(UNASSIGNED, unassignedSet);
 }
 
 bool RegisterSelection::try_COVERS_FULL()
 {
 #ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
-    calculateCoversSets();
+    CalculateCoversSets();
 #endif
 
-    return applySelection(COVERS_FULL, (coversFullSet & freeCandidates));
+    return ApplySelection(COVERS_FULL, (coversFullSet & freeCandidates));
 }
 
 bool RegisterSelection::try_BEST_FIT()
@@ -8629,7 +8633,7 @@ bool RegisterSelection::try_BEST_FIT()
     }
 
     assert(bestFitSet != RBM_NONE);
-    return applySelection(BEST_FIT, bestFitSet);
+    return ApplySelection(BEST_FIT, bestFitSet);
 }
 
 bool RegisterSelection::try_IS_PREV_REG()
@@ -8637,7 +8641,7 @@ bool RegisterSelection::try_IS_PREV_REG()
     // Note: Oddly, the previous heuristics only considered this if it covered the range.
     // TODO: Check if Only applies if we have freeCandidates.
 
-    return (prevRegRec != nullptr) && ((score & COVERS_FULL) != 0) && applySingleRegSelection(IS_PREV_REG, prevRegBit);
+    return (prevRegRec != nullptr) && ((score & COVERS_FULL) != 0) && ApplySingleRegSelection(IS_PREV_REG, prevRegBit);
 }
 
 static const struct RegOrder
@@ -8694,7 +8698,7 @@ bool RegisterSelection::try_REG_ORDER()
     }
 
     assert(lowestRegOrderBit != RBM_NONE);
-    return applySingleRegSelection(REG_ORDER, lowestRegOrderBit);
+    return ApplySingleRegSelection(REG_ORDER, lowestRegOrderBit);
 }
 
 bool RegisterSelection::try_SPILL_COST()
@@ -8714,8 +8718,8 @@ bool RegisterSelection::try_SPILL_COST()
     {
         RegSet spillCandidateBit = genFindLowestBit(spillCandidates);
         spillCandidates &= ~spillCandidateBit;
+        RegNum spillCandidateRegNum = genRegNumFromMask(spillCandidateBit);
 
-        RegNum     spillCandidateRegNum    = genRegNumFromMask(spillCandidateBit);
         RegRecord& spillCandidateRegRecord = linearScan.GetRegRecord(spillCandidateRegNum);
         Interval*  assignedInterval        = spillCandidateRegRecord.assignedInterval;
 
@@ -8787,7 +8791,7 @@ bool RegisterSelection::try_SPILL_COST()
 
     // We must have at least one with the lowest spill cost.
     assert(lowestCostSpillSet != RBM_NONE);
-    return applySelection(SPILL_COST, lowestCostSpillSet);
+    return ApplySelection(SPILL_COST, lowestCostSpillSet);
 }
 
 bool RegisterSelection::try_FAR_NEXT_REF()
@@ -8802,8 +8806,7 @@ bool RegisterSelection::try_FAR_NEXT_REF()
         RegNum farthestCandidateRegNum = genRegNumFromMask(farthestCandidateBit);
 
         // Find the next RefPosition of the register.
-        LsraLocation nextIntervalLocation =
-            linearScan.GetNextIntervalRef(farthestCandidateRegNum, currentInterval->registerType);
+        LsraLocation nextIntervalLocation = linearScan.GetNextIntervalRef(farthestCandidateRegNum, regType);
         LsraLocation nextPhysRefLocation =
             Min(linearScan.GetNextFixedRef(farthestCandidateRegNum), nextIntervalLocation);
 
@@ -8820,7 +8823,7 @@ bool RegisterSelection::try_FAR_NEXT_REF()
 
     // We must have at least one with the lowest spill cost.
     assert(farthestSet != RBM_NONE);
-    return applySelection(FAR_NEXT_REF, farthestSet);
+    return ApplySelection(FAR_NEXT_REF, farthestSet);
 }
 
 bool RegisterSelection::try_PREV_REG_OPT()
@@ -8831,8 +8834,9 @@ bool RegisterSelection::try_PREV_REG_OPT()
     {
         RegSet prevRegOptCandidateBit = genFindLowestBit(prevRegOptCandidates);
         prevRegOptCandidates &= ~prevRegOptCandidateBit;
-        RegNum     prevRegOptCandidateRegNum = genRegNumFromMask(prevRegOptCandidateBit);
-        RegRecord& prevRegOptCandidateReg    = linearScan.GetRegRecord(prevRegOptCandidateRegNum);
+        RegNum prevRegOptCandidateRegNum = genRegNumFromMask(prevRegOptCandidateBit);
+
+        RegRecord& prevRegOptCandidateReg = linearScan.GetRegRecord(prevRegOptCandidateRegNum);
 
         Interval* assignedInterval   = prevRegOptCandidateReg.assignedInterval;
         bool      foundPrevRegOptReg = true;
@@ -8895,15 +8899,15 @@ bool RegisterSelection::try_PREV_REG_OPT()
 #endif
     }
 
-    return applySelection(PREV_REG_OPT, prevRegOptSet);
+    return ApplySelection(PREV_REG_OPT, prevRegOptSet);
 }
 
 bool RegisterSelection::try_REG_NUM()
 {
-    return applySingleRegSelection(REG_NUM, genFindLowestBit(candidates));
+    return ApplySingleRegSelection(REG_NUM, genFindLowestBit(candidates));
 }
 
-void RegisterSelection::calculateCoversSets()
+void RegisterSelection::CalculateCoversSets()
 {
     if (freeCandidates == RBM_NONE || coversSetsCalculated)
     {
@@ -9020,7 +9024,7 @@ void RegisterSelection::calculateCoversSets()
 // the interface to this method a bit to make that work (e.g. returning a candidate set to use, but
 // leaving the registerAssignment as-is on the def, so that if we find that we need to spill anyway
 // we can use the fixed-reg on the def.
-void RegisterSelection::resolveConflictingDefAndUse()
+void RegisterSelection::ResolveConflictingDefAndUse()
 {
     assert(!currentInterval->isLocalVar);
     assert(RefTypeIsDef(refPosition->refType));
@@ -9097,6 +9101,7 @@ void RegisterSelection::resolveConflictingDefAndUse()
                     useRegConflict = true;
                 }
             }
+
             if (!useRegConflict)
             {
                 // This is case #2. Use the useRegAssignment
@@ -9134,7 +9139,7 @@ void RegisterSelection::resolveConflictingDefAndUse()
     {
         // This is case #5.
         INDEBUG(linearScan.DumpAllocationEvent(LinearScan::LSRA_EVENT_DEFUSE_CASE5, currentInterval));
-        defRefPosition->registerAssignment = linearScan.allRegs(currentInterval->registerType);
+        defRefPosition->registerAssignment = linearScan.allRegs(regType);
         defRefPosition->isFixedRegRef      = false;
 
         return;
@@ -9155,8 +9160,9 @@ RegSet LinearScan::GetMatchingConstants(RegSet mask, Interval* interval, RefPosi
     {
         RegSet candidateBit = genFindLowestBit(candidates);
         candidates &= ~candidateBit;
+        RegNum candidateReg = genRegNumFromMask(candidateBit);
 
-        RegRecord& reg = GetRegRecord(genRegNumFromMask(candidateBit));
+        RegRecord& reg = GetRegRecord(candidateReg);
 
         // TODO-MIKE-Review: This stuff is kind of dubious. For one thing, the reg assigned interval
         // should already be constant, because we're only looking at "RegistersWithConstants". And on
@@ -9242,7 +9248,7 @@ RegSet RegisterSelection::Select(Interval* currentInterval, RefPosition& refPosi
     {
         if (currentInterval->hasConflictingDefUse)
         {
-            resolveConflictingDefAndUse();
+            ResolveConflictingDefAndUse();
             candidates = refPosition.registerAssignment;
         }
         // Otherwise, check for the case of a fixed-reg def of a reg that will be killed before the
@@ -9452,7 +9458,8 @@ RegSet RegisterSelection::Select(Interval* currentInterval, RefPosition& refPosi
         {
             RegSet checkConflictBit = genFindLowestBit(checkConflictMask);
             checkConflictMask &= ~checkConflictBit;
-            RegNum       checkConflictReg      = genRegNumFromMask(checkConflictBit);
+            RegNum checkConflictReg = genRegNumFromMask(checkConflictBit);
+
             LsraLocation checkConflictLocation = linearScan.GetNextFixedRef(checkConflictReg);
 
             if ((checkConflictLocation == currentLocation) ||
@@ -9494,7 +9501,7 @@ RegSet RegisterSelection::Select(Interval* currentInterval, RefPosition& refPosi
         return RBM_NONE;
     }
 
-    freeCandidates = getFreeCandidates(candidates, regType);
+    freeCandidates = GetFreeCandidates(candidates, regType);
 
     // If no free candidates, then double check if refPosition is an actual ref.
     if (freeCandidates == RBM_NONE)
@@ -9541,7 +9548,7 @@ Selection_Done:
         return RBM_NONE;
     }
 
-    calculateCoversSets();
+    CalculateCoversSets();
 
     assert(found && LinearScan::isSingleRegister(candidates));
     foundRegBit = candidates;

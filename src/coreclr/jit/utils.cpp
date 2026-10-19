@@ -1668,7 +1668,7 @@ double FloatingPointUtils::round(double x)
 
     // This is based on the 'Berkeley SoftFloat Release 3e' algorithm
 
-    uint64_t bits     = *reinterpret_cast<uint64_t*>(&x);
+    uint64_t bits     = jitstd::bit_cast<uint64_t>(x);
     int32_t  exponent = (int32_t)(bits >> 52) & 0x07FF;
 
     if (exponent <= 0x03FE)
@@ -1724,7 +1724,7 @@ double FloatingPointUtils::round(double x)
         bits &= ~roundBitsMask;
     }
 
-    return *reinterpret_cast<double*>(&bits);
+    return jitstd::bit_cast<double>(bits);
 }
 
 // Windows x86 and Windows ARM/ARM64 may not define _copysignf() but they do define _copysign().
@@ -1750,7 +1750,7 @@ float FloatingPointUtils::round(float x)
 
     // This is based on the 'Berkeley SoftFloat Release 3e' algorithm
 
-    uint32_t bits     = *reinterpret_cast<uint32_t*>(&x);
+    uint32_t bits     = jitstd::bit_cast<uint32_t>(x);
     int32_t  exponent = (int32_t)(bits >> 23) & 0xFF;
 
     if (exponent <= 0x7E)
@@ -1806,19 +1806,19 @@ float FloatingPointUtils::round(float x)
         bits &= ~roundBitsMask;
     }
 
-    return *reinterpret_cast<float*>(&bits);
+    return jitstd::bit_cast<float>(bits);
 }
 
 bool FloatingPointUtils::isNormal(double x)
 {
-    int64_t bits = reinterpret_cast<int64_t&>(x);
+    int64_t bits = jitstd::bit_cast<int64_t>(x);
     bits &= 0x7FFFFFFFFFFFFFFF;
     return (bits < 0x7FF0000000000000) && (bits != 0) && ((bits & 0x7FF0000000000000) != 0);
 }
 
 bool FloatingPointUtils::isNormal(float x)
 {
-    int32_t bits = reinterpret_cast<int32_t&>(x);
+    int32_t bits = jitstd::bit_cast<int32_t>(x);
     bits &= 0x7FFFFFFF;
     return (bits < 0x7F800000) && (bits != 0) && ((bits & 0x7F800000) != 0);
 }
@@ -1826,16 +1826,12 @@ bool FloatingPointUtils::isNormal(float x)
 //------------------------------------------------------------------------
 // infinite_float: return an infinite float value
 //
-// Returns:
-//    Infinite float value.
-//
 // Notes:
 //    This is the predefined constant HUGE_VALF on many platforms.
 //
 float FloatingPointUtils::infinite_float()
 {
-    int32_t bits = 0x7F800000;
-    return *reinterpret_cast<float*>(&bits);
+    return jitstd::bit_cast<float>(0x7F800000u);
 }
 
 //------------------------------------------------------------------------
@@ -1856,7 +1852,7 @@ bool FloatingPointUtils::hasPreciseReciprocal(double x)
         return false;
     }
 
-    uint64_t i        = reinterpret_cast<uint64_t&>(x);
+    uint64_t i        = jitstd::bit_cast<uint64_t>(x);
     uint64_t exponent = (i >> 52) & 0x7FFul;   // 0x7FF mask drops the sign bit
     uint64_t mantissa = i & 0xFFFFFFFFFFFFFul; // 0xFFFFFFFFFFFFF mask drops the sign + exponent bits
     return mantissa == 0 && exponent != 0 && exponent != 1023;
@@ -1880,7 +1876,7 @@ bool FloatingPointUtils::hasPreciseReciprocal(float x)
         return false;
     }
 
-    uint32_t i        = reinterpret_cast<uint32_t&>(x);
+    uint32_t i        = jitstd::bit_cast<uint32_t>(x);
     uint32_t exponent = (i >> 23) & 0xFFu; // 0xFF mask drops the sign bit
     uint32_t mantissa = i & 0x7FFFFFu;     // 0x7FFFFF mask drops the sign + exponent bits
     return mantissa == 0 && exponent != 0 && exponent != 127;
