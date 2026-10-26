@@ -1588,7 +1588,7 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
                 imm |= 0x4000;
             }
 
-            emitIns_R(ins, attr, genRegNumFromMask(imm));
+            emitIns_R(ins, attr, genGetLowestReg(imm));
             return;
         }
 

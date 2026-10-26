@@ -59,9 +59,8 @@ public:
 #ifdef TARGET_ARM
         if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE))
         {
-            regMaskTP regMask = genFindLowestBit(floatAlignPadMask);
-            floatAlignPadMask &= ~regMask;
-            unsigned regIndex = genRegNumFromMask(regMask) - REG_F0;
+            unsigned regIndex = genGetLowestReg(floatAlignPadMask) - REG_F0;
+            floatAlignPadMask = genRemoveLowestBit(floatAlignPadMask);
             assert(regIndex < MAX_FLOAT_REG_ARG);
 
             return regIndex;

@@ -8,6 +8,7 @@
 #include "jitpch.h"
 #include "opcode.h"
 #include "jitstd/array.h"
+#include "cycletimer.h"
 
 const char* Target::PlatformName()
 {
@@ -88,9 +89,9 @@ const char* varTypeName(var_types type)
     return type < _countof(varTypeNames) ? varTypeNames[type] : "TYP_???";
 }
 
-regMaskTP genRegMask(RegNum reg)
+RegSet genRegMask(RegNum reg)
 {
-    static const regMaskTP regMasks[REG_NA + 1]{
+    static const RegSet regMasks[REG_NA + 1]{
 #define REGDEF(name, ...) RBM_##name,
 #include "register.h"
 #ifdef TARGET_ARM64
@@ -107,7 +108,7 @@ regMaskTP genRegMask(RegNum reg)
     // (L1 latency on sandy bridge is 4 cycles for [base] and 5 for [base + index*c] )
     // the reason this is AMD-only is because the x86 BE will try to get reg masks for REG_STK
     // and the result needs to be zero.
-    regMaskTP result = RegSet(1) << reg;
+    RegSet result = RegSet(1) << reg;
     assert(result == regMasks[reg]);
     return result;
 #else
@@ -392,10 +393,10 @@ DECODE_OPCODE:
 
     default:
     {
-        int64_t iOp;
-        double  dOp;
-        int     jOp;
-        DWORD   jOp2;
+        int64_t  iOp;
+        double   dOp;
+        int      jOp;
+        uint32_t jOp2;
 
         switch (argKind)
         {

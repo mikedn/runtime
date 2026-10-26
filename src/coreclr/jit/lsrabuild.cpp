@@ -314,7 +314,7 @@ RefPosition* LinearScan::newRefPosition(
 
     if (insertFixedRef)
     {
-        NewRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
+        NewRegRefPosition(genGetLowestReg(mask), location, RefTypeFixedReg);
         assert((allRegs(interval->registerType) & mask) != RBM_NONE);
     }
 
@@ -1112,7 +1112,7 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
             // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
             // {eax,edx} are getting killed before the def of idiv. For this reason, minRegCount for
             // the use position of v02 also needs to take into account the kill set of its consuming node.
-            if (regMaskTP killMask = getKillSetForNode(node))
+            if (RegSet killMask = getKillSetForNode(node))
             {
                 minRegCountForRef += genCountBits(killMask);
             }
@@ -1127,8 +1127,8 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
         if (rp->IsActualRef() && doReverseCallerCallee())
         {
             Interval* interval       = rp->getInterval();
-            regMaskTP oldAssignment  = rp->registerAssignment;
-            regMaskTP calleeSaveMask = calleeSaveRegs(interval->registerType);
+            RegSet    oldAssignment  = rp->registerAssignment;
+            RegSet    calleeSaveMask = calleeSaveRegs(interval->registerType);
             rp->registerAssignment   = getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
 
             if ((rp->registerAssignment != oldAssignment) && (rp->refType == RefTypeUse) && !interval->isLocalVar)

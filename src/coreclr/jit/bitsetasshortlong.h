@@ -402,15 +402,8 @@ public:
         {
             for (;;)
             {
-                DWORD nextBit;
-                bool  hasBit;
-#ifdef HOST_64BIT
-                static_assert_no_msg(sizeof(Word) == 8);
-                hasBit = BitScanForward64(&nextBit, m_bits);
-#else
-                static_assert_no_msg(sizeof(Word) == 4);
-                hasBit = BitScanForward(&nextBit, m_bits);
-#endif
+                unsigned hasBit;
+                unsigned nextBit = genLowestBitIndex(m_bits, &hasBit);
 
                 // If there's a bit, doesn't matter if we're short or long.
                 if (hasBit)
@@ -495,20 +488,8 @@ public:
                 word = op(s1[wordIndex], s2[wordIndex]);
             }
 
-            DWORD nextBit;
-#ifdef HOST_64BIT
-            static_assert_no_msg(sizeof(Word) == 8);
-            if (!BitScanForward64(&nextBit, word))
-#else
-            static_assert_no_msg(sizeof(Word) == 4);
-            if (!BitScanForward(&nextBit, word))
-#endif
-            {
-                return false;
-            }
-
-            bitIndex = wordIndex * WordBitSize + nextBit;
-            word &= ~(Word(1) << nextBit);
+            bitIndex = wordIndex * WordBitSize + genLowestBitIndex(word);
+            word     = genRemoveLowestBit(word);
 
             return true;
         }

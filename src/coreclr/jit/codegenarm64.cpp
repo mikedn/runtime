@@ -390,24 +390,24 @@ void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, reg
 // regsMask - a mask of registers for prolog/epilog generation;
 // regStack - a regStack instance to build the stack in, used to save temp copyings.
 //
-void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* regStack)
+void CodeGen::BuildRegPairsStack(RegSet regsMask, ArrayStack<RegPair>& regStack)
 {
-    assert(regStack->Empty());
+    assert(regStack.Empty());
 
     unsigned regsCount = genCountBits(regsMask);
 
     while (regsMask != RBM_NONE)
     {
-        regMaskTP reg1Mask = genFindLowestBit(regsMask);
-        regNumber reg1     = genRegNumFromMask(reg1Mask);
-        regsMask &= ~reg1Mask;
+        RegNum reg1 = genGetLowestReg(regsMask);
+        regsMask    = genRemoveLowestBit(regsMask);
         regsCount -= 1;
 
         bool isPairSave = false;
+
         if (regsCount > 0)
         {
-            regMaskTP reg2Mask = genFindLowestBit(regsMask);
-            regNumber reg2     = genRegNumFromMask(reg2Mask);
+            RegNum reg2 = genGetLowestReg(regsMask);
+
             if (reg2 == REG_NEXT(reg1))
             {
                 // The JIT doesn't allow saving pair (R28,FP), even though the
@@ -423,22 +423,24 @@ void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* reg
                     {
                         isPairSave = true;
 
-                        regsMask &= ~reg2Mask;
+                        regsMask = genRemoveLowestBit(regsMask);
                         regsCount -= 1;
 
-                        regStack->Push(RegPair(reg1, reg2));
+                        regStack.Push(RegPair(reg1, reg2));
                     }
                 }
             }
         }
+
         if (!isPairSave)
         {
-            regStack->Push(RegPair(reg1));
+            regStack.Push(RegPair(reg1));
         }
     }
-    assert(regsCount == 0 && regsMask == RBM_NONE);
 
-    genSetUseSaveNextPairs(regStack);
+    assert((regsCount == 0) && (regsMask == RBM_NONE));
+
+    SetUseSaveNextPairs(regStack);
 }
 
 // Set useSaveNextPair for each RegPair on the stack which unwind info can be encoded as
@@ -451,12 +453,12 @@ void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* reg
 //
 // regStack - a regStack instance to set useSaveNextPair.
 //
-void CodeGen::genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack)
+void CodeGen::SetUseSaveNextPairs(ArrayStack<RegPair>& regStack)
 {
-    for (unsigned i = 1; i < regStack->Size(); ++i)
+    for (unsigned i = 1; i < regStack.Size(); ++i)
     {
-        RegPair& curr = regStack->BottomRef(i);
-        RegPair  prev = regStack->Bottom(i - 1);
+        RegPair& curr = regStack.BottomRef(i);
+        RegPair  prev = regStack.Bottom(i - 1);
 
         if (prev.reg2 == REG_NA || curr.reg2 == REG_NA)
         {
@@ -474,6 +476,7 @@ void CodeGen::genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack)
             // but it is very rare case and it would require superfluous changes in the unwinder.
             continue;
         }
+
         curr.useSaveNextPair = true;
     }
 }
@@ -505,7 +508,7 @@ void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, i
     const int slotSize = genGetSlotSizeForRegsInMask(regsMask);
 
     ArrayStack<RegPair> regStack(compiler->getAllocator(CMK_Codegen));
-    genBuildRegPairsStack(regsMask, &regStack);
+    BuildRegPairsStack(regsMask, regStack);
 
     for (unsigned i = 0; i < regStack.Size(); ++i)
     {
@@ -562,12 +565,13 @@ void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, i
 // The save set can contain LR in which case LR is saved along with the other callee-saved registers.
 // But currently Jit doesn't use frames without frame pointer on arm64.
 //
-void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowestCalleeSavedOffset, int spDelta)
+void CodeGen::genSaveCalleeSavedRegistersHelp(RegSet regsToSaveMask, int lowestCalleeSavedOffset, int spDelta)
 {
     assert(spDelta <= 0);
     assert(-spDelta <= STACK_PROBE_BOUNDARY_THRESHOLD_BYTES);
 
     unsigned regsToSaveCount = genCountBits(regsToSaveMask);
+
     if (regsToSaveCount == 0)
     {
         if (spDelta != 0)
@@ -576,6 +580,7 @@ void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowe
             // whose size is MAX_INT_REG_ARG * REGSIZE_BYTES = 64 bytes.
             genStackPointerAdjustment(spDelta, REG_NA, nullptr, /* reportUnwindData */ true);
         }
+
         return;
     }
 
@@ -586,8 +591,8 @@ void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowe
 
     // Save integer registers at higher addresses than floating-point registers.
 
-    regMaskTP maskSaveRegsFloat = regsToSaveMask & RBM_ALLFLOAT;
-    regMaskTP maskSaveRegsInt   = regsToSaveMask & ~maskSaveRegsFloat;
+    RegSet maskSaveRegsFloat = regsToSaveMask & RBM_ALLFLOAT;
+    RegSet maskSaveRegsInt   = regsToSaveMask & ~maskSaveRegsFloat;
 
     if (maskSaveRegsFloat != RBM_NONE)
     {
@@ -609,12 +614,12 @@ void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowe
 // spDelta  - if non-zero, the amount to add to SP after the last register restore (or together with it);
 // spOffset - the offset from SP that is the beginning of the callee-saved register area;
 //
-void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, int spOffset)
+void CodeGen::genRestoreCalleeSavedRegisterGroup(RegSet regsMask, int spDelta, int spOffset)
 {
     const int slotSize = genGetSlotSizeForRegsInMask(regsMask);
 
     ArrayStack<RegPair> regStack(compiler->getAllocator(CMK_Codegen));
-    genBuildRegPairsStack(regsMask, &regStack);
+    BuildRegPairsStack(regsMask, regStack);
 
     int stackDelta = 0;
     for (unsigned i = 0; i < regStack.Size(); ++i)
@@ -670,10 +675,11 @@ void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta
 // Note you call the unwind functions specifying the prolog operation that is being un-done. So, for example, when
 // generating a post-indexed load, you call the unwind function for specifying the corresponding preindexed store.
 //
-void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta)
+void CodeGen::genRestoreCalleeSavedRegistersHelp(RegSet regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta)
 {
     assert(spDelta >= 0);
     unsigned regsToRestoreCount = genCountBits(regsToRestoreMask);
+
     if (regsToRestoreCount == 0)
     {
         if (spDelta != 0)
@@ -682,6 +688,7 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
             // whose size is MAX_INT_REG_ARG * REGSIZE_BYTES = 64 bytes.
             genStackPointerAdjustment(spDelta, REG_NA, nullptr, /* reportUnwindData */ true);
         }
+
         return;
     }
 
@@ -696,8 +703,8 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
 
     // Save integer registers at higher addresses than floating-point registers.
 
-    regMaskTP maskRestoreRegsFloat = regsToRestoreMask & RBM_ALLFLOAT;
-    regMaskTP maskRestoreRegsInt   = regsToRestoreMask & ~maskRestoreRegsFloat;
+    RegSet maskRestoreRegsFloat = regsToRestoreMask & RBM_ALLFLOAT;
+    RegSet maskRestoreRegsInt   = regsToRestoreMask & ~maskRestoreRegsFloat;
 
     // Restore in the opposite order of saving.
 
@@ -1224,18 +1231,20 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     genFuncletInfo.fiFunction_CallerSP_to_FP_delta = genCallerSPtoFPdelta();
 
-    regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs | RBM_FP | RBM_LR;
+    RegSet rsMaskSaveRegs = calleeSavedModifiedRegs | RBM_FP | RBM_LR;
 
     unsigned PSPSize = (compiler->lvaPSPSym != BAD_VAR_NUM) ? REGSIZE_BYTES : 0;
 
     unsigned saveRegsCount       = genCountBits(rsMaskSaveRegs);
     unsigned saveRegsPlusPSPSize = saveRegsCount * REGSIZE_BYTES + PSPSize;
+
     if (compiler->info.compIsVarArgs)
     {
         // For varargs we always save all of the integer register arguments
         // so that they are contiguous with the incoming stack arguments.
         saveRegsPlusPSPSize += MAX_INT_REG_ARG * REGSIZE_BYTES;
     }
+
     unsigned saveRegsPlusPSPSizeAligned = roundUp(saveRegsPlusPSPSize, STACK_ALIGN);
     unsigned outgoingArgSpaceAligned    = roundUp(outgoingArgSpaceSize, STACK_ALIGN);
 
@@ -8453,14 +8462,12 @@ void CodeGen::PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* init
         availMask &= ~maskArgRegsLiveIn;   // Remove all of the incoming argument registers as they are currently live
         availMask &= ~genRegMask(initReg); // Remove the pre-calculated initReg
 
-        RegNum    rOffset = initReg;
-        RegNum    rLimit;
-        regMaskTP tempMask;
+        RegNum rOffset = initReg;
+        RegNum rLimit;
 
         // We pick the next lowest register number for rLimit
         noway_assert(availMask != RBM_NONE);
-        tempMask = genFindLowestBit(availMask);
-        rLimit   = genRegNumFromMask(tempMask);
+        rLimit = genGetLowestReg(availMask);
 
         // Generate:
         //
@@ -8845,7 +8852,7 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
     bool ignoreInitRegZeroed = false;
     PrologAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, paramRegState.intRegLiveIn);
 
-    regMaskTP rsPushRegs = calleeSavedModifiedRegs;
+    RegSet rsPushRegs = calleeSavedModifiedRegs;
 
     // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
     if (isFramePointerUsed())

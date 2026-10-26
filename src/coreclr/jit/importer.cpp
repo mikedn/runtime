@@ -3090,7 +3090,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
             if (argType == TYP_LONG)
             {
-                popCount = genCountBits(intCon->GetValue());
+                popCount = genCountBits(intCon->GetUInt64Value());
             }
             else
             {

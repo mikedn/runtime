@@ -2641,18 +2641,13 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
                 unsigned tmpMask;
                 RegNum   regNum;
 
-                /* Get hold of the next register bit */
-
-                tmpMask = genFindLowestReg(regMask);
+                tmpMask = genGetLowestBit(regMask);
                 assert(tmpMask);
 
                 /* Remember the new state of this register */
 
                 ptrRegs &= ~tmpMask;
-
-                /* Figure out which register the next bit corresponds to */
-
-                regNum = genRegNumFromMask(tmpMask);
+                regNum = genGetLowestReg(regMask);
                 assert(regNum <= 7);
 
                 /* Reserve ESP, regNum==4 for future use */
@@ -2670,7 +2665,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
                 /* Turn the bit we've just generated off and continue */
 
-                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+                regMask = genRemoveLowestBit(regMask); // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
 
                 /* Remember the new 'last' offset */
 
@@ -2694,18 +2689,13 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
                 unsigned tmpMask;
                 RegNum   regNum;
 
-                /* Get hold of the next register bit */
-
-                tmpMask = genFindLowestReg(regMask);
+                tmpMask = genGetLowestBit(regMask);
                 assert(tmpMask);
 
                 /* Remember the new state of this register */
 
                 ptrRegs |= tmpMask;
-
-                /* Figure out which register the next bit corresponds to */
-
-                regNum = genRegNumFromMask(tmpMask);
+                regNum = genGetLowestReg(regMask);
                 assert(regNum <= 7);
 
                 /*
@@ -2729,7 +2719,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
                 /* Turn the bit we've just generated off and continue */
 
-                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+                regMask = genRemoveLowestBit(regMask); // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
 
                 /* Remember the new 'last' offset */
 
@@ -4483,18 +4473,16 @@ void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, GCR
 {
     assert((byrefRegs & ~regs) == RBM_NONE);
 
-    for (GCRegSet regMask; regs != RBM_NONE; regs &= ~regMask)
+    for (; regs != RBM_NONE; regs = genRemoveLowestBit(regs))
     {
-        regMask = genFindLowestBit(regs);
-        assert(regMask != RBM_NONE);
-
-        RegNum reg = genRegNumFromMask(static_cast<regMaskTP>(regMask));
+        GCRegSet regMask = genGetLowestBit(regs);
+        RegNum   reg     = genGetLowestReg(regs);
 
         assert(reg != REG_SPBASE);
 
         GcSlotFlags slotFlags = GC_SLOT_BASE;
 
-        if ((regMask & byrefRegs) != RBM_NONE)
+        if ((byrefRegs & regMask) != RBM_NONE)
         {
             slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
         }

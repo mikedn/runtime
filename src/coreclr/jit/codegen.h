@@ -281,8 +281,8 @@ public:
         }
     };
 
-    static void genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* regStack);
-    static void genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack);
+    static void BuildRegPairsStack(RegSet regsMask, ArrayStack<RegPair>& regStack);
+    static void SetUseSaveNextPairs(ArrayStack<RegPair>& regStack);
 
     static int genGetSlotSizeForRegsInMask(regMaskTP regsMask);
 

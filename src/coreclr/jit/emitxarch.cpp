@@ -393,7 +393,6 @@ bool X86Emitter::AreUpper32BitsZero(RegNum reg)
     case IF_RWR_MRD:
     case IF_RWR_SRD:
     case IF_RWR_ARD:
-
         // Bail if not writing to the right register
         if (id->idReg1() != reg)
         {
@@ -420,7 +419,7 @@ bool X86Emitter::AreUpper32BitsZero(RegNum reg)
         }
 
         // Else rely on operation size.
-        return (id->idOpSize() == EA_4BYTE);
+        return id->idOpSize() == EA_4BYTE;
 
     default:
         break;
@@ -4312,7 +4311,7 @@ private:
             static const char types[]{'b', 'w', 'd', 'q', '?'};
 
             auto& retbuf = buf[curBuf++ % _countof(buf)];
-            char  type   = types[Min<size_t>(BitPosition(id->idOpSize()), _countof(types) - 1)];
+            char  type   = types[Min<size_t>(genLog2(id->idOpSize()), _countof(types) - 1)];
             sprintf_s(retbuf, _countof(retbuf), "%s%c", name, type);
             return retbuf;
         }
@@ -8437,7 +8436,7 @@ Encoder::InstrPerfScore Encoder::GetInstrPerfScore(instrDesc* id)
 
     case INS_div:
         // The integer divide instructions have long latencies
-        if ((id->idOpSize() == EA_8BYTE))
+        if (id->idOpSize() == EA_8BYTE)
         {
             result.throughput = PERFSCORE_THROUGHPUT_52C;
             result.latency    = PERFSCORE_LATENCY_62C;

@@ -31,15 +31,15 @@ public:
     // prolog for various purposes (e.g. block initialization), without registers
     // having special uses (frame/stack pointer, link register on ARM64) that too
     // have to be saved and restored.
-    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
+    RegSet calleeSavedModifiedRegs = RBM_NONE;
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
     // such that they form a contiguous area useful to handle varargs and split params
     // but also to take advantage of ARM's multi reg push instruction. Normally these
     // are registers allocated to parameters but some unused registers might have to be
     // spilled to maintain alignment.
-    regMaskTP preSpillParamRegs = RBM_NONE;
-    regMaskTP preSpillAlignRegs = RBM_NONE;
+    RegSet preSpillParamRegs = RBM_NONE;
+    RegSet preSpillAlignRegs = RBM_NONE;
 #endif
     // The following keeps track of how many bytes of local frame space we've
     // grabbed so far in the current function, and how many argument bytes we
@@ -100,7 +100,7 @@ public:
     }
 
 #ifdef TARGET_ARM
-    regMaskTP GetPreSpillRegs() const
+    RegSet GetPreSpillRegs() const
     {
         return preSpillParamRegs | preSpillAlignRegs;
     }

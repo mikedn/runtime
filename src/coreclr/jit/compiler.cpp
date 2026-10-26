@@ -6,7 +6,9 @@
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 #include "jitgcinfo.h"
+#if defined(DEBUG) || defined(INLINE_DATA)
 #include "cycletimer.h"
+#endif
 
 extern ICorJitHost* g_jitHost;
 

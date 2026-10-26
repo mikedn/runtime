@@ -208,34 +208,27 @@ inline bool isValidFloatArgReg(RegNum reg)
 }
 
 // Map a register number to a register mask.
-regMaskTP genRegMask(RegNum reg);
+RegSet genRegMask(RegNum reg);
 
 #ifdef TARGET_ARM
 // Map a register number to a floating-point register mask.
-inline regMaskTP genRegMaskDouble(RegNum reg)
+inline RegSet genRegMaskDouble(RegNum reg)
 {
     assert(genIsValidDoubleReg(reg));
     return GetRegSetBit(reg) | GetRegSetBit(REG_NEXT(reg));
 }
 #endif
 
-inline regMaskTP genRegMask(RegNum reg, var_types type)
+inline RegSet genRegMask(RegNum reg, var_types type)
 {
     return ARM_ONLY(type == TYP_DOUBLE ? genRegMaskDouble(reg) :) genRegMask(reg);
 }
 
-// Return the lowest bit that is set in the given register mask.
-inline regMaskTP genFindLowestReg(regMaskTP value)
+inline RegNum genGetLowestReg(RegSet mask)
 {
-    return static_cast<regMaskTP>(genFindLowestBit(value));
-}
-
-// Maps a single register mask to a register number.
-inline RegNum genRegNumFromMask(regMaskTP mask)
-{
-    assert(mask != 0); // Must have one bit set, so can't have a mask of zero
-    RegNum regNum = static_cast<RegNum>(genLog2(mask));
-    assert(genRegMask(regNum) == mask);
+    assert(mask != RBM_NONE);
+    RegNum regNum = static_cast<RegNum>(genLowestBitIndex(mask));
+    assert(genRegMask(regNum) == genGetLowestBit(mask));
     return regNum;
 }
 

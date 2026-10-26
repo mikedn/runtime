@@ -2041,15 +2041,15 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
     return callerSPtoSPdelta;
 }
 
-void CodeGen::genPushFltRegs(regMaskTP regMask)
+void CodeGen::genPushFltRegs(RegSet regMask)
 {
     assert(regMask != 0);                        // Don't call uness we have some registers to push
     assert((regMask & RBM_ALLFLOAT) == regMask); // Only floasting point registers should be in regMask
 
-    regNumber lowReg = genRegNumFromMask(genFindLowestBit(regMask));
-    int       slots  = genCountBits(regMask);
+    RegNum   lowReg = genGetLowestReg(regMask);
+    unsigned slots  = genCountBits(regMask);
     // regMask should be contiguously set
-    regMaskTP tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
+    RegSet tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
     assert((tmpMask & (tmpMask - 1)) == 0);
     assert(lowReg == REG_F16); // Currently we expect to start at F16 in the unwind codes
 
@@ -2060,15 +2060,15 @@ void CodeGen::genPushFltRegs(regMaskTP regMask)
     GetEmitter()->emitIns_R_I(INS_vpush, EA_8BYTE, lowReg, slots / 2);
 }
 
-void CodeGen::genPopFltRegs(regMaskTP regMask)
+void CodeGen::genPopFltRegs(RegSet regMask)
 {
     assert(regMask != 0);                        // Don't call uness we have some registers to pop
     assert((regMask & RBM_ALLFLOAT) == regMask); // Only floasting point registers should be in regMask
 
-    regNumber lowReg = genRegNumFromMask(genFindLowestBit(regMask));
-    int       slots  = genCountBits(regMask);
+    RegNum   lowReg = genGetLowestReg(regMask);
+    unsigned slots  = genCountBits(regMask);
     // regMask should be contiguously set
-    regMaskTP tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
+    RegSet tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
     assert((tmpMask & (tmpMask - 1)) == 0);
 
     // Our calling convention requires that we only use vpop for TYP_DOUBLE registers
@@ -2078,7 +2078,7 @@ void CodeGen::genPopFltRegs(regMaskTP regMask)
     GetEmitter()->emitIns_R_I(INS_vpop, EA_8BYTE, lowReg, slots / 2);
 }
 
-void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog && genUseBlockInit);
     assert(untrLclHi > untrLclLo);
@@ -2110,12 +2110,8 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     //
     // <optional> str     rZero1,[rAddr]   // When cnt is odd
 
-    regNumber rAddr;
-    regNumber rCnt = REG_NA; // Invalid
-    regMaskTP regMask;
-
     // Set of available registers
-    regMaskTP availMask = (calleeSavedModifiedRegs & RBM_ALLINT) | RBM_INT_CALLEE_TRASH;
+    RegSet availMask = (calleeSavedModifiedRegs & RBM_ALLINT) | RBM_INT_CALLEE_TRASH;
     // Remove all of the incoming argument registers as they are currently live
     availMask &= ~paramRegState.intRegLiveIn;
     // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
@@ -2126,14 +2122,10 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         availMask &= ~RBM_SAVED_LOCALLOC_SP; // Remove the register reserved when we have a localloc frame
     }
 
-    regNumber rZero1; // We're going to use initReg for rZero1
-    regNumber rZero2;
-
-    // We pick the next lowest register number for rZero2
     noway_assert(availMask != RBM_NONE);
-    regMask = genFindLowestBit(availMask);
-    rZero2  = genRegNumFromMask(regMask);
-    availMask &= ~regMask;
+
+    RegNum rZero2 = genGetLowestReg(availMask);
+    availMask     = genRemoveLowestBit(availMask);
 
     // rZero2 is not a live incoming argument reg
     assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
@@ -2142,9 +2134,8 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     // adds callee saved registers if needed.
     noway_assert(availMask != RBM_NONE);
 
-    regMask = genFindLowestBit(availMask);
-    rAddr   = genRegNumFromMask(regMask);
-    availMask &= ~regMask;
+    RegNum rAddr = genGetLowestReg(availMask);
+    availMask    = genRemoveLowestBit(availMask);
 
     bool     useLoop   = false;
     unsigned uCntBytes = untrLclHi - untrLclLo;
@@ -2156,30 +2147,35 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     // In both of these cases the stm/stp instruction will write two zeros to memory
     // and we will use a single str instruction at the end whenever we have an odd count.
     if (uCntSlots >= 10)
+    {
         useLoop = true;
+    }
+
+    RegNum rCnt = REG_NA;
 
     if (useLoop)
     {
-        // We pick the next lowest register number for rCnt
         noway_assert(availMask != RBM_NONE);
-        regMask = genFindLowestBit(availMask);
-        rCnt    = genRegNumFromMask(regMask);
-        availMask &= ~regMask;
+
+        rCnt      = genGetLowestReg(availMask);
+        availMask = genRemoveLowestBit(availMask);
     }
 
     // rAddr is not a live incoming argument reg
     assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
+    Emitter& emit = *GetEmitter();
+
     if (ArmImm::IsAddImm(untrLclLo, INS_FLAGS_DONT_CARE))
     {
-        GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), untrLclLo);
+        emit.emitIns_R_R_I(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), untrLclLo);
     }
     else
     {
         // Load immediate into the InitReg register
         instGen_Set_Reg_To_Imm(initReg, untrLclLo);
-        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), initReg);
-        *pInitRegZeroed = false;
+        emit.emitIns_R_R_R(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), initReg);
+        *initRegZeroed = false;
     }
 
     if (useLoop)
@@ -2191,13 +2187,13 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         instGen_Set_Reg_To_Imm(rCnt, uCntSlots / 2);
     }
 
-    if (!*pInitRegZeroed)
+    if (!*initRegZeroed)
     {
         instGen_Set_Reg_To_Zero(EA_4BYTE, initReg);
-        *pInitRegZeroed = true;
+        *initRegZeroed = true;
     }
 
-    rZero1 = initReg;
+    RegNum rZero1 = initReg;
 
     instGen_Set_Reg_To_Zero(EA_4BYTE, rZero2);
     target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
@@ -2206,21 +2202,21 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     {
         while (uCntBytes >= REGSIZE_BYTES * 2)
         {
-            GetEmitter()->emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm);
+            emit.emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm);
             uCntBytes -= REGSIZE_BYTES * 2;
         }
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm); // zero stack slots
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, rCnt, 1, INS_FLAGS_SET);
-        GetEmitter()->emitIns_J(INS_bhi, -3);
+        emit.emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm); // zero stack slots
+        emit.emitIns_R_I(INS_sub, EA_4BYTE, rCnt, 1, INS_FLAGS_SET);
+        emit.emitIns_J(INS_bhi, -3);
         uCntBytes %= REGSIZE_BYTES * 2;
     }
 
     if (uCntBytes >= REGSIZE_BYTES) // check and zero the last register-sized stack slot (odd number)
     {
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, rZero1, rAddr, 0);
+        emit.emitIns_R_R_I(INS_str, EA_4BYTE, rZero1, rAddr, 0);
         uCntBytes -= REGSIZE_BYTES;
     }
 
@@ -2740,7 +2736,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     unsigned preSpillRegArgSize                = GetPreSpillSize();
     genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
-    regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs | RBM_FP | RBM_LR;
+    RegSet rsMaskSaveRegs = calleeSavedModifiedRegs | RBM_FP | RBM_LR;
 
     unsigned saveRegsCount    = genCountBits(rsMaskSaveRegs);
     unsigned saveRegsSize     = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving

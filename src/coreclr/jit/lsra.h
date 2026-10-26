@@ -1366,7 +1366,6 @@ public:
         , isSpilled(false)
         , isInternal(false)
         , isStructField(false)
-        , isPromotedStruct(false)
         , hasConflictingDefUse(false)
         , hasInterferingUses(false)
         , isPassThrough(false)
@@ -1419,8 +1418,6 @@ public:
     bool isInternal : 1;
     // true if this is a LocalVar for a struct field
     bool isStructField : 1;
-    // true iff this is a GT_LDOBJ for a fully promoted (PROMOTION_TYPE_INDEPENDENT) struct
-    bool isPromotedStruct : 1;
     // true if this is an SDSU interval for which the def and use have conflicting register
     // requirements
     bool hasConflictingDefUse : 1;
@@ -1695,7 +1692,7 @@ public:
 
     RegNum assignedReg() const
     {
-        return registerAssignment == RBM_NONE ? REG_NA : genRegNumFromMask(registerAssignment);
+        return registerAssignment == RBM_NONE ? REG_NA : genGetLowestReg(registerAssignment);
     }
 
     // Returns true if it is a reference on a node.

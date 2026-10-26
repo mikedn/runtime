@@ -309,14 +309,11 @@ indexType hashBv::Traverse(Visitor visitor)
         {
             for (int el = 0; el < node->numElements(); el++)
             {
-                for (elemType e = node->elements[el]; e != 0;)
+                for (elemType e = node->elements[el]; e != 0; e = genRemoveLowestBit(e))
                 {
-                    DWORD    i      = 0;
-                    unsigned result = BitScanForwardPtr(&i, e);
-                    assert(result);
-                    e ^= (elemType(1) << i);
-
+                    unsigned  i     = genLowestBitIndex(e);
                     indexType index = node->baseIndex + (el * BITS_PER_ELEMENT) + i;
+
                     if (!visitor(index))
                     {
                         return index;

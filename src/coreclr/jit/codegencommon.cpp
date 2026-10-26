@@ -1212,7 +1212,7 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
     // Particular, CORINFO_EH_CLAUSE_NONE is zero, so you can "&" to check it.
     // You do need to mask off the bits, though, because CORINFO_EH_CLAUSE_DUPLICATE
     // is and'ed in.
-    const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
+    constexpr uint32_t CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
     switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
     {
     case CORINFO_EH_CLAUSE_NONE:
@@ -2025,7 +2025,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             // Compute tempReg here when we have a float argument
             assert(tempReg == REG_NA);
 
-            regMaskTP fpAvailMask = RBM_FLT_CALLEE_TRASH & ~liveParamRegs;
+            RegSet fpAvailMask = RBM_FLT_CALLEE_TRASH & ~liveParamRegs;
 
             if (compiler->opts.UseHfa())
             {
@@ -2050,10 +2050,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 }
             }
 
-            assert(fpAvailMask != RBM_NONE);
-
-            // We pick the lowest avail register number
-            tempReg = genRegNumFromMask(genFindLowestBit(fpAvailMask));
+            tempReg = genGetLowestReg(fpAvailMask);
         }
 
 #ifdef TARGET_X86
@@ -3314,7 +3311,7 @@ ret
 Double-aligned frame :
 --------------------
 
-LOCALS_SIZE_ADJUSTED needs to include an unused DWORD if an odd number
+LOCALS_SIZE_ADJUSTED needs to include an unused dword if an odd number
 of callee-saved registers are pushed on the stack so that the locals
 themselves are qword-aligned. The instructions are the same as today,
 just in a different order.
@@ -3433,7 +3430,7 @@ void CodeGen::genFinalizeFrame()
         // If we are using block init on ARM, then we may need save R4/R5/R6
         // so that we can use them during zero-initialization process.
 
-        regMaskTP liveRegs = paramRegState.intRegLiveIn;
+        RegSet liveRegs = paramRegState.intRegLiveIn;
 
         liveRegs &= ~preSpillParamRegs;
 
@@ -3506,7 +3503,7 @@ void CodeGen::genFinalizeFrame()
 #endif
     }
 
-    regMaskTP pushedRegs = (modifiedRegs | specialRegs) & RBM_CALLEE_SAVED;
+    RegSet pushedRegs = (modifiedRegs | specialRegs) & RBM_CALLEE_SAVED;
 
 #ifdef TARGET_ARMARCH
     if (isFramePointerUsed())
@@ -3519,8 +3516,8 @@ void CodeGen::genFinalizeFrame()
 #endif
 
 #ifdef TARGET_ARM
-    regMaskTP pushedFloatRegs = pushedRegs & RBM_ALLFLOAT;
-    regMaskTP pushedIntRegs   = pushedRegs & ~RBM_ALLFLOAT;
+    RegSet pushedFloatRegs = pushedRegs & RBM_ALLFLOAT;
+    RegSet pushedIntRegs   = pushedRegs & ~RBM_ALLFLOAT;
 
     if ((pushedFloatRegs != RBM_NONE) ||
         (compiler->opts.MinOpts() && ((reservedRegs & pushedRegs & RBM_OPT_RSVD) != RBM_NONE)))
@@ -3531,7 +3528,7 @@ void CodeGen::genFinalizeFrame()
             // one more non-volatile int register, if available.
             // TODO-MIKE-Review: What do minopts and reserved regs have to do with this?
 
-            regNumber extraIntReg = REG_R4;
+            RegNum extraIntReg = REG_R4;
 
             while ((pushedIntRegs & genRegMask(extraIntReg)) != RBM_NONE)
             {
@@ -3551,7 +3548,7 @@ void CodeGen::genFinalizeFrame()
 
     if (pushedFloatRegs != RBM_NONE)
     {
-        regMaskTP contiguousFloatRegs = genRegMaskDouble(REG_F16);
+        RegSet contiguousFloatRegs = genRegMaskDouble(REG_F16);
 
         while (pushedFloatRegs > contiguousFloatRegs)
         {
@@ -3654,7 +3651,7 @@ RegNum CodeGen::PrologChooseInitReg(regMaskTP initRegs)
         candidateRegs = (RBM_INT_CALLEE_TRASH | (calleeSavedModifiedRegs & RBM_ALLINT)) & ~excludeRegs;
     }
 
-    return candidateRegs == RBM_NONE ? REG_SCRATCH : genRegNumFromMask(genFindLowestBit(candidateRegs));
+    return candidateRegs == RBM_NONE ? REG_SCRATCH : genGetLowestReg(candidateRegs);
 }
 
 // Generates code for a function prolog.

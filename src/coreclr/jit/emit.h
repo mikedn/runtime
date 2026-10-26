@@ -714,7 +714,7 @@ public:
     void idOpSize(emitAttr size)
     {
         assert(size == 1 || size == 2 || size == 4 || size == 8 || size == 16 || size == 32);
-        _idOpSize = BitPosition(size);
+        _idOpSize = genLog2(size);
     }
 
     GCtype idGCref() const
@@ -1264,7 +1264,7 @@ protected:
     unsigned     epilogCount      = 0;
     unsigned     epilogCommonSize = 0;
     unsigned     epilogExitSize   = 0;
-    unsigned     stackSlotSize    = 0; // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned     stackSlotSize    = 0; // 0 in prolog/epilog, One dword elsewhere
     unsigned     maxStackDepth    = 0;
     unsigned     stackLevel       = 0; // amount of bytes pushed on stack
 #endif

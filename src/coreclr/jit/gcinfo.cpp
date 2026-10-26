@@ -327,20 +327,20 @@ void GCInfo::AddLiveReg(GCtype type, RegNum reg, unsigned codeOffs)
     }
 }
 
-void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
+void GCInfo::SetLiveRegs(GCtype type, RegSet regs, unsigned codeOffs)
 {
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
     assert(type != GCT_NONE);
 
-    regMaskTP& typeRegs  = (type == GCT_GCREF) ? liveRefRegs : liveByrefRegs;
-    regMaskTP& otherRegs = (type == GCT_GCREF) ? liveByrefRegs : liveRefRegs;
+    RegSet& typeRegs  = (type == GCT_GCREF) ? liveRefRegs : liveByrefRegs;
+    RegSet& otherRegs = (type == GCT_GCREF) ? liveByrefRegs : liveRefRegs;
 
     assert(typeRegs != regs);
 
     if (isFullyInterruptible)
     {
-        regMaskTP dead = typeRegs & ~regs;
-        regMaskTP life = ~typeRegs & regs;
+        RegSet dead = typeRegs & ~regs;
+        RegSet life = ~typeRegs & regs;
 
         assert((dead | life) != 0);
         assert((dead & life) == 0);
@@ -360,12 +360,9 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
             dead = RBM_NONE;
         }
 
-        regMaskTP change = (dead | life);
-
-        while (change != RBM_NONE)
+        for (RegSet change = dead | life; change != RBM_NONE; change = genRemoveLowestBit(change))
         {
-            regMaskTP regMask = genFindLowestReg(change);
-            RegNum    reg     = genRegNumFromMask(regMask);
+            RegSet regMask = genGetLowestBit(change);
 
             if ((life & regMask) != RBM_NONE)
             {
@@ -383,8 +380,6 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
                 RemoveLiveRegs(type, regMask, codeOffs);
                 typeRegs &= ~regMask;
             }
-
-            change &= ~regMask;
         }
 
         assert(typeRegs == regs);

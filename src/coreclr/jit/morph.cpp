@@ -3065,7 +3065,7 @@ REMORPH_POST:
                 }
 
                 size_t abs_mult      = c2 >= 0 ? c2 : -c2;
-                size_t lowestBit     = genFindLowestBit(abs_mult);
+                size_t lowestBit     = genGetLowestBit(abs_mult);
                 bool   changeToShift = false;
 
                 if (abs_mult == lowestBit)
@@ -5901,9 +5901,8 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
             {
                 assert(hfaType == TYP_FLOAT);
 
-                regMaskTP skippedRegBit = genFindLowestBit(skippedFloatArgRegs);
-                skippedFloatArgRegs &= ~skippedRegBit;
-                unsigned skippedRegIndex = genRegNumFromMask(skippedRegBit) - REG_F0;
+                unsigned skippedRegIndex = genGetLowestReg(skippedFloatArgRegs) - REG_F0;
+                skippedFloatArgRegs      = genRemoveLowestBit(skippedFloatArgRegs);
 
                 reg      = GetFloatArgReg(skippedRegIndex);
                 regCount = hfaRegCount;

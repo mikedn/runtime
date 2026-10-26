@@ -3869,8 +3869,8 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
     {
         if (lcl->IsPreSpilledRegParam(preSpillRegs))
         {
-            regMaskTP regsBelow = genRegMask(lcl->GetParamReg()) - 1;
-            unsigned  regOffset = genCountBits(preSpillRegs & regsBelow) * REGSIZE_BYTES;
+            RegSet   regsBelow = genRegMask(lcl->GetParamReg()) - 1;
+            unsigned regOffset = genCountBits(preSpillRegs & regsBelow) * REGSIZE_BYTES;
 
             lcl->SetStackOffset(regOffset);
         }

@@ -93,9 +93,7 @@ inline bool ObjectAllocator::CanAllocateLclVarOnStack(unsigned lclNum, CORINFO_C
 {
     assert(m_AnalysisDone);
 
-    DWORD classAttribs = comp->info.compCompHnd->getClassAttribs(clsHnd);
-
-    if ((classAttribs & CORINFO_FLG_VALUECLASS) != 0)
+    if ((comp->info.compCompHnd->getClassAttribs(clsHnd) & CORINFO_FLG_VALUECLASS) != 0)
     {
         // TODO-ObjectStackAllocation: enable stack allocation of boxed structs
         return false;

@@ -5,16 +5,8 @@
 
 #include "safemath.h"
 #include "clr_std/type_traits"
-#include "iallocator.h"
 #include "hostallocator.h"
-#include "cycletimer.h"
 #include "error.h"
-
-#ifdef TARGET_64BIT
-#define BitScanForwardPtr BitScanForward64
-#else
-#define BitScanForwardPtr BitScanForward
-#endif
 
 using ssize_t = ptrdiff_t;
 
@@ -33,163 +25,175 @@ constexpr size_t UAbs(ssize_t value)
     return static_cast<size_t>(-value);
 }
 
-template <typename T>
-inline bool isPow2(T i)
+template <class T>
+constexpr T genGetLowestBit(T value)
 {
-    return (i > 0) && (((i - 1) & i) == 0);
-}
-
-template <typename T>
-inline T genFindLowestBit(T value)
-{
+    static_assert(std::is_integral<T>::value);
+    static_assert(!std::is_signed<T>::value);
     return value & (0 - value);
 }
 
-// Return the highest bit that is set (that is, a mask that includes just the highest bit).
-// TODO-ARM64-Throughput: we should convert these to use the _BitScanReverse() / _BitScanReverse64()
-// compiler intrinsics, but our CRT header file intrin.h doesn't define these for ARM64 yet.
-inline uint32_t genFindHighestBit(uint32_t mask)
+template <class T>
+constexpr T genRemoveLowestBit(T value)
 {
-    assert(mask != 0);
-
-    uint32_t bit = 1U << ((sizeof(uint32_t) * 8) - 1);
-
-    while ((bit & mask) == 0)
-    {
-        bit >>= 1;
-    }
-
-    return bit;
+    static_assert(std::is_integral<T>::value);
+    static_assert(!std::is_signed<T>::value);
+    return value & (value - 1);
 }
 
-inline uint64_t genFindHighestBit(uint64_t mask)
+template <class T>
+constexpr bool genMaxOneBit(T value)
 {
-    assert(mask != 0);
-
-    uint64_t bit = 1ULL << ((sizeof(uint64_t) * 8) - 1);
-
-    while ((bit & mask) == 0)
-    {
-        bit >>= 1;
-    }
-
-    return bit;
+    return genRemoveLowestBit(value) == 0;
 }
 
-#if 0
-// TODO-ARM64-Cleanup: These should probably be the implementation, when intrin.h is updated for ARM64
-inline uint32_t genFindHighestBit(uint32_t mask)
-{
-    assert(mask != 0);
-
-    uint32_t index;
-    _BitScanReverse(&index, mask);
-    return 1U << index;
-}
-
-inline uint64_t genFindHighestBit(uint64_t mask)
-{
-    assert(mask != 0);
-
-    uint64_t index;
-    _BitScanReverse64(&index, mask);
-    return 1ULL << index;
-}
-#endif // 0
-
-// Return true if the given 64-bit value has exactly zero or one bits set.
-template <typename T>
-inline bool genMaxOneBit(T value)
-{
-    return (value & (value - 1)) == 0;
-}
-
-// Return true if the given 32-bit value has exactly zero or one bits set.
-inline bool genMaxOneBit(unsigned value)
-{
-    return (value & (value - 1)) == 0;
-}
-
-// Return true if the given 64-bit value has exactly one bit set.
-template <typename T>
-inline bool genExactlyOneBit(T value)
+template <class T>
+constexpr bool genExactlyOneBit(T value)
 {
     return (value != 0) && genMaxOneBit(value);
 }
 
-// Return true if the given 32-bit value has exactly zero or one bits set.
-inline bool genExactlyOneBit(uint32_t value)
+template <class T>
+constexpr bool isPow2(T value)
 {
-    return (value != 0) && genMaxOneBit(value);
+    static_assert(std::is_integral<T>::value);
+    return (value > 0) && ((value & (value - 1)) == 0);
+}
+
+#ifdef _MSC_VER
+inline unsigned genLowestBitIndex(uint32_t bits, unsigned* hasBit)
+{
+    DWORD index;
+    *hasBit = _BitScanForward(&index, bits);
+    return static_cast<unsigned>(index);
+}
+
+inline unsigned genLowestBitIndex(uint64_t bits, unsigned* hasBit)
+{
+    DWORD index;
+#ifdef _WIN64
+    *hasBit = _BitScanForward64(&index, bits);
+#else
+    *hasBit = BitScanForward64(&index, bits);
+#endif
+    return static_cast<unsigned>(index);
+}
+#else
+inline unsigned genLowestBitIndex(uint32_t bits, unsigned* hasBit)
+{
+    *hasBit = bits != 0;
+    return static_cast<unsigned>(__builtin_ffs(static_cast<int>(bits)) - 1);
+}
+
+inline unsigned genLowestBitIndex(uint64_t bits, unsigned* hasBit)
+{
+    *hasBit = bits != 0;
+    return static_cast<unsigned>(__builtin_ffsll(static_cast<long long>(bits)) - 1);
+}
+#endif
+
+template <class T>
+inline unsigned genLowestBitIndex(T value)
+{
+    static_assert(std::is_integral<T>::value);
+    static_assert(!std::is_signed<T>::value);
+    assert(value != 0);
+
+    unsigned hasBit;
+
+    // clang-format off
+    if constexpr(sizeof(T) <= sizeof(uint32_t))
+    {
+        return genLowestBitIndex(static_cast<uint32_t>(value), &hasBit);
+    }
+    else
+    {
+        static_assert(sizeof(T) == sizeof(uint64_t));
+        return genLowestBitIndex(static_cast<uint64_t>(value), &hasBit);
+    }
+    // clang-format on
+}
+
+inline unsigned genLog2(uint32_t value)
+{
+    assert(genExactlyOneBit(value));
+    return genLowestBitIndex(value);
+}
+
+inline unsigned genLog2(uint64_t value)
+{
+    assert(genExactlyOneBit(value));
+    return genLowestBitIndex(value);
 }
 
 template <typename T>
 inline unsigned genCountBits(T bits)
 {
-    unsigned cnt = 0;
+    unsigned count = 0;
 
-    while (bits)
+    while (bits != 0)
     {
-        cnt++;
-        bits -= genFindLowestBit(bits);
+        count++;
+        bits = genRemoveLowestBit(bits);
     }
 
-    return cnt;
+    return count;
+}
+
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+extern "C" extern int __isa_available;
+
+constexpr int jit_isa_available_sse42 = 2;
+#endif
+
+template <>
+inline unsigned genCountBits<uint32_t>(uint32_t c)
+{
+#if defined(__clang__)
+    return static_cast<unsigned>(__builtin_popcount(c));
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+    return static_cast<unsigned>(__popcnt(c));
+#else
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+    if (__isa_available >= jit_isa_available_sse42)
+    {
+        return __popcnt(c);
+    }
+#endif
+    c = c - ((c >> 1) & 0x55555555u);
+    c = (c & 0x33333333u) + ((c >> 2) & 0x33333333u);
+    c = ((c + (c >> 4)) & 0xF0F0F0Fu) * 0x1010101u;
+    return static_cast<unsigned>(c >> 24);
+#endif
 }
 
 template <>
 inline unsigned genCountBits<uint64_t>(uint64_t c)
 {
+#if defined(__clang__)
+    return static_cast<unsigned>(__builtin_popcountll(c));
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+    return static_cast<unsigned>(__popcnt64(c));
+#else
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+    if (__isa_available >= jit_isa_available_sse42)
+    {
+#ifdef _M_X64
+        return static_cast<unsigned>(__popcnt64(c));
+#else
+        return __popcnt(c >> 32) + __popcnt(static_cast<unsigned>(c));
+#endif
+    }
+#endif
+#ifdef HOST_64BIT
     c = c - ((c >> 1) & 0x5555555555555555ull);
     c = (c & 0x3333333333333333ull) + ((c >> 2) & 0x3333333333333333ull);
     c = ((c + (c >> 4)) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull;
     return static_cast<unsigned>(c >> 56);
-}
-
-template <>
-inline unsigned genCountBits<uint32_t>(uint32_t c)
-{
-    c = c - ((c >> 1) & 0x55555555u);
-    c = (c & 0x33333333u) + ((c >> 2) & 0x33333333u);
-    c = ((c + (c >> 4)) & 0xF0F0F0Fu) * 0x1010101u;
-    return static_cast<unsigned>(c >> 24);
-}
-
-// Given a value that has exactly one bit set, return the position of that
-// bit, in other words return the logarithm in base 2 of the given value.
-inline unsigned genLog2(uint32_t value)
-{
-    return BitPosition(value);
-}
-
-// Given an unsigned 64-bit value, returns the lower 32-bits in unsigned format
-inline uint32_t ulo32(uint64_t value)
-{
-    return static_cast<uint32_t>(value);
-}
-
-// Given an unsigned 64-bit value, returns the upper 32-bits in unsigned format
-inline uint32_t uhi32(uint64_t value)
-{
-    return static_cast<uint32_t>(value >> 32);
-}
-
-// Given a value that has exactly one bit set, return the position of that
-// bit, in other words return the logarithm in base 2 of the given value.
-inline unsigned genLog2(uint64_t value)
-{
-    uint32_t lo32 = ulo32(value);
-    uint32_t hi32 = uhi32(value);
-
-    if (lo32 != 0)
-    {
-        assert(hi32 == 0);
-        return genLog2(lo32);
-    }
-    else
-    {
-        return genLog2(hi32) + 32;
-    }
+#else
+    return genCountBits(static_cast<uint32_t>(c >> 32)) + genCountBits(static_cast<uint32_t>(c));
+#endif
+#endif
 }
 
 inline size_t roundUp(size_t size, size_t mult = sizeof(size_t))

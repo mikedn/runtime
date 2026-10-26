@@ -864,6 +864,16 @@ AGAIN:
 
 #ifdef DEBUG
 
+static uint32_t ulo32(uint64_t value)
+{
+    return static_cast<uint32_t>(value & UINT32_MAX);
+}
+
+static uint32_t uhi32(uint64_t value)
+{
+    return static_cast<uint32_t>(value >> 32);
+}
+
 static unsigned genTreeHashAdd(unsigned old, unsigned add)
 {
     return (old + old / 2) ^ add;
@@ -8406,8 +8416,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // If we have a shared type instance we can't safely check type
     // equality, so bail.
-    DWORD classAttribs = info.compCompHnd->getClassAttribs(thisHnd);
-    if (classAttribs & CORINFO_FLG_SHAREDINST)
+    if (info.compCompHnd->getClassAttribs(thisHnd) & CORINFO_FLG_SHAREDINST)
     {
         JITDUMP("bailing, have shared instance type\n");
         return nullptr;
@@ -11451,25 +11460,23 @@ RegNum ReturnTypeDesc::GetRegNum(unsigned i) const
 // in the temporary reg set. Get that register. No future calls to get a temporary
 // register are expected. Removes the register from the set, but only in DEBUG to avoid
 // doing unnecessary work in non-DEBUG builds.
-RegNum GenTree::GetSingleTempReg(regMaskTP mask)
+RegNum GenTree::GetSingleTempReg(RegSet mask)
 {
-    regMaskTP availableSet = m_tempRegs & mask;
-    assert(genCountBits(availableSet) == 1);
-    RegNum tempReg = genRegNumFromMask(availableSet);
-    INDEBUG(m_tempRegs &= ~availableSet;) // Remove the register from the set, so it can't be used again.
-    return tempReg;
+    RegSet availableSet = m_tempRegs & mask;
+    assert(genExactlyOneBit(availableSet));
+    INDEBUG(m_tempRegs ^= genGetLowestBit(availableSet));
+    return genGetLowestReg(availableSet);
 }
 
 // Find the lowest number temporary register from the temporary set that is also in
 // the optional given mask (typically, RBM_ALLINT or RBM_ALLFLOAT), and return it.
 // Remove this register from the temporary register set, so it won't be returned again.
-RegNum GenTree::ExtractTempReg(regMaskTP mask)
+RegNum GenTree::ExtractTempReg(RegSet mask)
 {
-    regMaskTP availableSet = m_tempRegs & mask;
-    assert(genCountBits(availableSet) >= 1);
-    regMaskTP tempRegMask = genFindLowestBit(availableSet);
-    m_tempRegs &= ~tempRegMask;
-    return genRegNumFromMask(tempRegMask);
+    RegSet availableSet = m_tempRegs & mask;
+    assert(availableSet != RBM_NONE);
+    m_tempRegs ^= genGetLowestBit(availableSet);
+    return genGetLowestReg(availableSet);
 }
 
 bool GenTree::HasTempReg(RegNum reg) const

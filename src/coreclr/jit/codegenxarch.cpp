@@ -381,7 +381,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     }
     else
     {
-        // EE expects a DWORD, so we provide 0
+        // EE expects a dword, so we provide 0
         emit.Ins_I(INS_push_hide, EA_4BYTE, 0);
     }
 
@@ -644,7 +644,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
             unsigned scale = static_cast<unsigned>(imm - 1);
             emit.Ins_R_ARX(INS_lea, size, dstReg, op1->GetRegNum(), op1->GetRegNum(), scale, 0);
         }
-        else if (!checkOverflow && op1->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
+        else if (!checkOverflow && op1->isUsedFromReg() && isPow2(imm))
         {
             emit.emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
             inst_Shift_R_I(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
@@ -7314,7 +7314,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
     // x86/x64 doesn't support push of xmm/ymm regs, therefore consider only integer registers for pushing onto stack
     // here. Space for float registers to be preserved is stack allocated and saved as part of prolog sequence and not
     // here.
-    regMaskTP rsPushRegs = calleeSavedModifiedRegs & RBM_ALLINT;
+    RegSet rsPushRegs = calleeSavedModifiedRegs & RBM_ALLINT;
 
     // On X86/X64 we have already pushed the FP (frame-pointer) prior to calling this method
     if (isFramePointerUsed())
@@ -7344,7 +7344,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 
     for (RegNum reg = REG_INT_LAST; rsPushRegs != RBM_NONE; reg = REG_PREV(reg))
     {
-        regMaskTP regBit = genRegMask(reg);
+        RegSet regBit = genRegMask(reg);
 
         if ((regBit & rsPushRegs) != RBM_NONE)
         {
@@ -7557,9 +7557,9 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, RegNum initReg
         // Grab a non-argument, non-callee saved XMM reg
         CLANG_FORMAT_COMMENT_ANCHOR;
 #ifdef UNIX_AMD64_ABI
-        RegNum zeroXmmReg = genRegNumFromMask(RBM_XMM8);
+        RegNum zeroXmmReg = genGetLowestReg(RBM_XMM8);
 #else
-        RegNum  zeroXmmReg   = genRegNumFromMask(RBM_XMM4);
+        RegNum  zeroXmmReg   = genGetLowestReg(RBM_XMM4);
 #endif
 
 #ifdef TARGET_AMD64

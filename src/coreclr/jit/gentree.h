@@ -1031,28 +1031,28 @@ public:
         m_tempRegs = RBM_NONE;
     }
 
-    void AddTempRegs(regMaskTP regs)
+    void AddTempRegs(RegSet regs)
     {
         m_tempRegs |= regs;
     }
 
-    regMaskTP GetTempRegs() const
+    RegSet GetTempRegs() const
     {
         return m_tempRegs;
     }
 
-    bool HasAnyTempRegs(regMaskTP regs = RBM_ALL) const
+    bool HasAnyTempRegs(RegSet regs = RBM_ALL) const
     {
         return (m_tempRegs & regs) != RBM_NONE;
     }
 
-    bool HasAllTempRegs(regMaskTP regs) const
+    bool HasAllTempRegs(RegSet regs) const
     {
         return (m_tempRegs & regs) == regs;
     }
 
-    RegNum GetSingleTempReg(regMaskTP mask = RBM_ALL);
-    RegNum ExtractTempReg(regMaskTP mask = RBM_ALL);
+    RegNum GetSingleTempReg(RegSet mask = RBM_ALL);
+    RegNum ExtractTempReg(RegSet mask = RBM_ALL);
     bool HasTempReg(RegNum reg) const;
 
     ValueNumPair GetVNP() const
@@ -2428,7 +2428,8 @@ protected:
 
 public:
     void SetInt64Value(int64_t val);
-    int64_t GetValue() const;
+    int64_t  GetValue() const;
+    uint64_t GetUInt64Value() const;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIntConCommon, GenTree)
 };
@@ -2758,6 +2759,16 @@ inline int64_t GenTreeIntConCommon::GetValue() const
     return AsIntCon()->GetValue();
 #else
     return IsLngCon() ? AsLngCon()->GetValue() : static_cast<int64_t>(AsIntCon()->GetValue());
+#endif
+}
+
+inline uint64_t GenTreeIntConCommon::GetUInt64Value() const
+{
+#ifdef TARGET_64BIT
+    assert(TypeIs(TYP_LONG));
+    return AsIntCon()->GetUInt64Value();
+#else
+    return AsLngCon()->GetUInt64Value();
 #endif
 }
 

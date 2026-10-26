@@ -358,10 +358,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 
     if (isPow2(node->GetElemSize()) && (node->GetElemSize() <= 32768))
     {
-        DWORD scale;
-        BitScanForward(&scale, node->GetElemSize());
-
-        GenScaledAdd(attr, node->GetRegNum(), baseReg, indexReg, scale);
+        GenScaledAdd(attr, node->GetRegNum(), baseReg, indexReg, genLog2(node->GetElemSize()));
     }
     else
     {
