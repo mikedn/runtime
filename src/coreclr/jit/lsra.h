@@ -667,7 +667,9 @@ private:
 
     RegSet allRegs(RegisterType rt) const;
     RegSet allIntRegs() const;
+#ifdef TARGET_X86
     RegSet allByteRegs() const;
+#endif
     RegSet allFloatRegs() const;
     RegSet internalFloatRegCandidates() const;
 

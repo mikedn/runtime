@@ -219,10 +219,12 @@ RegSet LinearScan::allIntRegs() const
     return availableRegs & RBM_ALLINT;
 }
 
+#ifdef TARGET_X86
 RegSet LinearScan::allByteRegs() const
 {
     return allIntRegs() X86_ONLY(&RBM_BYTE_REGS);
 }
+#endif
 
 void LinearScan::UpdateNextFixedRef(RegRecord& reg, RefPosition* nextRefPosition)
 {

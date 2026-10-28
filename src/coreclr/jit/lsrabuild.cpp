@@ -3488,9 +3488,8 @@ void LinearScan::BuildLclStoreDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPos
         }
     }
 
-    regMaskTP defCandidates = RBM_NONE;
     var_types type          = lcl->GetRegisterType();
-    defCandidates           = X86_ONLY(varTypeIsByte(type) ? allByteRegs() :) allRegs(type);
+    RegSet    defCandidates = X86_ONLY(varTypeIsByte(type) ? allByteRegs() :) allRegs(type);
 
     RefPosition* def = newRefPosition(varDefInterval, currentLoc + 1, RefTypeDef, store, defCandidates, index);
 
@@ -3533,13 +3532,7 @@ void LinearScan::BuildLclStoreMultiReg(GenTreeLclStore* store)
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
         assert(fieldLcl->IsRegCandidate());
 
-        regMaskTP srcCandidates = RBM_NONE;
-#ifdef TARGET_X86
-        if (varTypeIsByte(fieldLcl->GetType()))
-        {
-            srcCandidates = allByteRegs();
-        }
-#endif
+        RegSet srcCandidates = X86_ONLY(varTypeIsByte(fieldLcl->GetType()) ? allByteRegs() :) RBM_NONE;
         BuildUse(src, srcCandidates, i);
         BuildLclStoreDef(store, fieldLcl, nullptr, i);
 
@@ -3684,15 +3677,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
     }
     else
     {
-        regMaskTP srcCandidates = RBM_NONE;
-#ifdef TARGET_X86
-        if (varTypeIsByte(lcl->GetRegisterType(store)))
-        {
-            srcCandidates = allByteRegs();
-        }
-#endif
-
-        singleUseRef = BuildUse(src, srcCandidates);
+        singleUseRef = BuildUse(src X86_ARG(varTypeIsByte(lcl->GetRegisterType(store)) ? allByteRegs() : RBM_NONE));
     }
 
 #ifdef TARGET_ARM

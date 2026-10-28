@@ -2399,12 +2399,6 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclRef* tree) const
     return targetType;
 }
 
-//------------------------------------------------------------------------
-// GetRegisterType: Determine register type for this local var.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
 var_types LclVarDsc::GetRegisterType() const
 {
     if (lvType != TYP_STRUCT)

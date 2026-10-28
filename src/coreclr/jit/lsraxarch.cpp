@@ -69,11 +69,7 @@ void LinearScan::BuildNode(GenTree* tree)
         break;
 
     case GT_SETCC:
-#ifdef TARGET_X86
-        BuildDef(tree, allByteRegs());
-#else
-        BuildDef(tree);
-#endif
+        BuildDef(tree X86_ARG(allByteRegs()));
         break;
 
     case GT_SWITCH_TABLE:
@@ -534,7 +530,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     GenTree* op2 = node->GetOp(1);
 
 #ifdef TARGET_X86
-    regMaskTP opCandidates = varTypeIsByte(node->GetType()) ? allByteRegs() : RBM_NONE;
+    RegSet opCandidates = varTypeIsByte(node->GetType()) ? allByteRegs() : RBM_NONE;
 #endif
 
     bool prefOp1 = !op1->isContained();
@@ -890,9 +886,9 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
         assert(src->isContained());
     }
 
-    regMaskTP dstAddrRegMask = RBM_NONE;
-    regMaskTP srcRegMask     = RBM_NONE;
-    regMaskTP sizeRegMask    = RBM_NONE;
+    RegSet dstAddrRegMask = RBM_NONE;
+    RegSet srcRegMask     = RBM_NONE;
+    RegSet sizeRegMask    = RBM_NONE;
 #ifdef TARGET_X86
     RefPosition* internalByteDef = nullptr;
 #endif
@@ -1850,7 +1846,7 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
 
     if ((value != nullptr) && !value->isContained())
     {
-        regMaskTP regs = RBM_NONE;
+        RegSet regs = RBM_NONE;
 
         if (isShift)
         {
@@ -1955,7 +1951,7 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
         needByteRegs = true;
     }
 
-    regMaskTP opCandidates = needByteRegs ? allByteRegs() : RBM_NONE;
+    RegSet opCandidates = needByteRegs ? allByteRegs() : RBM_NONE;
 #endif // TARGET_X86
 
     BuildOperandUses(op1 X86_ARG(opCandidates));
