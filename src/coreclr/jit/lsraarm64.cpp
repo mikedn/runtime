@@ -29,7 +29,7 @@ void LinearScan::BuildNode(GenTree* tree)
         break;
 
     case GT_PROF_HOOK:
-        BuildKills(tree, getKillSetForProfilerHook());
+        BuildKills(tree, GetKillSetForProfilerHook());
         break;
 
     case GT_START_PREEMPTGC:
@@ -50,7 +50,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
     case GT_RETURN:
         BuildReturn(tree->AsUnOp());
-        BuildKills(tree, getKillSetForReturn());
+        BuildKills(tree, GetKillSetForReturn());
         break;
 
     case GT_RETFILT:
@@ -458,7 +458,7 @@ void LinearScan::BuildCmpXchg(GenTreeCmpXchg* cmpxchg)
         // it may be used used multiple during retries
         if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
         {
-            setDelayFree(comparandUse);
+            SetDelayFree(comparandUse);
         }
     }
 
@@ -501,11 +501,11 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
         // Internals may not collide with target
         if (!interlocked->TypeIs(TYP_VOID))
         {
-            setDelayFree(op1Use);
+            SetDelayFree(op1Use);
 
             if (op2Use != nullptr)
             {
-                setDelayFree(op2Use);
+                SetDelayFree(op2Use);
             }
 
             setInternalRegsDelayFree = true;

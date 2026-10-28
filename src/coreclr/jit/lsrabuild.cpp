@@ -135,16 +135,16 @@ void LinearScan::ApplyCalleeSaveHeuristics(RefPosition* rp) const
         // We only use RSI and RDI for EnC code, so we don't want to favor callee-save regs.
         return;
     }
-#endif // TARGET_AMD64
+#endif
 
-    Interval* theInterval = rp->getInterval();
+    Interval* interval = rp->getInterval();
 
 #ifdef DEBUG
     if (!doReverseCallerCallee())
-#endif // DEBUG
+#endif
     {
         // Set preferences so that this register set will be preferred for earlier refs
-        theInterval->mergeRegisterPreferences(rp->registerAssignment);
+        interval->MergeRegisterPreferences(rp->registerAssignment);
     }
 }
 
@@ -165,25 +165,26 @@ void LinearScan::ApplyCalleeSaveHeuristics(RefPosition* rp) const
 void LinearScan::CheckConflictingDefUse(RefPosition* useRP)
 {
     assert(useRP->refType == RefTypeUse);
-    Interval* theInterval = useRP->getInterval();
-    assert(!theInterval->isLocalVar);
 
-    RefPosition* defRP = theInterval->firstRefPosition;
+    Interval* interval = useRP->getInterval();
+    assert(!interval->isLocalVar);
 
-    // All defs must have a valid node, but we check it below to be conservative.
+    RefPosition* defRP = interval->firstRefPosition;
     assert(defRP->node != nullptr);
-    regMaskTP prevAssignment = defRP->registerAssignment;
-    regMaskTP newAssignment  = (prevAssignment & useRP->registerAssignment);
+
+    RegSet prevAssignment = defRP->registerAssignment;
+    RegSet newAssignment  = prevAssignment & useRP->registerAssignment;
+
     if (newAssignment != RBM_NONE)
     {
-        if (!isSingleRegister(newAssignment) || !theInterval->hasInterferingUses)
+        if (!isSingleRegister(newAssignment) || !interval->hasInterferingUses)
         {
             defRP->registerAssignment = newAssignment;
         }
     }
     else
     {
-        theInterval->hasConflictingDefUse = true;
+        interval->hasConflictingDefUse = true;
     }
 }
 
@@ -367,7 +368,7 @@ void LinearScan::NewRegKillRefPositions(RegSet mask, LsraLocation location)
 // If the IND_STORE will generate a write barrier, determine the specific kill
 // set required by the case-specific, platform-specific write barrier. If no
 // write barrier is required, the kill set will be RBM_NONE.
-regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* store)
+RegSet LinearScan::GetKillSetForIndStore(GenTreeIndStore* store)
 {
     GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store);
 
@@ -390,7 +391,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* store)
 }
 
 #ifdef TARGET_XARCH
-regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
+RegSet LinearScan::GetKillSetForMul(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
     assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL));
@@ -401,7 +402,7 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
     return node->OperIs(GT_MUL, GT_OVF_SMUL) ? RBM_NONE : (RBM_RAX | RBM_RDX);
 }
 
-regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
+RegSet LinearScan::GetKillSetForModDiv(GenTreeOp* node)
 {
     assert(node->OperIs(GT_SREM, GT_SDIV, GT_UREM, GT_UDIV));
 
@@ -409,7 +410,7 @@ regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 }
 #endif // TARGET_XARCH
 
-regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
+RegSet LinearScan::GetKillSetForCall(GenTreeCall* call)
 {
 #ifdef TARGET_X86
     if (compiler->compFloatingPointUsed)
@@ -451,7 +452,7 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
     return killSet;
 }
 
-regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
+RegSet LinearScan::GetKillSetForStructStore(StructStoreKind kind)
 {
     switch (kind)
     {
@@ -493,12 +494,11 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
+RegSet LinearScan::GetKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    regMaskTP killMask = RBM_NONE;
-#ifdef TARGET_XARCH
     switch (node->GetIntrinsic())
     {
+#ifdef TARGET_XARCH
     case NI_SSE2_MaskMove:
         // maskmovdqu uses edi as the implicit address register.
         // Although it is set as the srcCandidate on the address, if there is also a fixed
@@ -507,32 +507,29 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
         // is a conflict, and the FixedRef on edi won't be sufficient to ensure that another
         // Interval will not be allocated there.
         // Issue #17674 tracks this.
-        killMask = RBM_EDI;
-        break;
+        return RBM_EDI;
+#endif
 
     default:
-        // Leave killMask as RBM_NONE
-        break;
+        return RBM_NONE;
     }
-#endif // TARGET_XARCH
-    return killMask;
 }
 #endif // FEATURE_HW_INTRINSICS
 
-regMaskTP LinearScan::getKillSetForReturn()
+RegSet LinearScan::GetKillSetForReturn()
 {
     return compiler->opts.IsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
                                                  : RBM_NONE;
 }
 
-regMaskTP LinearScan::getKillSetForProfilerHook()
+RegSet LinearScan::GetKillSetForProfilerHook()
 {
     return compiler->opts.IsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
                                                  : RBM_NONE;
 }
 
 #ifdef DEBUG
-regMaskTP LinearScan::getKillSetForNode(GenTree* node)
+RegSet LinearScan::GetKillSetForNode(GenTree* node)
 {
     switch (node->GetOper())
     {
@@ -546,12 +543,12 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
     case GT_SMULL:
     case GT_UMULL:
 #endif
-        return getKillSetForMul(node->AsOp());
+        return GetKillSetForMul(node->AsOp());
     case GT_SREM:
     case GT_SDIV:
     case GT_UREM:
     case GT_UDIV:
-        return getKillSetForModDiv(node->AsOp());
+        return GetKillSetForModDiv(node->AsOp());
 #endif // TARGET_XARCH
 
     case GT_LCL_STORE:
@@ -560,23 +557,23 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
         {
             ClassLayout* layout = node->OperIs(GT_LCL_STORE) ? node->AsLclStore()->GetLcl()->GetLayout()
                                                              : node->AsLclStoreFld()->GetLayout(compiler);
-            return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclRef()->GetOp(0)));
+            return GetKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclRef()->GetOp(0)));
         }
 
         return RBM_NONE;
 
     case GT_IND_STORE_OBJ:
     case GT_IND_STORE_BLK:
-        return getKillSetForStructStore(node->AsBlk()->GetKind());
+        return GetKillSetForStructStore(node->AsBlk()->GetKind());
     case GT_COPY_BLK:
     case GT_INIT_BLK:
-        return getKillSetForStructStore(node->AsDynBlk()->GetKind());
+        return GetKillSetForStructStore(node->AsDynBlk()->GetKind());
     case GT_RETURNTRAP:
         return Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
     case GT_CALL:
-        return getKillSetForCall(node->AsCall());
+        return GetKillSetForCall(node->AsCall());
     case GT_IND_STORE:
-        return getKillSetForStoreInd(node->AsIndStore());
+        return GetKillSetForIndStore(node->AsIndStore());
 
 #ifdef PROFILING_SUPPORTED
     // If this method requires profiler ELT hook then mark these nodes as killing
@@ -584,14 +581,14 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
     // profiler callback would trash these registers. See vm\amd64\asmhelpers.asm for
     // more details.
     case GT_RETURN:
-        return getKillSetForReturn();
+        return GetKillSetForReturn();
     case GT_PROF_HOOK:
-        return getKillSetForProfilerHook();
+        return GetKillSetForProfilerHook();
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
     case GT_HWINTRINSIC:
-        return getKillSetForHWIntrinsic(node->AsHWIntrinsic());
+        return GetKillSetForHWIntrinsic(node->AsHWIntrinsic());
 #endif
 
     default:
@@ -610,7 +607,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
 //
 // This method can add kills even if killMask is RBM_NONE, if this node is one of the
 // special cases that signals that we can't permit callee save registers to hold GC refs.
-bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location, regMaskTP killMask)
+bool LinearScan::BuildKillPositionsForNode(GenTree* node, LsraLocation location, RegSet killMask)
 {
     bool insertedKills = false;
 
@@ -642,6 +639,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
             {
                 const unsigned varIndex = e.Current();
                 LclVarDsc*     lcl      = compiler->lvaGetDescByTrackedIndex(varIndex);
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                 if (varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
                 {
@@ -657,8 +655,9 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
                 {
                     continue;
                 }
+
                 Interval*  interval   = GetLclInterval(varIndex);
-                const bool isCallKill = ((killMask == RBM_INT_CALLEE_TRASH) || (killMask == RBM_CALLEE_TRASH));
+                const bool isCallKill = (killMask == RBM_INT_CALLEE_TRASH) || (killMask == RBM_CALLEE_TRASH);
 
                 if (isCallKill)
                 {
@@ -675,7 +674,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
 
                     if (newPreferences != RBM_NONE)
                     {
-                        interval->updateRegisterPreferences(newPreferences);
+                        interval->UpdateRegisterPreferences(newPreferences);
                     }
                     else
                     {
@@ -788,13 +787,12 @@ void LinearScan::BuildInternalRegisterUses()
 
     for (int i = 0; i < internalCount; i++)
     {
-        RefPosition* def  = internalDefs[i];
-        regMaskTP    mask = def->registerAssignment;
-        RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->node, mask);
+        RefPosition& def = *internalDefs[i];
+        RefPosition* use = newRefPosition(def.getInterval(), currentLoc, RefTypeUse, def.node, def.registerAssignment);
 
         if (setInternalRegsDelayFree)
         {
-            setDelayFree(use);
+            SetDelayFree(use);
         }
     }
 }
@@ -1066,25 +1064,27 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
     // This is the minimum set of registers that needs to be ensured in the candidate set of ref positions created.
     //
     // First, we count them.
-    unsigned minRegCount = 0;
 
-    RefPositionIterator iter = refPositionMark;
+    unsigned            minRegCount = 0;
+    RefPositionIterator iter        = refPositionMark;
+
     for (iter++; iter != refPositions.end(); iter++)
     {
-        RefPosition* rp = &(*iter);
-        if (rp->isIntervalRef())
+        RefPosition& rp = *iter;
+
+        if (rp.isIntervalRef())
         {
-            if ((rp->refType == RefTypeUse) || ((rp->refType == RefTypeDef) && !rp->getInterval()->isInternal))
+            if ((rp.refType == RefTypeUse) || ((rp.refType == RefTypeDef) && !rp.getInterval()->isInternal))
             {
                 minRegCount++;
             }
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            else if (rp->refType == RefTypeUpperVectorSave)
+            else if (rp.refType == RefTypeUpperVectorSave)
             {
                 minRegCount++;
             }
 #endif
-            if (rp->getInterval()->isPassThrough)
+            if (rp.getInterval()->isPassThrough)
             {
                 minRegCount++;
             }
@@ -1093,10 +1093,10 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
 
     for (refPositionMark++; refPositionMark != refPositions.end(); refPositionMark++)
     {
-        RefPosition* rp                = &(*refPositionMark);
+        RefPosition& rp                = *refPositionMark;
         unsigned     minRegCountForRef = minRegCount;
 
-        if (RefTypeIsUse(rp->refType) && rp->delayRegFree)
+        if (RefTypeIsUse(rp.refType) && rp.delayRegFree)
         {
             // If delayRegFree, then Use will interfere with the destination of the consuming node.
             // Therefore, we also need add the kill set of the consuming node to minRegCount.
@@ -1112,28 +1112,29 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
             // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
             // {eax,edx} are getting killed before the def of idiv. For this reason, minRegCount for
             // the use position of v02 also needs to take into account the kill set of its consuming node.
-            if (RegSet killMask = getKillSetForNode(node))
+            if (RegSet killMask = GetKillSetForNode(node))
             {
                 minRegCountForRef += genCountBits(killMask);
             }
         }
-        else if ((rp->refType) == RefTypeDef && (rp->getInterval()->isPassThrough))
+        else if (rp.refType == RefTypeDef && rp.getInterval()->isPassThrough)
         {
             minRegCountForRef++;
         }
 
-        rp->minRegCandidateCount = minRegCountForRef;
+        rp.minRegCandidateCount = minRegCountForRef;
 
-        if (rp->IsActualRef() && doReverseCallerCallee())
+        if (rp.IsActualRef() && doReverseCallerCallee())
         {
-            Interval* interval       = rp->getInterval();
-            RegSet    oldAssignment  = rp->registerAssignment;
+            Interval* interval       = rp.getInterval();
+            RegSet    oldAssignment  = rp.registerAssignment;
             RegSet    calleeSaveMask = calleeSaveRegs(interval->registerType);
-            rp->registerAssignment   = getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
 
-            if ((rp->registerAssignment != oldAssignment) && (rp->refType == RefTypeUse) && !interval->isLocalVar)
+            rp.registerAssignment = GetConstrainedRegSet(oldAssignment, calleeSaveMask, minRegCountForRef);
+
+            if ((rp.registerAssignment != oldAssignment) && (rp.refType == RefTypeUse) && !interval->isLocalVar)
             {
-                CheckConflictingDefUse(rp);
+                CheckConflictingDefUse(&rp);
             }
         }
     }
@@ -1282,7 +1283,7 @@ void LinearScan::BuildIntervals()
 
     BlockSet visited = SetBlockSequence();
 
-    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_PRE));
+    DBEXEC(verbose, TupleStyleDump(DUMP_PRE));
 
     JITDUMP("\nbuildIntervals second part ========\n");
 
@@ -1775,7 +1776,7 @@ void LinearScan::BuildIntervals()
         ValidateLocalIntervals();
     }
 
-    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_REFPOS));
+    DBEXEC(verbose, TupleStyleDump(DUMP_REFPOS));
 #endif // DEBUG
 }
 
@@ -3309,12 +3310,12 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCa
     return defRefPosition;
 }
 
-void LinearScan::BuildKills(GenTree* node, regMaskTP killMask)
+void LinearScan::BuildKills(GenTree* node, RegSet killMask)
 {
-    assert(killMask == getKillSetForNode(node));
+    assert(killMask == GetKillSetForNode(node));
 
     // Call this even when killMask is RBM_NONE, as we have to check for some special cases
-    buildKillPositionsForNode(node, currentLoc + 1, killMask);
+    BuildKillPositionsForNode(node, currentLoc + 1, killMask);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (killMask != RBM_NONE)
@@ -3433,24 +3434,24 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candid
 
         if ((use->getInterval() != GetLclInterval(load)) || (!load->IsLastUse(0) && !use->lastUse))
         {
-            setDelayFree(use);
+            SetDelayFree(use);
         }
 
         return;
     }
 
-    setDelayFree(use);
+    SetDelayFree(use);
 }
 
 RefPosition* LinearScan::BuildDelayFreeUse(GenTree* op, regMaskTP candidates)
 {
     RefPosition* use = BuildUse(op, candidates);
-    setDelayFree(use);
+    SetDelayFree(use);
     return use;
 }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
-void LinearScan::setDelayFree(RefPosition* use)
+void LinearScan::SetDelayFree(RefPosition* use)
 {
     use->delayRegFree = true;
     pendingDelayFree  = true;
@@ -3766,7 +3767,7 @@ void LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     BuildUse(store->GetAddr(), dstRegMask);
     BuildUse(store->GetValue(), srcRegMask);
     BuildUse(store->GetSize(), sizeRegMask);
-    BuildKills(store, getKillSetForStructStore(store->GetKind()));
+    BuildKills(store, GetKillSetForStructStore(store->GetKind()));
 }
 
 void LinearScan::BuildReturn(GenTreeUnOp* ret)
@@ -3969,8 +3970,7 @@ void LinearScan::BuildGCWriteBarrier(GenTreeIndStore* store)
     BuildUse(addr, addrCandidates);
     BuildUse(src, srcCandidates);
 
-    regMaskTP killMask = getKillSetForStoreInd(store);
-    buildKillPositionsForNode(store, currentLoc + 1, killMask);
+    BuildKillPositionsForNode(store, currentLoc + 1, GetKillSetForIndStore(store));
 }
 
 void LinearScan::BuildInstr(GenTreeInstr* instr)
@@ -4010,7 +4010,7 @@ void LinearScan::BuildKeepAlive(GenTreeUnOp* node)
 // It is unlikely, if an internal register is the only use of floating point,
 // that it will select a callee-save register.  But to be safe, we restrict
 // the set of candidates if compFloatingPointUsed is not already set.
-regMaskTP LinearScan::internalFloatRegCandidates() const
+RegSet LinearScan::InternalFloatRegCandidates() const
 {
     return compiler->compFloatingPointUsed ? allFloatRegs() : RBM_FLT_CALLEE_TRASH;
 }

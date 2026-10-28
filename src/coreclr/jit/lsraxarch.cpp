@@ -42,7 +42,7 @@ void LinearScan::BuildNode(GenTree* tree)
         break;
 
     case GT_PROF_HOOK:
-        BuildKills(tree, getKillSetForProfilerHook());
+        BuildKills(tree, GetKillSetForProfilerHook());
         break;
 
     case GT_CNS_INT:
@@ -53,7 +53,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
     case GT_RETURN:
         BuildReturn(tree->AsUnOp());
-        BuildKills(tree, getKillSetForReturn());
+        BuildKills(tree, GetKillSetForReturn());
         break;
 
     case GT_RETFILT:
@@ -673,7 +673,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* shift)
         RefPosition* sourceLoUse = BuildUse(sourceLo, regCandidates);
         RefPosition* sourceHiUse = BuildUse(sourceHi, regCandidates);
 
-        setDelayFree(shift->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
+        SetDelayFree(shift->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
     }
     else
 #endif
@@ -780,7 +780,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
     }
 
     BuildInternalUses();
-    BuildKills(call, getKillSetForCall(call));
+    BuildKills(call, GetKillSetForCall(call));
 
 #ifdef TARGET_X86
     if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
@@ -907,7 +907,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #endif
                 )
         {
-            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            BuildInternalFloatDef(store, InternalFloatRegCandidates());
             SetContainsVexInstructions();
         }
 
@@ -923,7 +923,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     case StructStoreKind::UnrollCopy:
         if (size >= XMM_REGSIZE_BYTES)
         {
-            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            BuildInternalFloatDef(store, InternalFloatRegCandidates());
             SetContainsVexInstructions();
         }
 
@@ -1059,7 +1059,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #endif
 
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(kind));
+    BuildKills(store, GetKillSetForStructStore(kind));
 }
 
 void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)
@@ -1146,7 +1146,7 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
                 assert(store->GetKind() == GenTreeArgStore::Kind::UnrollZero);
                 assert(src->isContained());
 
-                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                BuildInternalFloatDef(store, InternalFloatRegCandidates());
             }
 
             BuildInternalUses();
@@ -1187,13 +1187,13 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
             if (size >= XMM_REGSIZE_BYTES)
 #endif
             {
-                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                BuildInternalFloatDef(store, InternalFloatRegCandidates());
                 SetContainsVexInstructions();
             }
             break;
 
         case GenTreeArgStore::Kind::RepInstrXMM:
-            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            BuildInternalFloatDef(store, InternalFloatRegCandidates());
             SetContainsVexInstructions();
             FALLTHROUGH;
         case GenTreeArgStore::Kind::RepInstr:
@@ -1203,7 +1203,7 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
             break;
 
         case GenTreeArgStore::Kind::GCUnrollXMM:
-            BuildInternalFloatDef(store, internalFloatRegCandidates());
+            BuildInternalFloatDef(store, InternalFloatRegCandidates());
             SetContainsVexInstructions();
             FALLTHROUGH;
         case GenTreeArgStore::Kind::GCUnroll:

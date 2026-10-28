@@ -75,7 +75,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
     }
 
     BuildInternalUses();
-    BuildKills(call, getKillSetForCall(call));
+    BuildKills(call, GetKillSetForCall(call));
 
 #ifdef TARGET_ARM
     if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
@@ -252,7 +252,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     }
 
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(kind));
+    BuildKills(store, GetKillSetForStructStore(kind));
 }
 
 void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)

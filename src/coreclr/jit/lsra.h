@@ -395,8 +395,8 @@ private:
         return static_cast<LsraStressLimitRegs>(stressMode & LSRA_LIMIT_MASK);
     }
 
-    static RegSet getConstrainedRegMask(RegSet regMaskActual, RegSet regMaskConstrain, unsigned minRegCount);
-    RegSet stressLimitRegs(RefPosition* refPosition, RegSet mask);
+    static RegSet GetConstrainedRegSet(RegSet regMaskActual, RegSet regMaskConstrain, unsigned minRegCount);
+    RegSet StressLimitRegs(RefPosition* refPosition, RegSet mask);
 
     // This controls the heuristics used to select registers
     // These can be combined.
@@ -640,29 +640,28 @@ private:
         return node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->IsRegCandidate();
     }
 
-    // Helpers for getKillSetForNode().
-    RegSet getKillSetForStoreInd(GenTreeIndStore* store);
+    RegSet GetKillSetForIndStore(GenTreeIndStore* store);
 #ifdef TARGET_XARCH
-    RegSet getKillSetForMul(GenTreeOp* node);
-    RegSet getKillSetForModDiv(GenTreeOp* node);
+    RegSet GetKillSetForMul(GenTreeOp* node);
+    RegSet GetKillSetForModDiv(GenTreeOp* node);
 #endif
-    RegSet getKillSetForCall(GenTreeCall* call);
-    RegSet getKillSetForStructStore(StructStoreKind kind);
-    RegSet getKillSetForReturn();
-    RegSet getKillSetForProfilerHook();
+    RegSet GetKillSetForCall(GenTreeCall* call);
+    RegSet GetKillSetForStructStore(StructStoreKind kind);
+    RegSet GetKillSetForReturn();
+    RegSet GetKillSetForProfilerHook();
 #ifdef FEATURE_HW_INTRINSICS
-    RegSet getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node);
+    RegSet GetKillSetForHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif
 
 #ifdef DEBUG
     // Return the registers killed by the given node.
     // This is used only for an assert, and for stress, so it is only defined under DEBUG.
     // Otherwise, the Build methods should obtain the killMask from the appropriate method above.
-    RegSet getKillSetForNode(GenTree* node);
+    RegSet GetKillSetForNode(GenTree* node);
 #endif
 
     // Given some node add refpositions for all the registers this node kills
-    bool buildKillPositionsForNode(GenTree* node, LsraLocation location, RegSet killMask);
+    bool BuildKillPositionsForNode(GenTree* node, LsraLocation location, RegSet killSet);
     bool KillGCRefs(GenTree* tree) const;
 
     RegSet allRegs(RegisterType rt) const;
@@ -671,7 +670,7 @@ private:
     RegSet allByteRegs() const;
 #endif
     RegSet allFloatRegs() const;
-    RegSet internalFloatRegCandidates() const;
+    RegSet InternalFloatRegCandidates() const;
 
     void MakeRegisterInactive(RegRecord& reg);
     void FreeRegister(RegRecord& reg);
@@ -780,24 +779,24 @@ private:
 
     // There are three points at which a tuple-style dump is produced, and each
     // differs slightly:
-    //   - In LSRA_DUMP_PRE, it does a simple dump of each node, with indications of what
+    //   - In DUMP_PRE, it does a simple dump of each node, with indications of what
     //     nodes are consumed.
-    //   - In LSRA_DUMP_REFPOS, which is after the intervals are built, but before
+    //   - In DUMP_REFPOS, which is after the intervals are built, but before
     //     register allocation, each node is dumped, along with all of the RefPositions,
     //     The Intervals are identified as Lnnn for lclVar intervals, Innn for for other
     //     intervals, and Tnnn for internal temps.
-    //   - In LSRA_DUMP_POST, which is after register allocation, the registers are
+    //   - In DUMP_POST, which is after register allocation, the registers are
     //     shown.
 
     enum TupleDumpMode
     {
-        LSRA_DUMP_PRE,
-        LSRA_DUMP_REFPOS,
-        LSRA_DUMP_POST
+        DUMP_PRE,
+        DUMP_REFPOS,
+        DUMP_POST
     };
 
-    void lsraGetOperandString(GenTree* node, TupleDumpMode mode, char* buffer, unsigned bufferSize) const;
-    void lsraDispNode(GenTree* node, TupleDumpMode mode) const;
+    void GetDumpOperandString(GenTree* node, TupleDumpMode mode, char* buffer, unsigned bufferSize) const;
+    void DumpNode(GenTree* node, TupleDumpMode mode) const;
     void DumpOperandDefs(GenTree* operand, bool& first, TupleDumpMode mode) const;
     void TupleStyleDump(TupleDumpMode mode);
 
@@ -1223,7 +1222,7 @@ private:
     RefPosition* BuildDef(GenTree* node, RegSet regCandidates = RBM_NONE);
     RefPosition* BuildDef(GenTree* node, var_types regType, RegSet regCandidates, unsigned regIndex);
     RefPosition* BuildUse(GenTree* operand, RegSet candidates = RBM_NONE, unsigned regIndex = 0);
-    void setDelayFree(RefPosition* use);
+    void SetDelayFree(RefPosition* use);
     void BuildKills(GenTree* node, RegSet killMask);
 #ifdef TARGET_XARCH
     RefPosition* BuildOperandUses(GenTree* node X86_ARG(RegSet candidates = RBM_NONE));
@@ -1517,8 +1516,8 @@ public:
         return assignedReg == nullptr ? registerPreferences : genRegMask(assignedReg->num);
     }
 
-    void mergeRegisterPreferences(RegSet preferences);
-    void updateRegisterPreferences(RegSet preferences);
+    void MergeRegisterPreferences(RegSet preferences);
+    void UpdateRegisterPreferences(RegSet preferences);
 
     bool IsUpperVector() const
     {

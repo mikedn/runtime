@@ -218,7 +218,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
     case GT_RETURN:
         BuildReturn(tree->AsUnOp());
-        BuildKills(tree, getKillSetForReturn());
+        BuildKills(tree, GetKillSetForReturn());
         break;
 
     case GT_RETFILT:
@@ -525,7 +525,7 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
 
     RefPosition* sourceLoUse = BuildUse(sourceLo);
     RefPosition* sourceHiUse = BuildUse(sourceHi);
-    setDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
+    SetDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
     BuildDef(node);
 }
 

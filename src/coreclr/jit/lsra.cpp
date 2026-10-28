@@ -187,7 +187,7 @@ void LinearScan::Run()
     }
 #endif
 
-    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_POST));
+    DBEXEC(verbose, TupleStyleDump(DUMP_POST));
 }
 
 VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb) const
@@ -394,7 +394,7 @@ bool LinearScan::IsFree(const RegRecord& reg) const
 //     New regMask that has minRegCount registers after intersection.
 //     Otherwise returns regMaskActual.
 //
-RegSet LinearScan::getConstrainedRegMask(RegSet regMaskActual, RegSet regMaskConstraint, unsigned minRegCount)
+RegSet LinearScan::GetConstrainedRegSet(RegSet regMaskActual, RegSet regMaskConstraint, unsigned minRegCount)
 {
     RegSet newMask = regMaskActual & regMaskConstraint;
 
@@ -414,7 +414,7 @@ RegSet LinearScan::getConstrainedRegMask(RegSet regMaskActual, RegSet regMaskCon
 //    This is the method used to implement the stress options that limit
 //    the set of registers considered for allocation.
 //
-RegSet LinearScan::stressLimitRegs(RefPosition* refPosition, RegSet mask)
+RegSet LinearScan::StressLimitRegs(RefPosition* refPosition, RegSet mask)
 {
     if (getStressLimitRegs() != LSRA_LIMIT_NONE)
     {
@@ -427,22 +427,22 @@ RegSet LinearScan::stressLimitRegs(RefPosition* refPosition, RegSet mask)
         case LSRA_LIMIT_CALLEE:
             if (!compiler->opts.compDbgEnC)
             {
-                mask = getConstrainedRegMask(mask, RBM_CALLEE_SAVED, minRegCount);
+                mask = GetConstrainedRegSet(mask, RBM_CALLEE_SAVED, minRegCount);
             }
             break;
 
         case LSRA_LIMIT_CALLER:
-            mask = getConstrainedRegMask(mask, RBM_CALLEE_TRASH, minRegCount);
+            mask = GetConstrainedRegSet(mask, RBM_CALLEE_TRASH, minRegCount);
             break;
 
         case LSRA_LIMIT_SMALL_SET:
             if ((mask & LsraLimitSmallIntSet) != RBM_NONE)
             {
-                mask = getConstrainedRegMask(mask, LsraLimitSmallIntSet, minRegCount);
+                mask = GetConstrainedRegSet(mask, LsraLimitSmallIntSet, minRegCount);
             }
             else if ((mask & LsraLimitSmallFPSet) != RBM_NONE)
             {
-                mask = getConstrainedRegMask(mask, LsraLimitSmallFPSet, minRegCount);
+                mask = GetConstrainedRegSet(mask, LsraLimitSmallFPSet, minRegCount);
             }
             break;
 
@@ -513,7 +513,7 @@ LsraLocation Referenceable::getNextRefLocation() const
     return nextRefPosition == nullptr ? MaxLocation : nextRefPosition->nodeLocation;
 }
 
-void Interval::mergeRegisterPreferences(RegSet preferences)
+void Interval::MergeRegisterPreferences(RegSet preferences)
 {
     // We require registerPreferences to have been initialized.
     assert(registerPreferences != RBM_NONE);
@@ -521,6 +521,7 @@ void Interval::mergeRegisterPreferences(RegSet preferences)
     assert(preferences != RBM_NONE);
 
     RegSet commonPreferences = (registerPreferences & preferences);
+
     if (commonPreferences != RBM_NONE)
     {
         registerPreferences = commonPreferences;
@@ -573,17 +574,17 @@ void Interval::mergeRegisterPreferences(RegSet preferences)
 // the union of them.  That way maybe we'll get at least one of them.
 // An exception is made in the case where one of the existing or new
 // preferences are all callee-save, in which case we "prefer" the callee-save
-void Interval::updateRegisterPreferences(RegSet preferences)
+void Interval::UpdateRegisterPreferences(RegSet preferences)
 {
     // If this interval is preferenced, that interval may have already been assigned a
     // register, and we want to include that in the preferences.
     if ((relatedInterval != nullptr) && !relatedInterval->isActive)
     {
-        mergeRegisterPreferences(relatedInterval->getCurrentPreferences());
+        MergeRegisterPreferences(relatedInterval->getCurrentPreferences());
     }
 
     // Now merge the new preferences.
-    mergeRegisterPreferences(preferences);
+    MergeRegisterPreferences(preferences);
 }
 
 // TODO-Throughput: This mapping can surely be more efficiently done
@@ -1240,7 +1241,7 @@ void LinearScan::AssignPhysReg(RegRecord& reg, Interval* interval)
     if (interval->isLocalVar)
     {
         // Prefer this register for future references
-        interval->updateRegisterPreferences(assignedRegMask);
+        interval->UpdateRegisterPreferences(assignedRegMask);
     }
 }
 
@@ -3383,7 +3384,7 @@ void LinearScan::AllocateRegisters()
                     // don't know yet whether the register will be retained.
                     if (currentInterval->relatedInterval != nullptr)
                     {
-                        currentInterval->relatedInterval->updateRegisterPreferences(assignedRegBit);
+                        currentInterval->relatedInterval->UpdateRegisterPreferences(assignedRegBit);
                     }
                 }
 
@@ -4529,7 +4530,7 @@ void LinearScan::ResolveRegisters()
                     {
                         // If the localVar is in a register, it must be in a register that is not trashed by
                         // the current node (otherwise it would have already been spilled).
-                        assert((genRegMask(localVarInterval->physReg) & getKillSetForNode(node)) == RBM_NONE);
+                        assert((genRegMask(localVarInterval->physReg) & GetKillSetForNode(node)) == RBM_NONE);
 
                         // If we have allocated a register to spill it to, we will use that; otherwise, we will spill it
                         // to the stack.  We can use as a temp register any non-arg caller-save register.
@@ -5107,7 +5108,7 @@ RegNum LinearScan::GetTempRegForResolution(BasicBlock* fromBlock, BasicBlock* to
         return REG_NA;
     }
 
-    freeRegs = stressLimitRegs(nullptr, freeRegs);
+    freeRegs = StressLimitRegs(nullptr, freeRegs);
 #endif
 
     // We are only interested in the variables that are live-in to the "to" block.
@@ -6728,11 +6729,11 @@ void LinearScan::DumpIntervals(const char* msg) const
     printf("\n");
 }
 
-void LinearScan::lsraGetOperandString(GenTree* node, TupleDumpMode mode, char* buffer, unsigned bufferSize) const
+void LinearScan::GetDumpOperandString(GenTree* node, TupleDumpMode mode, char* buffer, unsigned bufferSize) const
 {
     const char* lastUseChar = node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && node->IsLastUse(0) ? "*" : "";
 
-    if (mode != LinearScan::LSRA_DUMP_POST)
+    if (mode != DUMP_POST)
     {
         _snprintf_s(buffer, bufferSize, bufferSize, "t%d%s", node->GetID(), lastUseChar);
     }
@@ -6754,12 +6755,12 @@ void LinearScan::lsraGetOperandString(GenTree* node, TupleDumpMode mode, char* b
     }
 }
 
-void LinearScan::lsraDispNode(GenTree* node, TupleDumpMode mode) const
+void LinearScan::DumpNode(GenTree* node, TupleDumpMode mode) const
 {
     char spillChar = ' ';
-    bool hasDest   = ((node->IsValue() ? ComputeOperandDstCount(node) : 0) != 0) && (mode != LSRA_DUMP_REFPOS);
+    bool hasDest   = ((node->IsValue() ? ComputeOperandDstCount(node) : 0) != 0) && (mode != DUMP_REFPOS);
 
-    if (mode == LinearScan::LSRA_DUMP_POST)
+    if (mode == DUMP_POST)
     {
         if (node->IsAnyRegSpill())
         {
@@ -6796,7 +6797,7 @@ void LinearScan::lsraDispNode(GenTree* node, TupleDumpMode mode) const
     if (hasDest)
     {
         char buffer[6 * MAX_MULTIREG_COUNT + 1];
-        lsraGetOperandString(node, mode, buffer, sizeof(buffer));
+        GetDumpOperandString(node, mode, buffer, sizeof(buffer));
         printf("%-15s =", buffer);
     }
     else
@@ -6806,17 +6807,17 @@ void LinearScan::lsraDispNode(GenTree* node, TupleDumpMode mode) const
 
     if ((lcl != nullptr) && lcl->IsRegCandidate())
     {
-        if (mode == LSRA_DUMP_REFPOS)
+        if (mode == DUMP_REFPOS)
         {
             printf(" V%02u(L%u) ", lcl->GetLclNum(), GetLclInterval(lcl->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
             char buffer[6 * MAX_MULTIREG_COUNT + 1];
-            lsraGetOperandString(node, mode, buffer, sizeof(buffer));
+            GetDumpOperandString(node, mode, buffer, sizeof(buffer));
             printf(" V%02u(%s) ", lcl->GetLclNum(), buffer);
 
-            if ((mode == LinearScan::LSRA_DUMP_POST) && node->IsAnyRegSpilled())
+            if ((mode == LinearScan::DUMP_POST) && node->IsAnyRegSpilled())
             {
                 printf("R ");
             }
@@ -6838,7 +6839,7 @@ void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, TupleDumpMode mo
     if (ComputeOperandDstCount(operand) != 0)
     {
         char buffer[6 * MAX_MULTIREG_COUNT + 1];
-        lsraGetOperandString(operand, mode, buffer, sizeof(buffer));
+        GetDumpOperandString(operand, mode, buffer, sizeof(buffer));
         printf("%s%s", !first ? "," : "", buffer);
         first = false;
     }
@@ -6853,20 +6854,20 @@ void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, TupleDumpMode mo
 
 void LinearScan::TupleStyleDump(TupleDumpMode mode)
 {
-    // currentRefPosition is not used for LSRA_DUMP_PRE
+    // currentRefPosition is not used for DUMP_PRE
     // We keep separate iterators for defs, so that we can print them
     // on the lhs of the dump
     RefPositionIterator refPosIterator = refPositions.begin();
 
     switch (mode)
     {
-    case LSRA_DUMP_PRE:
+    case DUMP_PRE:
         printf("TUPLE STYLE DUMP BEFORE LSRA\n");
         break;
-    case LSRA_DUMP_REFPOS:
+    case DUMP_REFPOS:
         printf("TUPLE STYLE DUMP WITH REF POSITIONS\n");
         break;
-    case LSRA_DUMP_POST:
+    case DUMP_POST:
         printf("TUPLE STYLE DUMP WITH REGISTER ASSIGNMENTS\n");
         break;
     default:
@@ -6874,7 +6875,7 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
         return;
     }
 
-    if (mode != LSRA_DUMP_PRE)
+    if (mode != DUMP_PRE)
     {
         printf("Incoming Parameters: ");
 
@@ -6886,7 +6887,7 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
 
             printf(" V%02u", lcl->GetLclNum());
 
-            if (mode == LSRA_DUMP_POST)
+            if (mode == DUMP_POST)
             {
                 RegNum reg         = refPosition.registerAssignment == RBM_NONE ? REG_STK : refPosition.assignedReg();
                 RegNum assignedReg = lcl->GetRegNum();
@@ -6910,7 +6911,7 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
 
     for (BasicBlock* block : jitstd::span<BasicBlock*>(blockSequence, bbSeqCount))
     {
-        if (mode == LSRA_DUMP_REFPOS)
+        if (mode == DUMP_REFPOS)
         {
             bool printedBlockHeader = false;
 
@@ -6959,7 +6960,7 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
             printf("=====\n");
         }
 
-        if (enregisterLocalVars && mode == LSRA_DUMP_POST && block != compiler->fgFirstBB &&
+        if (enregisterLocalVars && mode == DUMP_POST && block != compiler->fgFirstBB &&
             block->bbNum <= bbNumMaxBeforeResolution)
         {
             printf("Predecessor for variable locations: " FMT_BB "\n",
@@ -6976,9 +6977,9 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
 
         for (GenTree* node : LIR::AsRange(block))
         {
-            lsraDispNode(node, mode);
+            DumpNode(node, mode);
 
-            if (mode != LSRA_DUMP_REFPOS)
+            if (mode != DUMP_REFPOS)
             {
                 if (ComputeAvailableSrcCount(node) > 0)
                 {
@@ -7096,7 +7097,7 @@ void LinearScan::TupleStyleDump(TupleDumpMode mode)
             printf("\n");
         }
 
-        if (enregisterLocalVars && mode == LSRA_DUMP_POST)
+        if (enregisterLocalVars && mode == DUMP_POST)
         {
             dumpOutVarToRegMap(block);
         }
@@ -9274,7 +9275,7 @@ RegSet RegisterSelection::Select(Interval* currentInterval, RefPosition& refPosi
     }
 
 #ifdef DEBUG
-    candidates = linearScan.stressLimitRegs(&refPosition, candidates);
+    candidates = linearScan.StressLimitRegs(&refPosition, candidates);
 #endif
 
     assert(candidates != RBM_NONE);
