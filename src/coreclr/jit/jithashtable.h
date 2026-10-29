@@ -109,7 +109,32 @@ public:
 
     ~JitHashMap()
     {
-        Clear();
+        Destroy();
+    }
+
+    void Destroy()
+    {
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
+        {
+            for (Node* n = m_buckets[i]; n != nullptr;)
+            {
+                Node* next = n->next;
+                Node::operator delete(n, m_alloc);
+                n = next;
+            }
+        }
+
+        m_alloc.deallocate(m_buckets);
+    }
+
+    void Clear()
+    {
+        Destroy();
+
+        m_buckets  = nullptr;
+        m_sizeInfo = {};
+        m_count    = 0;
+        m_maxCount = 0;
     }
 
     bool Find(Key k, Value* value) const
@@ -214,26 +239,6 @@ public:
         m_count--;
         Node::operator delete(node, m_alloc);
         return true;
-    }
-
-    void Clear()
-    {
-        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
-        {
-            for (Node* n = m_buckets[i]; n != nullptr;)
-            {
-                Node* next = n->next;
-                Node::operator delete(n, m_alloc);
-                n = next;
-            }
-        }
-
-        m_alloc.deallocate(m_buckets);
-
-        m_buckets  = nullptr;
-        m_sizeInfo = {};
-        m_count    = 0;
-        m_maxCount = 0;
     }
 
     iterator begin() const
@@ -490,6 +495,11 @@ public:
 
     ~JitHashSet()
     {
+        Destroy();
+    }
+
+    void Destroy()
+    {
         for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
         {
             for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
@@ -500,7 +510,16 @@ public:
         }
 
         m_alloc.deallocate(m_buckets);
-        m_buckets = nullptr;
+    }
+
+    void Clear()
+    {
+        Destroy();
+
+        m_buckets  = nullptr;
+        m_sizeInfo = {};
+        m_count    = 0;
+        m_maxCount = 0;
     }
 
     bool Add(Value value)
@@ -574,25 +593,6 @@ public:
         Node::operator delete(node, m_alloc);
 
         return true;
-    }
-
-    void Clear()
-    {
-        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
-        {
-            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
-            {
-                next = node->next;
-                Node::operator delete(node, m_alloc);
-            }
-        }
-
-        m_alloc.deallocate(m_buckets);
-
-        m_buckets  = nullptr;
-        m_sizeInfo = {};
-        m_count    = 0;
-        m_maxCount = 0;
     }
 
     unsigned GetCount() const

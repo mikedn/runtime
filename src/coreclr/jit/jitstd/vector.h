@@ -279,7 +279,7 @@ vector<T, Allocator>::vector(const Allocator& allocator)
 template <typename T, typename Allocator>
 vector<T, Allocator>::vector(size_type size, const T& value, const Allocator& allocator)
     : m_allocator(allocator)
-    , m_pArray(NULL)
+    , m_pArray(nullptr)
     , m_nSize(0)
     , m_nCapacity(0)
 {
@@ -290,7 +290,7 @@ template <typename T, typename Allocator>
 template <typename InputIterator>
 vector<T, Allocator>::vector(InputIterator first, InputIterator last, const Allocator& allocator)
     : m_allocator(allocator)
-    , m_pArray(NULL)
+    , m_pArray(nullptr)
     , m_nSize(0)
     , m_nCapacity(0)
 {
@@ -301,7 +301,7 @@ template <typename T, typename Allocator>
 template <typename Alt, typename AltAllocator>
 vector<T, Allocator>::vector(const vector<Alt, AltAllocator>& vec)
     : m_allocator(vec.m_allocator)
-    , m_pArray(NULL)
+    , m_pArray(nullptr)
     , m_nSize(0)
     , m_nCapacity(0)
 {
@@ -317,7 +317,7 @@ vector<T, Allocator>::vector(const vector<Alt, AltAllocator>& vec)
 template <typename T, typename Allocator>
 vector<T, Allocator>::vector(const vector<T, Allocator>& vec)
     : m_allocator(vec.m_allocator)
-    , m_pArray(NULL)
+    , m_pArray(nullptr)
     , m_nSize(0)
     , m_nCapacity(0)
 {
@@ -339,8 +339,6 @@ vector<T, Allocator>::~vector()
         m_pArray[i].~T();
     }
     m_allocator.deallocate(m_pArray, m_nCapacity);
-    m_nSize = 0;
-    m_nCapacity = 0;
 }
 
 
@@ -730,7 +728,7 @@ void vector<T, Allocator>::insert_elements_helper(iterator iter, size_type size,
 {
     assert(size < max_size());
 
-    // m_pElem could be NULL then m_pArray would be NULL too.
+    // m_pElem could be nullptr then m_pArray would be nullptr too.
     size_type pos = iter.m_pElem - m_pArray;
 
     assert(pos <= m_nSize); // <= could insert at end.
@@ -762,7 +760,7 @@ template <typename T, typename Allocator>
 template <typename InputIterator>
 void vector<T, Allocator>::insert_helper(iterator iter, InputIterator first, InputIterator last, forward_iterator_tag)
 {
-    // m_pElem could be NULL then m_pArray would be NULL too.
+    // m_pElem could be nullptr then m_pArray would be nullptr too.
     size_type pos = iter.m_pElem - m_pArray;
 
     assert(pos <= m_nSize); // <= could insert at end.
@@ -860,7 +858,7 @@ namespace jitstd
 // iterator
 template <typename T, typename Allocator>
 vector<T, Allocator>::iterator::iterator()
-    : m_pElem(NULL)
+    : m_pElem(nullptr)
 {
 }
 
@@ -964,7 +962,7 @@ vector<T, Allocator>::iterator::operator T*()
 // const_iterator
 template <typename T, typename Allocator>
 vector<T, Allocator>::const_iterator::const_iterator()
-    : m_pElem(NULL)
+    : m_pElem(nullptr)
 {
 }
 
@@ -1070,7 +1068,7 @@ vector<T, Allocator>::const_iterator::operator const T*() const
 // reverse_iterator
 template <typename T, typename Allocator>
 vector<T, Allocator>::reverse_iterator::reverse_iterator()
-    : m_pElem(NULL)
+    : m_pElem(nullptr)
 {
 }
 
@@ -1168,7 +1166,7 @@ vector<T, Allocator>::reverse_iterator::operator T*()
 // const_reverse_iterator
 template <typename T, typename Allocator>
 vector<T, Allocator>::const_reverse_iterator::const_reverse_iterator()
-    : m_pElem(NULL)
+    : m_pElem(nullptr)
 {
 }
 

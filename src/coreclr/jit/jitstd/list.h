@@ -250,6 +250,7 @@ private:
     };
 
     void destroy_helper();
+    void clear_helper();
 
     void construct_helper(size_type n, const T& value, int_not_an_iterator_tag);
     template <typename InputIterator>
@@ -288,8 +289,8 @@ list<T, Allocator>::list(const Allocator& allocator)
 
 template <typename T, typename Allocator>
 list<T, Allocator>::list(size_type n, const T& value, const Allocator& allocator)
-    : m_pHead(NULL)
-    , m_pTail(NULL)
+    : m_pHead(nullptr)
+    , m_pTail(nullptr)
     , m_nSize(0)
     , m_allocator(allocator)
     , m_nodeAllocator(allocator)
@@ -300,8 +301,8 @@ list<T, Allocator>::list(size_type n, const T& value, const Allocator& allocator
 template <typename T, typename Allocator>
 template <typename InputIterator>
 list<T, Allocator>::list(InputIterator first, InputIterator last, const Allocator& allocator)
-    : m_pHead(NULL)
-    , m_pTail(NULL)
+    : m_pHead(nullptr)
+    , m_pTail(nullptr)
     , m_nSize(0)
     , m_allocator(allocator)
     , m_nodeAllocator(allocator)
@@ -311,8 +312,8 @@ list<T, Allocator>::list(InputIterator first, InputIterator last, const Allocato
 
 template <typename T, typename Allocator>
 list<T, Allocator>::list(const list<T, Allocator>& other)
-    : m_pHead(NULL)
-    , m_pTail(NULL)
+    : m_pHead(nullptr)
+    , m_pTail(nullptr)
     , m_nSize(0)
     , m_allocator(other.m_allocator)
     , m_nodeAllocator(other.m_nodeAllocator)
@@ -378,7 +379,7 @@ typename list<T, Allocator>::const_iterator list<T, Allocator>::begin() const
 template <typename T, typename Allocator>
 void list<T, Allocator>::clear()
 {
-    destroy_helper();
+    clear_helper();
 }
 
 template <typename T, typename Allocator>
@@ -396,7 +397,7 @@ typename list<T, Allocator>::iterator list<T, Allocator>::end()
 template <typename T, typename Allocator>
 typename list<T, Allocator>::const_iterator list<T, Allocator>::end() const
 {
-    return const_iterator(NULL);
+    return const_iterator(nullptr);
 }
 
 template <typename T, typename Allocator>
@@ -519,7 +520,7 @@ void list<T, Allocator>::merge(list<T, Allocator>& lst, Compare comp)
 
     if (j != lst.end())
     {
-        if (m_pTail != NULL)
+        if (m_pTail != nullptr)
         {
             m_pTail->m_pNext = j.m_pNode;
         }
@@ -535,7 +536,7 @@ void list<T, Allocator>::merge(list<T, Allocator>& lst, Compare comp)
 template <typename T, typename Allocator>
 list<T, Allocator>& list<T, Allocator>::operator=(const list<T, Allocator>& lst)
 {
-    destroy_helper();
+    clear_helper();
     construct_helper(lst.begin(), lst.end(), forward_iterator_tag());
     return *this;
 }
@@ -573,12 +574,12 @@ void list<T, Allocator>::pop_front()
     if (m_pHead != m_pTail)
     {
         m_pHead = m_pHead->m_pNext;
-        m_pHead->m_pPrev = NULL;
+        m_pHead->m_pPrev = nullptr;
     }
     else
     {
-        m_pHead = NULL;
-        m_pTail = NULL;
+        m_pHead = nullptr;
+        m_pTail = nullptr;
     }
     pDelete->~Node();
     m_nodeAllocator.deallocate(pDelete, 1);
@@ -666,7 +667,7 @@ typename list<T, Allocator>::reverse_iterator list<T, Allocator>::rend()
 template <typename T, typename Allocator>
 typename list<T, Allocator>::const_reverse_iterator list<T, Allocator>::rend() const
 {
-    return reverse_iterator(NULL);
+    return reverse_iterator(nullptr);
 }
 
 template <typename T, typename Allocator>
@@ -686,7 +687,7 @@ void list<T, Allocator>::resize(size_type sz, const T& c)
 template <typename T, typename Allocator>
 void list<T, Allocator>::reverse()
 {
-    for (Node* p = m_pHead; p != NULL; p = p->m_pNext)
+    for (Node* p = m_pHead; p != nullptr; p = p->m_pNext)
     {
         std::swap(p->m_pPrev, p->m_pNext);
     }
@@ -760,17 +761,26 @@ void list<T, Allocator>::unique(const BinaryPredicate& binary_pred)
     assert(false && !"template method not implemented.");
 }
 
-// private
 template <typename T, typename Allocator>
 void list<T, Allocator>::destroy_helper()
 {
-    while (m_pTail != nullptr)
+    Node* tail = m_pTail;
+
+    while (tail != nullptr)
     {
-        Node* prev = m_pTail->m_pPrev;
-        m_pTail->~Node();
-        m_nodeAllocator.deallocate(m_pTail, 1);
-        m_pTail = prev;
+        Node* prev = tail->m_pPrev;
+        tail->~Node();
+        m_nodeAllocator.deallocate(tail, 1);
+        tail = prev;
     }
+}
+
+template <typename T, typename Allocator>
+void list<T, Allocator>::clear_helper()
+{
+    destroy_helper();
+
+    m_pTail = nullptr;
     m_pHead = nullptr;
     m_nSize = 0;
 }
@@ -800,7 +810,7 @@ void list<T, Allocator>::construct_helper(InputIterator first, InputIterator las
 template <typename T, typename Allocator>
 void list<T, Allocator>::assign_helper(size_type n, const T& value, int_not_an_iterator_tag)
 {
-    destroy_helper();
+    clear_helper();
     for (int i = 0; i < n; ++i)
     {
         insert(end(), value);
@@ -811,7 +821,7 @@ template <typename T, typename Allocator>
 template <typename InputIterator>
 void list<T, Allocator>::assign_helper(InputIterator first, InputIterator last, forward_iterator_tag)
 {
-    destroy_helper();
+    clear_helper();
     while (first != last)
     {
         insert(end(), *first);
@@ -888,7 +898,7 @@ namespace jitstd
 // iterator
 template <typename T, typename Allocator>
 list<T, Allocator>::iterator::iterator()
-    : m_pNode(NULL)
+    : m_pNode(nullptr)
 {
 }
 
@@ -975,7 +985,7 @@ list<T, Allocator>::iterator::operator T*()
 // const_iterator
 template <typename T, typename Allocator>
 list<T, Allocator>::const_iterator::const_iterator()
-    : m_pNode(NULL)
+    : m_pNode(nullptr)
 {
 }
 
@@ -1065,7 +1075,7 @@ list<T, Allocator>::const_iterator::operator const T*() const
 // reverse_iterator
 template <typename T, typename Allocator>
 list<T, Allocator>::reverse_iterator::reverse_iterator()
-    : m_pNode(NULL)
+    : m_pNode(nullptr)
 {
 }
 
@@ -1149,7 +1159,7 @@ list<T, Allocator>::reverse_iterator::operator T*()
 // const_reverse_iterator
 template <typename T, typename Allocator>
 list<T, Allocator>::const_reverse_iterator::const_reverse_iterator()
-    : m_pNode(NULL)
+    : m_pNode(nullptr)
 {
 }
 
