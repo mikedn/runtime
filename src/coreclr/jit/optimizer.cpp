@@ -1232,8 +1232,6 @@ void Compiler::LoopDsc::VerifyIterator() const
 }
 #endif // DEBUG
 
-namespace
-{
 //------------------------------------------------------------------------
 // LoopSearch: Class that handles scanning a range of blocks to detect a loop,
 //             moving blocks to make the loop body contiguous, and recording
@@ -2167,7 +2165,6 @@ private:
         }
     }
 };
-}
 
 // Find the natural loops, using dominators. Note that the test for
 // a loop is slightly different from the standard one, because we have

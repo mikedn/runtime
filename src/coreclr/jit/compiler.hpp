@@ -693,17 +693,17 @@ inline bool Compiler::compStressCompile(StressArea stressArea, unsigned percenta
 
 inline void Compiler::CLRApiCallEnter(unsigned apix)
 {
-    if (pCompJitTimer != nullptr)
+    if (jitTimer != nullptr)
     {
-        pCompJitTimer->CLRApiCallEnter(apix);
+        jitTimer->CLRApiCallEnter(apix);
     }
 }
 
 inline void Compiler::CLRApiCallLeave(unsigned apix)
 {
-    if (pCompJitTimer != nullptr)
+    if (jitTimer != nullptr)
     {
-        pCompJitTimer->CLRApiCallLeave(apix);
+        jitTimer->CLRApiCallLeave(apix);
     }
 }
 

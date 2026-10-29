@@ -341,7 +341,7 @@ void Compiler::compShutdown()
 #endif
 
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (const WCHAR* logFileName = compJitTimeLogFilename)
+    if (const WCHAR* logFileName = jitTimerLogFilename)
     {
         if (FILE* file = _wfopen(logFileName, W("a")))
         {
@@ -624,12 +624,6 @@ void Compiler::compInit()
     assert(!compIsForInlining());
 
     m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
-
-    for (unsigned i = 0; i < _countof(moLargeFieldOffsetNullCheckTemps); i++)
-    {
-        moLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
-    }
-
     codeGenInit();
 
 #if MEASURE_NODE_SIZE
@@ -889,9 +883,7 @@ void Compiler::compInitAltJit()
         return;
     }
 
-    const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
-
-    if (altJitExcludeAssemblies != nullptr)
+    if (const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies())
     {
         if (s_pAltJitExcludeAssembliesList == nullptr)
         {
@@ -1667,19 +1659,19 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 
 void Compiler::BeginPhase(Phases phase)
 {
-    mostRecentlyActivePhase = phase;
+    INDEBUG(mostRecentlyActivePhase = phase);
 }
 
 void Compiler::EndPhase(Phases phase)
 {
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (pCompJitTimer != nullptr)
+    if (jitTimer != nullptr)
     {
-        pCompJitTimer->EndPhase(this, phase);
+        jitTimer->EndPhase(this, phase);
     }
 #endif
 
-    mostRecentlyActivePhase = phase;
+    INDEBUG(mostRecentlyActivePhase = phase);
 }
 
 void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize)
@@ -1828,17 +1820,17 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize)
 
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);
 
-    mostRecentlyActivePhase = PHASE_POST_EMIT;
+    INDEBUG(mostRecentlyActivePhase = PHASE_POST_EMIT);
 
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (pCompJitTimer != nullptr)
+    if (jitTimer != nullptr)
     {
 #if MEASURE_CLRAPI_CALLS
         EndPhase(PHASE_CLR_API);
 #else
         EndPhase(PHASE_POST_EMIT);
 #endif
-        pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, true);
+        jitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, true);
     }
 #endif
 
@@ -1943,7 +1935,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         // Call into VM to get the config strings. FEATURE_JIT_METHOD_PERF is enabled for
         // retail builds. Do not call the regular Config helper here as it would pull
         // in a copy of the config parser into the clrjit.dll.
-        InterlockedCompareExchangeT(&Compiler::compJitTimeLogFilename,
+        InterlockedCompareExchangeT(&Compiler::jitTimerLogFilename,
                                     (const WCHAR*)info.compCompHnd->getJitTimeLogFilename(), nullptr);
 
         // At a process or module boundary clear the file and start afresh.
@@ -1952,9 +1944,9 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         checkedForJitTimeLog = true;
     }
 
-    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitConfig.JitTimeLogCsv() != nullptr))
+    if ((Compiler::jitTimerLogFilename != nullptr) || (JitConfig.JitTimeLogCsv() != nullptr))
     {
-        pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
+        jitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
     }
 #endif // FEATURE_JIT_METHOD_PERF
 
@@ -2410,8 +2402,7 @@ void Compiler::compCompileFinish()
 
     if (JitConfig.JitInlineDumpXmlFile() != nullptr)
     {
-        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
-        if (file != nullptr)
+        if (FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a")))
         {
             m_inlineStrategy->DumpXml(file);
             fclose(file);
@@ -2805,7 +2796,7 @@ void CompTimeSummaryInfo::AddInfo(CompTimeInfo& info, bool includePhases)
 #endif
 }
 
-const WCHAR* Compiler::compJitTimeLogFilename;
+const WCHAR* Compiler::jitTimerLogFilename;
 
 void CompTimeSummaryInfo::Print(FILE* f) const
 {

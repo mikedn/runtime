@@ -12538,7 +12538,7 @@ void Compiler::phGlobalMorph()
     }
 
     // We can now enable all phase checking
-    activePhaseChecks = PhaseChecks::CHECK_ALL;
+    INDEBUG(activePhaseChecks = PhaseChecks::CHECK_ALL);
 }
 
 void Compiler::moMorphBlocks()

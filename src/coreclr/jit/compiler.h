@@ -870,35 +870,29 @@ class JitTimer
     void PrintCsvMethodStats(Compiler* comp) const;
 
 private:
-    void* operator new(size_t);
-    void* operator new[](size_t);
-    void operator delete(void*);
-    void operator delete[](void*);
-
-public:
     JitTimer(unsigned byteCodeSize);
 
+    bool GetThreadCycles(uint64_t* cycles);
+
+public:
     static JitTimer* Create(Compiler* comp, unsigned byteCodeSize)
     {
         return ::new (comp, CMK_DebugOnly) JitTimer(byteCodeSize);
     }
 
-    static void PrintCsvHeader();
-
     // Ends the current phase (argument is for a redundant check).
-    void EndPhase(Compiler* compiler, Phases phase);
+    NOINLINE void EndPhase(Compiler* compiler, Phases phase);
+
+    // Completes the timing of the current method, which is assumed to have "byteCodeBytes" bytes of bytecode,
+    // and adds it to "sum".
+    NOINLINE void Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includePhases);
 
 #if MEASURE_CLRAPI_CALLS
     void CLRApiCallEnter(unsigned apix);
     void CLRApiCallLeave(unsigned apix);
 #endif
 
-    // Completes the timing of the current method, which is assumed to have "byteCodeBytes" bytes of bytecode,
-    // and adds it to "sum".
-    void Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includePhases);
-
-    bool GetThreadCycles(uint64_t* cycles);
-
+    static void PrintCsvHeader();
     static void Shutdown();
 };
 #endif // FEATURE_JIT_METHOD_PERF
@@ -3051,17 +3045,17 @@ public:
     GenTree** gtFindUse(Statement* stmt, GenTree* node);
     bool impHasCatchArg(GenTree* tree);
 
+    BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
+
 #ifdef DEBUG
     // This is a debug flag we will use to assert when creating block during codegen
     // as this interferes with procedure splitting. If you know what you're doing, set
     // it to true before creating the block. (DEBUG only)
     bool fgSafeBasicBlockCreation = true;
+
+    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;
+    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE;
 #endif
-
-    BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
-
-    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
-    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3129,7 +3123,7 @@ public:
     // where it is used to detect tail-call chains.
     unsigned lvaRetAddrVar = BAD_VAR_NUM;
 
-    unsigned moLargeFieldOffsetNullCheckTemps[3];
+    unsigned moLargeFieldOffsetNullCheckTemps[3]{BAD_VAR_NUM, BAD_VAR_NUM, BAD_VAR_NUM};
 
 #if FEATURE_FIXED_OUT_ARGS
     unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM;
@@ -3353,21 +3347,14 @@ public:
 
     unsigned              impSharedStackSize = 0;
     Importer::StackEntry* impSharedStack     = nullptr;
-    InlineInfo*           impInlineInfo;
-    InlineStrategy*       m_inlineStrategy = nullptr;
-    Compiler*             InlineeCompiler  = nullptr; // The Compiler instance for the inlinee
-    InlineResult*         compInlineResult = nullptr; // The result of importing the inlinee method.
+    InlineStrategy*       m_inlineStrategy   = nullptr;
+    Compiler*             InlineeCompiler    = nullptr; // The Compiler instance for the inlinee
+    InlineResult*         compInlineResult   = nullptr; // The result of importing the inlinee method.
     CORINFO_CLASS_HANDLE  impPromotableStructTypeCache[2]{};
+    InlineInfo*           impInlineInfo;
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
     Compiler* impInlineRoot();
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-    uint64_t getInlineCycleCount() const
-    {
-        return m_compCycles;
-    }
-#endif
 
 protected:
     void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
@@ -5359,6 +5346,7 @@ public:
              CORINFO_METHOD_INFO*   methodInfo,
              ICorJitInfo*           jitInfo,
              InlineInfo*            inlineInfo = nullptr);
+
     void compInitMethodName();
     void compInit();
 
@@ -5478,9 +5466,9 @@ public:
 
 private:
 #ifdef FEATURE_JIT_METHOD_PERF
-    JitTimer* pCompJitTimer = nullptr; // Timer data structure (by phases) for current compilation.
+    JitTimer* jitTimer = nullptr; // Timer data structure (by phases) for current compilation.
 
-    static const WCHAR* compJitTimeLogFilename; // If a log file for JIT time is desired, filename to write it to.
+    static const WCHAR* jitTimerLogFilename; // If a log file for JIT time is desired, filename to write it to.
 #endif
 
     void BeginPhase(Phases phase); // Indicate the start of the given phase.
@@ -5515,6 +5503,13 @@ private:
     void RecordStateAtEndOfCompilation();
 
 public:
+#if defined(DEBUG) || defined(INLINE_DATA)
+    uint64_t GetInlineCycleCount() const
+    {
+        return m_compCycles;
+    }
+#endif
+
 #if FUNC_INFO_LOGGING
     static FILE* compJitFuncInfoFile;
 #endif

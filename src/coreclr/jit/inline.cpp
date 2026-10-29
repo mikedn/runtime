@@ -1432,11 +1432,11 @@ void InlineStrategy::DumpDataContents(FILE* file)
 
     // Convert time spent jitting into microseconds
     unsigned microsecondsSpentJitting = 0;
-    uint64_t compCycles               = m_Compiler->getInlineCycleCount();
-    if (compCycles > 0)
+
+    if (uint64_t compCycles = m_Compiler->GetInlineCycleCount())
     {
         double countsPerSec      = CachedCyclesPerSecond();
-        double counts            = (double)compCycles;
+        double counts            = static_cast<double>(compCycles);
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }
 
@@ -1526,11 +1526,11 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
 
     // Convert time spent jitting into microseconds
     unsigned microsecondsSpentJitting = 0;
-    uint64_t compCycles               = m_Compiler->getInlineCycleCount();
-    if (compCycles > 0)
+
+    if (uint64_t compCycles = m_Compiler->GetInlineCycleCount())
     {
         double countsPerSec      = CachedCyclesPerSecond();
-        double counts            = (double)compCycles;
+        double counts            = static_cast<double>(compCycles);
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }
 
