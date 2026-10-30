@@ -59,8 +59,8 @@ class ValueNumbering
     Compiler*      compiler;
     ICorJitInfo*   vm;
     ValueNumStore* vnStore;
-    VNLoop*        vnLoopTable   = nullptr;
-    ValueNum       fgCurMemoryVN = NoVN;
+    VNLoop*        vnLoopTable = nullptr;
+    ValueNum       vnMemory    = NoVN;
 
 public:
     ValueNumbering(SsaOptimizer& ssa);
@@ -3897,7 +3897,7 @@ ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fie
     var_types    fieldType = GetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     ValueNum valueVN;
@@ -3955,7 +3955,7 @@ ValueNum ValueNumbering::LoadStaticField(GenTreeIndir* load, FieldSeqNode* field
         fieldSeq = fieldSeq->GetNext();
     }
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     ValueNum vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, memVN, fieldVN);
@@ -4005,7 +4005,7 @@ ValueNum ValueNumbering::StoreObjField(GenTreeIndir* store, ValueNum objVN, Fiel
     var_types    fieldType = GetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, fieldVN);
@@ -4046,7 +4046,7 @@ ValueNum ValueNumbering::LoadObjField(GenTreeIndir* load, ValueNum objVN, FieldS
     ClassLayout* fieldLayout;
     var_types    fieldType = GetFieldType(fieldHandle, &fieldLayout);
 
-    ValueNum vn = fgCurMemoryVN;
+    ValueNum vn = vnMemory;
     INDEBUG(TraceMem(vn));
 
     vn = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, vn, fieldVN);
@@ -4083,7 +4083,7 @@ ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncDef4* e
     var_types elemType =
         elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : compiler->typGetStructType(elemLayout);
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
@@ -4145,7 +4145,7 @@ ValueNum ValueNumbering::LoadArrayElem(GenTreeIndir* load, const VNFuncDef4* ele
     var_types elemType =
         elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : compiler->typGetStructType(elemLayout);
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
@@ -4184,7 +4184,7 @@ ValueNum ValueNumbering::StoreAddressExposedLocal(GenTree* store, ValueNum lclAd
     INDEBUG(VNFuncApp funcApp);
     assert(vnStore->GetVNFunc(lclAddrVN, &funcApp) == VNF_LclAddr);
 
-    ValueNum memVN = fgCurMemoryVN;
+    ValueNum memVN = vnMemory;
     INDEBUG(TraceMem(memVN));
 
     // Currently we don't try to load address-exposed locals from memory so just store
@@ -4266,7 +4266,7 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
         return vnStore->VNForExpr(TYP_STRUCT);
     }
 
-    ValueNum memoryVN = fgCurMemoryVN;
+    ValueNum memoryVN = vnMemory;
     INDEBUG(TraceMem(memoryVN DEBUGARG("memory load")));
 
     // The memoization for VNFunc applications does not factor in the result type, so
@@ -5928,9 +5928,9 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         block->memoryEntryDef->vn = phiVN;
     }
 
-    fgCurMemoryVN = block->memoryEntryDef->vn;
-    assert(fgCurMemoryVN != NoVN);
-    INDEBUG(TraceMem(fgCurMemoryVN));
+    vnMemory = block->memoryEntryDef->vn;
+    assert(vnMemory != NoVN);
+    INDEBUG(TraceMem(vnMemory));
 
     // Now iterate over the remaining statements, and their trees.
     for (; stmt != nullptr; stmt = stmt->GetNextStmt())
@@ -5952,7 +5952,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     if (block->memoryExitDef != block->memoryEntryDef)
     {
-        block->memoryExitDef->vn = fgCurMemoryVN;
+        block->memoryExitDef->vn = vnMemory;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -6211,8 +6211,8 @@ void ValueNumbering::UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const c
     assert(vnStore->GetCurrentBlock()->bbMemoryDef);
     assert(vnStore->IsVNFunc<VNFuncDef4>(memVN, VNF_MapStore) || vnStore->IsVNFunc<VNFuncDef1>(memVN, VNF_Unique));
 
-    fgCurMemoryVN = memVN;
-    INDEBUG(TraceMem(fgCurMemoryVN, comment));
+    vnMemory = memVN;
+    INDEBUG(TraceMem(vnMemory, comment));
 
     SsaMemDef* def = ssa.GetMemoryDef(node);
 
