@@ -827,13 +827,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     assert(!HasExset(arg1));
     assert(VNFuncArityIsLegal(func, 2));
     assert(func != VNF_MapSelect); // Use the special function VNForMapSelect defined for that.
-
-    if (func == VNF_CastClass)
-    {
-        // In terms of values, a castclass always returns its second argument, the object being cast.
-        // The operation may also throw an exception
-        return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
-    }
+    assert(func != VNF_CastClass);
 
     if (IsConst(arg1))
     {
@@ -7301,14 +7295,13 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
 
     case VNF_JitNewArr:
         addUniqueArg = true;
-        // The New Array helper may throw an overflow exception
-        vnpExc = vnStore->ExsetCreate(
+        vnpExc       = vnStore->ExsetCreate(
             vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[1])));
         break;
 
     case VNF_Box:
     case VNF_BoxNullable:
-        // Generate unique VN so, VNForFunc generates a uniq value number for box nullable.
+        // Generate unique VN so, VNForFunc generates a uniqe value number for box nullable.
         // Alternatively instead of using vnpUniqueArg below in VNPairForFunc(...),
         // we could use the value number of what the byref arg0 points to.
         //
@@ -7326,9 +7319,14 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
     case VNF_JitReadyToRunNewArr:
         addUniqueArg            = true;
         useEntryPointAddrAsArg0 = true;
-        // The New Array helper may throw an overflow exception
-        vnpExc = vnStore->ExsetCreate(
+        vnpExc                  = vnStore->ExsetCreate(
             vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnStore->ExtractValue(vnpCallArgs[0])));
+        break;
+
+    case VNF_CastClass:
+        vnpExc = vnStore->ExsetCreate(vnStore->VNPairForFunc(TYP_REF, VNF_InvalidCastExc,
+                                                             vnStore->ExtractValue(vnpCallArgs[1]),
+                                                             vnStore->ExtractValue(vnpCallArgs[0])));
         break;
 
     case VNF_ReadyToRunStaticBase:
@@ -7408,7 +7406,14 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
         vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0]);
         break;
     case 2:
-        vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1]);
+        if (vnf == VNF_CastClass)
+        {
+            vnpCall = vnpArgs[1];
+        }
+        else
+        {
+            vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1]);
+        }
         break;
     case 3:
         vnpCall = vnStore->VNPairForFunc(call->GetType(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2]);
