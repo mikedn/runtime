@@ -624,6 +624,15 @@ ValueNum ValueNumStore::VNForByrefCon(ssize_t value)
                                              m_currentByrefConstChunk);
 }
 
+ValueNum ValueNumStore::VNForNIntZero()
+{
+#ifdef TARGET_64BIT
+    return VNForLongCon(0);
+#else
+    return VNForIntCon(0);
+#endif
+}
+
 ValueNum ValueNumStore::VNZeroForType(var_types type)
 {
     switch (type)
@@ -2396,7 +2405,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 {
     if (fieldSeq == nullptr)
     {
-        return VNZeroForType(TYP_I_IMPL);
+        return VNForNIntZero();
     }
 
     if (fieldSeq == FieldSeqStore::NotAField())
@@ -2412,7 +2421,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 
 FieldSeqNode* ValueNumStore::FieldSeqVNToFieldSeq(ValueNum vn)
 {
-    if (vn == VNZeroForType(TYP_I_IMPL))
+    if (vn == VNForNIntZero())
     {
         return nullptr;
     }
@@ -3348,7 +3357,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclStore* store)
     }
 
     ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLcl()->GetLclNum()),
-                                            vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+                                            vnStore->VNForNIntZero(), vnStore->VNForFieldSeq(nullptr));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
     ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetValue());
@@ -3460,7 +3469,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclLoad* load)
     }
 
     ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLcl()->GetLclNum()),
-                                         vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+                                         vnStore->VNForNIntZero(), vnStore->VNForFieldSeq(nullptr));
 
     // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
     // Well, the chance that an address-exposed local is modified by another thread
@@ -6183,7 +6192,7 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     {
         // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),
-                                                vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+                                                vnStore->VNForNIntZero(), vnStore->VNForFieldSeq(nullptr));
         INDEBUG(vnStore->Trace(lclAddrVN, "dummy loop address exposed local"));
         ValueNum uniqueVN = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
         newMemoryVN       = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, lclAddrVN, uniqueVN);
@@ -6333,7 +6342,7 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
         // so that byref exposed loads don't unnecessarily produce different value numbers.
         node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
                                               vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
-                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
+                                              vnStore->VNForNIntZero(), vnStore->VNForFieldSeq(nullptr)));
         break;
 
     case GT_CLS_VAR_ADDR:

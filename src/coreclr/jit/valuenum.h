@@ -809,6 +809,7 @@ public:
         return {EmptyExsetVN, EmptyExsetVN};
     }
 
+    ValueNum VNForNIntZero();
     ValueNum VNZeroForType(var_types type);
     ValueNum VNOneForType(var_types type);
 
