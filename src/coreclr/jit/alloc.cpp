@@ -255,7 +255,7 @@ void ArenaAllocator::AggregateMemStats::Print(FILE* f) const
     {
         return;
     }
-    fprintf(f, "  count:       %12u (avg %7llu per method)\n", allocCnt, allocCnt / nMethods);
+    fprintf(f, "  count:       %12llu (avg %7llu per method)\n", allocCnt, allocCnt / nMethods);
     fprintf(f, "  alloc size : %12llu (avg %7llu per method)\n", allocSz, allocSz / nMethods);
     fprintf(f, "  max alloc  : %12llu\n", allocSzMax);
     fprintf(f, "\n");

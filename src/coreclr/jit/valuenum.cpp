@@ -201,12 +201,28 @@ static constexpr auto GetInt32ConstChunkData()
     return data;
 }
 
+template <int64_t Min, int64_t Max>
+static constexpr auto GetInt64ConstChunkData()
+{
+    jitstd::array<int64_t, Max - Min + 1> data;
+
+    for (size_t i = 0; i < data.size(); i++)
+    {
+        data[i] = Min + static_cast<int64_t>(i);
+    }
+
+    return data;
+}
+
 ValueNumStore::ChunkData<ValueNumStore::ChunkKind::Reserved> ValueNumStore::reservedChunk;
 ValueNumStore::ChunkData<ValueNumStore::ChunkKind::ConstRef> ValueNumStore::nullRefChunk;
-ValueNumStore::ChunkData<ValueNumStore::ChunkKind::ConstI32> ValueNumStore::smallIntConstChunk{
-    GetInt32ConstChunkData<ValueNumStore::SmallIntConstMin, ValueNumStore::SmallIntConstMax>()};
-ValueNumStore::Chunk* const ValueNumStore::defaultChunks[3]{&ValueNumStore::reservedChunk, &ValueNumStore::nullRefChunk,
-                                                            &ValueNumStore::smallIntConstChunk};
+ValueNumStore::ChunkData<ValueNumStore::ChunkKind::ConstI32> ValueNumStore::smallInt32ConstChunk{
+    GetInt32ConstChunkData<ValueNumStore::SmallInt32ConstMin, ValueNumStore::SmallInt32ConstMax>()};
+ValueNumStore::ChunkData<ValueNumStore::ChunkKind::ConstI64> ValueNumStore::smallInt64ConstChunk{
+    GetInt64ConstChunkData<ValueNumStore::SmallInt64ConstMin, ValueNumStore::SmallInt64ConstMax>()};
+ValueNumStore::Chunk* const ValueNumStore::defaultChunks[4]{&ValueNumStore::reservedChunk, &ValueNumStore::nullRefChunk,
+                                                            &ValueNumStore::smallInt32ConstChunk,
+                                                            &ValueNumStore::smallInt64ConstChunk};
 
 ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     : ssa(ssa)
@@ -531,13 +547,19 @@ ValueNum ValueNumStore::VnForConst(typename KindConv<Kind>::Type      value,
     return *vn;
 }
 
+ValueNum ValueNumStore::VNForSmallInt32Con(int32_t value)
+{
+    assert(IsSmallInt32Const(value));
+    ValueNum vn = SmallInt32FirstVN + (value - SmallInt32ConstMin);
+    assert(GetConstInt32(vn) == value);
+    return vn;
+}
+
 ValueNum ValueNumStore::VNForIntCon(int32_t value)
 {
-    if (IsSmallIntConst(value))
+    if (IsSmallInt32Const(value))
     {
-        ValueNum vn = SmallIntFirstVN + (value - SmallIntConstMin);
-        assert(GetConstInt32(vn) == value);
-        return vn;
+        return VNForSmallInt32Con(value);
     }
 
     if (m_int32VNMap == nullptr)
@@ -548,8 +570,21 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
     return VnForConst<ChunkKind::ConstI32>(value, m_int32VNMap, m_currentInt32ConstChunk);
 }
 
+ValueNum ValueNumStore::VNForSmallInt64Con(int64_t value)
+{
+    assert(IsSmallInt64Const(value));
+    ValueNum vn = SmallInt64FirstVN + (static_cast<int32_t>(value) - SmallInt64ConstMin);
+    assert(GetConstInt64(vn) == value);
+    return vn;
+}
+
 ValueNum ValueNumStore::VNForLongCon(int64_t value)
 {
+    if (IsSmallInt64Const(value))
+    {
+        return VNForSmallInt64Con(value);
+    }
+
     if (m_int64VNMap == nullptr)
     {
         m_int64VNMap = new (alloc) Int64VNMap(alloc);
@@ -627,9 +662,9 @@ ValueNum ValueNumStore::VNForByrefCon(ssize_t value)
 ValueNum ValueNumStore::VNForNIntZero()
 {
 #ifdef TARGET_64BIT
-    return VNForLongCon(0);
+    return VNForSmallInt64Con(0);
 #else
-    return VNForIntCon(0);
+    return VNForSmallInt32Con(0);
 #endif
 }
 
@@ -643,9 +678,9 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
     case TYP_SHORT:
     case TYP_USHORT:
     case TYP_INT:
-        return VNForIntCon(0);
+        return VNForSmallInt32Con(0);
     case TYP_LONG:
-        return VNForLongCon(0);
+        return VNForSmallInt64Con(0);
     case TYP_FLOAT:
         return VNForFloatCon(0.0f);
     case TYP_DOUBLE:
@@ -688,9 +723,9 @@ ValueNum ValueNumStore::VNOneForType(var_types type)
     case TYP_SHORT:
     case TYP_USHORT:
     case TYP_INT:
-        return VNForIntCon(1);
+        return VNForSmallInt32Con(1);
     case TYP_LONG:
-        return VNForLongCon(1);
+        return VNForSmallInt64Con(1);
     default:
         unreached();
     }
