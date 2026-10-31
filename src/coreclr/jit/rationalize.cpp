@@ -3,13 +3,20 @@
 
 #include "jitpch.h"
 
-class Rationalizer
+class Rationalizer final : public GenTreeVisitor<Rationalizer>
 {
     Compiler*   comp;
     BasicBlock* m_block;
     Statement*  m_statement;
 
 public:
+    enum
+    {
+        DoPreOrder        = true,
+        DoPostOrder       = true,
+        UseExecutionOrder = true,
+    };
+
     Rationalizer(Compiler* comp) : comp(comp)
     {
         INDEBUG(comp->fgStmtLinksTraversed = 0;)
@@ -17,8 +24,33 @@ public:
 
     void Run();
 
+    // Rewrite intrinsics that are not supported by the target back into user calls.
+    // This needs to be done before the transition to LIR because it relies on the use
+    // of moSetupCallArgs, which is designed to operate on HIR. Once this is done for
+    // a particular statement, link that statement's nodes into the current basic block.
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    {
+        GenTree* const node = *use;
+
+        if (GenTreeIntrinsic* intrinsic = node->IsIntrinsic())
+        {
+            if (intrinsic->IsUserCall())
+            {
+                RewriteIntrinsicAsUserCall(use);
+            }
+        }
+
+        return GenTreeWalkResult::Continue;
+    }
+
+    // Rewrite HIR nodes into LIR nodes.
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    {
+        return RewriteNode(use, user);
+    }
+
 private:
-    inline LIR::Range& BlockRange() const
+    LIR::Range& BlockRange() const
     {
         return LIR::AsRange(m_block);
     }
@@ -387,51 +419,8 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
 void Rationalizer::Run()
 {
-    class RationalizeVisitor final : public GenTreeVisitor<RationalizeVisitor>
-    {
-        Rationalizer& m_rationalizer;
-
-    public:
-        enum
-        {
-            DoPreOrder        = true,
-            DoPostOrder       = true,
-            UseExecutionOrder = true,
-        };
-
-        RationalizeVisitor(Rationalizer& rationalizer) : m_rationalizer(rationalizer)
-        {
-        }
-
-        // Rewrite intrinsics that are not supported by the target back into user calls.
-        // This needs to be done before the transition to LIR because it relies on the use
-        // of moSetupCallArgs, which is designed to operate on HIR. Once this is done for
-        // a particular statement, link that statement's nodes into the current basic block.
-        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
-        {
-            GenTree* const node = *use;
-
-            if (GenTreeIntrinsic* intrinsic = node->IsIntrinsic())
-            {
-                if (intrinsic->IsUserCall())
-                {
-                    m_rationalizer.RewriteIntrinsicAsUserCall(use);
-                }
-            }
-
-            return GenTreeWalkResult::Continue;
-        }
-
-        // Rewrite HIR nodes into LIR nodes.
-        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
-        {
-            return m_rationalizer.RewriteNode(use, user);
-        }
-    };
-
     INDEBUG(comp->fgLinearOrder = true);
 
-    RationalizeVisitor visitor(*this);
     for (BasicBlock* const block : comp->Blocks())
     {
         m_block = block;
@@ -459,7 +448,7 @@ void Rationalizer::Run()
             BlockRange().InsertAtEnd(LIR::Range(statement->GetNodeList(), statement->GetRootNode()));
 
             m_block = block;
-            visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
+            WalkTree(statement->GetRootNodePointer(), nullptr);
         }
 
         block->bbStmtList = nullptr;

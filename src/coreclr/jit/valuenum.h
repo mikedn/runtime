@@ -766,7 +766,6 @@ private:
                                typename KindConv<Kind>::ConstMap* map,
                                unsigned&                          currentChunk);
 
-
     ValueNum VNForSmallInt32Con(int32_t value);
     ValueNum VNForSmallInt64Con(int64_t value);
 
