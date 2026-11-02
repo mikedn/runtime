@@ -7964,7 +7964,7 @@ void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
     ValueNumPair indexExset;
     ValueNumPair indexVNP = vnStore->UnpackExset(check->GetIndex()->GetVNP(), &indexExset);
     ValueNumPair lengthExset;
-    ValueNumPair lengthVNP    = vnStore->UnpackExset(check->GetIndex()->GetVNP(), &lengthExset);
+    ValueNumPair lengthVNP    = vnStore->UnpackExset(check->GetLength()->GetVNP(), &lengthExset);
     ValueNumPair outOfRangeEx = vnStore->VNPairForFunc(TYP_REF, VNF_IndexOutOfRangeExc, indexVNP, lengthVNP);
 
     ValueNumPair exset = vnStore->ExsetUnion(indexExset, lengthExset);
@@ -7974,8 +7974,7 @@ void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
 
     // Record non-constant value numbers that are used as the length argument to bounds checks,
     // so that assertion prop will know that comparisons against them are worth analyzing.
-    // TODO-MIKE-Review: Shouldn't this extract the normal value from the conservative VN?
-    ValueNum lengthVN = check->GetLength()->GetConservativeVN();
+    ValueNum lengthVN = lengthVNP.GetConservative();
 
     if ((lengthVN != NoVN) && !vnStore->IsConst(lengthVN))
     {

@@ -2421,7 +2421,7 @@ public:
 
         // If the old VN was flagged as a checked bound, propagate that to the new VN
         // to make sure assertion prop will pay attention to this VN.
-        ValueNum exprVN = expr->GetConservativeVN();
+        ValueNum exprVN = vnStore->ExtractValue(expr->GetConservativeVN());
 
         if (!vnStore->IsConst(newExprVN) && vnStore->IsVNCheckedBound(exprVN))
         {
