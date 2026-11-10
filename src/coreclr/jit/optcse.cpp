@@ -630,11 +630,11 @@ public:
                         continue;
                     }
 
-                    // Don't allow non-SIMD struct CSEs under a return; we don't fully
+                    // Don't allow non-vector struct CSEs under a return; we don't fully
                     // re-morph these if we introduce a CSE store, and so may create
                     // IR that lower is not yet prepared to handle.
                     // TODO-MIKE-Cleanup: Remove this crap.
-                    if (isReturnStmt && varTypeIsStruct(node->GetType()) && !varTypeIsSIMD(node->GetType()))
+                    if (isReturnStmt && varTypeIsStruct(node->GetType()) && !varTypeIsVec(node->GetType()))
                     {
                         continue;
                     }

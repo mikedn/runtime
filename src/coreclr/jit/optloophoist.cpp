@@ -253,7 +253,7 @@ void LoopHoist::HoistLoop(unsigned loopNum)
 
     BasicBlock* bottom = loopDesc->lpBottom;
 
-    JITDUMP("optHoistLoopCode for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n"
+    JITDUMP("HoistLoop for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n"
             "  Loop body %s a call\n"
             "  Loop has %s\n",
             loopNum, entry->bbNum, bottom->bbNum, loopDesc->HasCall() ? "contains" : "does not contain",
@@ -586,50 +586,49 @@ public:
 
         if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
+            // Local loads may be invariant but we need to be very conservative about hoisting them,
+            // if we end up using too many registers we may end up with spills and make things worse.
+            // Just ignore them for now.
             return GenTreeWalkResult::Continue;
         }
 
         if (GenTreeLclUse* use = tree->IsLclUse())
         {
-            // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
-            // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
-            // traverse them but this code does and ends up asserting due to missing SSA numbers.
-            // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
-            // that loop hoisting would hit dead code. We'll see.
-
-            // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative -
-            // it is possible that the SSA def is outside the loop but VN does not understand what the node is
-            // doing (e.g. LCL_LOAD_FLD-based type reinterpretation) and assigns a "new, unique VN" to the node.
-            // This VN is associated with the block where the node is, a loop block, and thus the VN is considered
-            // to not be invariant.
-            // On the other hand, it is possible for a SSA def to be inside the loop yet the use to be invariant,
-            // if the defining expression is also invariant. In such a case the VN invariance would help but it is
-            // blocked by the SSA invariance check.
-
-            if (!ssa.GetLoop(m_loopNum)->lpContains(use->GetDef()->GetBlock()) && IsTreeVNInvariant(tree))
+            if (!ssa.GetLoop(m_loopNum)->lpContains(use->GetDef()->GetBlock()))
             {
                 Value& top = m_valueStack.TopRef();
                 assert(top.Node() == tree);
                 top.invariant = true;
-                // In general it doesn't make sense to hoist a local node but there are exceptions,
-                // for example LCL_LOAD_FLD nodes (because then the variable cannot be enregistered
-                // and the node always turns into a memory access).
-                top.hoistable = IsNodeHoistable(tree);
             }
 
             return GenTreeWalkResult::Continue;
         }
 
-        // Initclass CLS_VAR_ADDRs and CNS_INT are the base cases of cctor dependent trees.
-        // In the CNS_INT case, it's of course the dereference, rather than the constant itself,
-        // that is truly dependent on the cctor. So a more precise approach would be to separately
-        // propagate isCctorDependent and isAddressWhoseDereferenceWouldBeCctorDependent, but we
-        // don't for simplicity/throughput; the constant itself would be considered non-hoistable
-        // anyway, since cseIsCandidate returns false for constants.
-        bool isCctorDependent = (tree->OperIs(GT_CLS_VAR_ADDR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
-                                (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0));
+        // GTF_CLS_VAR_INITCLASS/GTF_ICON_INITCLASS constants are invariant but if we end up
+        // loading from such addresses we need to ensure that the cctor runs first. Since it's
+        // rather complicated to track down how an address is used, we just assume the worst and
+        // prevent hoisting of this subtree. Later, if we encounter a COMMA with a MayRunCctor
+        // helper call child, we simply assume that this will run the cctor that's associated with
+        // the address we encountered earlier, and the entire COMMA tree become hoistable.
+        //
+        // This assumes that only the importer produces COMMA(CALL, IND_LOAD(CLS_VAR_ADDR)) trees,
+        // and that subsequent phases don't split or otherwise change such trees. We have no way
+        // to verify that the helper call is indeed related to the address we have.
+
+        if ((tree->OperIs(GT_CLS_VAR_ADDR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
+            (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0)))
+        {
+            Value& top = m_valueStack.TopRef();
+            assert(top.Node() == tree);
+            top.cctorDependent = true;
+            top.invariant      = true;
+
+            return GenTreeWalkResult::Continue;
+        }
+
         bool     isInvariant          = true;
         bool     hasHoistableChildren = false;
+        bool     isCctorDependent     = false;
         unsigned childCount;
 
         for (childCount = 0; m_valueStack.TopRef(childCount).Node() != tree; childCount++)
@@ -671,11 +670,8 @@ public:
             }
         }
 
-        // If all the children of "tree" are hoistable, then "tree" itself can be hoisted,
-        // unless it has a static var reference that can't be hoisted past its cctor call.
         bool isHoistable = isInvariant && !isCctorDependent;
 
-        // But we must see if anything else prevents "tree" from being hoisted.
         if (isInvariant)
         {
             if (isHoistable)
@@ -683,9 +679,6 @@ public:
                 isHoistable = IsNodeHoistable(tree);
             }
 
-            // If it's a call, it must be a helper call, and be pure.
-            // Further, if it may run a cctor, it must be labeled as "Hoistable"
-            // (meaning it won't run a cctor because the class is not precise-init).
             if (isHoistable && tree->IsCall())
             {
                 GenTreeCall* call = tree->AsCall();
@@ -704,60 +697,33 @@ public:
                 }
             }
 
-            if (isHoistable)
+            if (isHoistable && !m_beforeSideEffect && tree->HasAnySideEffect(GTF_EXCEPT))
             {
-                if (!m_beforeSideEffect)
-                {
-                    // For now, we give up on an expression that might raise an exception if it is after the
-                    // first possible global side effect (and we assume we're after that if we're not in the first
-                    // block).
-                    // TODO-CQ: this is when we might do loop cloning.
-                    if (tree->HasAnySideEffect(GTF_EXCEPT))
-                    {
-                        isHoistable = false;
-                    }
-                }
+                isHoistable = false;
             }
 
-            // Is the value of the whole tree loop invariant?
             isInvariant = IsTreeVNInvariant(tree);
 
-            // Is the value of the whole tree loop invariant?
             if (!isInvariant)
             {
-                // Here we have a tree that is not loop invariant and we thus cannot hoist
                 isHoistable = false;
             }
         }
 
-        // Next check if we need to set 'm_beforeSideEffect' to false.
-        // If we have already set it to false then we can skip these checks
         if (m_beforeSideEffect)
         {
-            // Is the value of the whole tree loop invariant?
             if (!isInvariant)
             {
-                // We have a tree that is not loop invariant and we thus cannot hoist
                 assert(!isHoistable);
 
-                // Check if we should clear m_beforeSideEffect.
-                // If 'tree' can throw an exception then we need to set m_beforeSideEffect to false.
-                // Note that calls are handled below
                 if (tree->OperMayThrow(ssa.GetCompiler()) && !tree->IsCall())
                 {
                     m_beforeSideEffect = false;
                 }
             }
 
-            // In the section below, we only care about memory side effects.  We assume that expressions will
-            // be hoisted so that they are evaluated in the same order as they would have been in the loop,
-            // and therefore throw exceptions in the same order.
             if (GenTreeCall* call = tree->IsCall())
             {
-                // If it's a call, it must be a helper call that does not mutate the heap.
-                // Further, if it may run a cctor, it must be labeled as "Hoistable"
-                // (meaning it won't run a cctor because the class is not precise-init).
-
                 if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
                     if (HelperCallProperties::MutatesHeap(helper) ||
@@ -800,15 +766,11 @@ public:
             }
             else if (tree->OperIsAtomicOp() || tree->OperIs(GT_MEMORYBARRIER))
             {
-                // If this node is a MEMORYBARRIER or an Atomic operation
-                // then don't hoist and stop any further hoisting after this node
                 isHoistable        = false;
                 m_beforeSideEffect = false;
             }
         }
 
-        // If this 'tree' is hoistable then we return and the caller will
-        // decide to hoist it as part of larger hoistable expression.
         if (!isHoistable && hasHoistableChildren)
         {
             // The current tree is not hoistable but it has hoistable children that we need
@@ -899,7 +861,6 @@ void LoopHoist::HoistCandidate(GenTree* tree, unsigned loopNum)
 {
     assert(loopNum != NoLoopNum);
 
-    // It must pass the hoistable profitability tests for this loop level
     if (!IsHoistingProfitable(tree, loopNum))
     {
         return;

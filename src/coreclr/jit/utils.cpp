@@ -966,7 +966,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
 
     case CORINFO_HELP_STRCNS:
         info.isPure         = true;
-        info.isAllocator    = true;
         info.nonNullReturn  = true;
         info.noThrow        = true; // only can throw OutOfMemory
         info.isSharedStatic = true;

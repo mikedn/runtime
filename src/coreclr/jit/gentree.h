@@ -1250,6 +1250,12 @@ public:
         return OperIs(oper) || OperIs(rest...);
     }
 
+    template <genTreeOps... O>
+    bool OperIsT() const
+    {
+        return ((gtOper == O) || ...);
+    }
+
     static bool OperIsConst(genTreeOps oper)
     {
         // TODO-MIKE-Cleanup: Including GT_CNS_STR in "const" operator is as dumb as it gets.
@@ -1438,18 +1444,7 @@ public:
 
     bool OperIsAtomicOp() const
     {
-        switch (gtOper)
-        {
-        case GT_XADD:
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XCHG:
-        case GT_LOCKADD:
-        case GT_CMPXCHG:
-            return true;
-        default:
-            return false;
-        }
+        return OperIs(GT_LOCKADD, GT_XAND, GT_XORR, GT_XADD, GT_XCHG, GT_CMPXCHG);
     }
 
     bool OperIsStore() const
