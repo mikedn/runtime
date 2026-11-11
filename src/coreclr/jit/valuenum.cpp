@@ -7338,7 +7338,8 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
         break;
 
     default:
-        assert(HelperCallProperties::IsPure(call->GetHelperFunc()));
+        assert(HelperCallProperties::IsPure(call->GetHelperFunc()) ||
+               HelperCallProperties::MayRunCctor(call->GetHelperFunc()));
         break;
     }
 
@@ -7480,7 +7481,8 @@ void ValueNumbering::NumberCall(GenTreeCall* call)
 
 VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 {
-    assert(HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::IsAllocator(helpFunc));
+    assert(HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::MayRunCctor(helpFunc) ||
+           HelperCallProperties::IsAllocator(helpFunc));
 
     switch (helpFunc)
     {
@@ -7722,7 +7724,8 @@ bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
     else
     {
         // TODO-CQ: Handle CORINFO_HELP_NEW_MDARR
-        if ((HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::IsAllocator(helpFunc)) &&
+        if ((HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::MayRunCctor(helpFunc) ||
+             HelperCallProperties::IsAllocator(helpFunc)) &&
             (helpFunc != CORINFO_HELP_NEW_MDARR))
         {
             NumberHelperCall(call, GetHelperCallFunc(helpFunc), exset);

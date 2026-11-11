@@ -3734,7 +3734,7 @@ enum GenTreeCallFlags : unsigned
 #endif
     GTF_CALL_M_GUARDED_DEVIRT          = 0x00020000, // this call is a candidate for guarded devirtualization
     GTF_CALL_M_GUARDED_DEVIRT_CHAIN    = 0x00040000, // this call is a candidate for chained guarded devirtualization
-    GTF_CALL_M_ALLOC_SIDE_EFFECTS      = 0x00080000, // this is a call to an allocator with side effects
+    GTF_CALL_M_ALLOC_SIDE_EFFECTS      = 0x00080000, // this is a call to an allocator with side effects (finalizable object or COM object)
     GTF_CALL_M_SUPPRESS_GC_TRANSITION  = 0x00100000, // suppress the GC transition (i.e. during a PInvoke) but a separate GC safe point is required.
     GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x00200000, // this call needs to be transformed into CFG for the dynamic dictionary expansion feature.
     GTF_CALL_M_STRESS_TAILCALL         = 0x00400000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
@@ -4496,8 +4496,6 @@ public:
     {
         return (gtCallMoreFlags & GTF_CALL_M_FAT_POINTER_CHECK) != 0;
     }
-
-    bool IsPure() const;
 
     bool HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const;
 

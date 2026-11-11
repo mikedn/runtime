@@ -436,27 +436,8 @@ void GenTreeFieldList::InsertFieldLIR(
     m_uses.InsertUse(insertAfter, new (compiler, CMK_ASTNode) Use(node, offset, type));
 }
 
-// Returns true if this call is pure. For now, this uses the same
-// definition of "pure" that is that used by HelperCallProperties: a
-// pure call does not read or write any aliased (e.g. heap) memory or
-// have other global side effects (e.g. class constructors, finalizers),
-// but is allowed to throw an exception.
-//
-// NOTE: this call currently only returns true if the call target is a
-// helper method that is known to be pure. No other analysis is
-// performed.
-bool GenTreeCall::IsPure() const
-{
-    return IsHelperCall() && HelperCallProperties::IsPure(GetHelperFunc());
-}
-
-// Returns true if this call has any side effects. All non-helpers are considered to have side-effects. Only helpers
-// that do not mutate the heap, do not run constructors, may not throw, and are either a) pure or b) non-finalizing
-// allocation functions are considered side-effect-free.
 bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
 {
-    // Generally all CALL nodes are considered to have side-effects, but we may have
-    // extra information about helper calls that can prove them side-effect-free.
     if (!IsHelperCall())
     {
         return true;
@@ -464,28 +445,23 @@ bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
 
     CorInfoHelpFunc helper = GetHelperFunc();
 
-    // We definitely care about the side effects if MutatesHeap is true
     if (HelperCallProperties::MutatesHeap(helper))
     {
         return true;
     }
 
-    // Unless we have been instructed to ignore cctors (CSE, for example, ignores cctors), consider them side effects.
-    if (!ignoreCctors && HelperCallProperties::MayRunCctor(helper))
-    {
-        return true;
-    }
-
-    // If we also care about exceptions then check if the helper can throw
     if (!ignoreExceptions && !HelperCallProperties::NoThrow(helper))
     {
         return true;
     }
 
-    // If this is not a Pure helper call or an allocator (that will not need to run a finalizer)
-    // then this call has side effects.
-    return !HelperCallProperties::IsPure(helper) &&
-           (!HelperCallProperties::IsAllocator(helper) || ((gtCallMoreFlags & GTF_CALL_M_ALLOC_SIDE_EFFECTS) != 0));
+    if (!ignoreCctors && HelperCallProperties::MayRunCctor(helper))
+    {
+        return true;
+    }
+
+    return !HelperCallProperties::IsPure(helper) && !HelperCallProperties::MayRunCctor(helper) &&
+           !(HelperCallProperties::IsAllocator(helper) && ((gtCallMoreFlags & GTF_CALL_M_ALLOC_SIDE_EFFECTS) == 0));
 }
 
 bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const

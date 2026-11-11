@@ -43,7 +43,11 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
     switch (node->GetOper())
     {
     case GT_CALL:
-        return node->IsHelperCall() && HelperCallProperties::IsPure(node->AsCall()->GetHelperFunc());
+        // We can CSE pure helper calls and cctor helper calls. The later may have arbitrary
+        // side effects, but they happen only on the first call, with all subsequent calls
+        // being practically dead.
+        return node->IsHelperCall() && (HelperCallProperties::IsPure(node->AsCall()->GetHelperFunc()) ||
+                                        HelperCallProperties::MayRunCctor(node->AsCall()->GetHelperFunc()));
 
     case GT_COMMA:
         return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();
@@ -55,54 +59,28 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         // P.S. Probably this was referring to the lvVolatileHint crap...
         return false; // Can't CSE a volatile LCL_VAR
 
+    // Loads
     case GT_IND_LOAD:
-    case GT_ADD:
-    case GT_LSH:
-    case GT_MUL:
-    case GT_OVF_SADD:
-    case GT_OVF_UADD:
-    case GT_OVF_SSUB:
-    case GT_OVF_USUB:
-    case GT_OVF_SMUL:
-    case GT_OVF_UMUL:
-    case GT_FNEG:
-    case GT_FADD:
-    case GT_FSUB:
-    case GT_FMUL:
-    case GT_FDIV:
-    case GT_FTRUNC:
-    case GT_FXT:
-    case GT_ARR_ELEM:
-    case GT_ARR_LENGTH:
+    case GT_IND_LOAD_OBJ:
     case GT_LCL_LOAD_FLD:
+
+    // This usually ends up being a load, but currently it's only used together with LCL_USE,
+    // so it behaves more like a pure unary operator.
     case GT_EXTRACT:
-    case GT_NEG:
-    case GT_NOT:
-    case GT_BSWAP:
-    case GT_BSWAP16:
-    case GT_OVF_U:
-    case GT_OVF_TRUNC:
-    case GT_OVF_STRUNC:
-    case GT_OVF_UTRUNC:
-    case GT_CONV:
-    case GT_OVF_SCONV:
-    case GT_OVF_UCONV:
-    case GT_SXT:
-    case GT_UXT:
-    case GT_STOF:
-    case GT_UTOF:
-    case GT_FTOS:
-    case GT_FTOU:
-    case GT_TRUNC:
-    case GT_BITCAST:
+
+    // Constants:
+    // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
+    case GT_CNS_INT:
+    case GT_CNS_DBL:
+
+    // Pure operators
+    case GT_ADD:
     case GT_SUB:
-    case GT_SDIV:
-    case GT_SREM:
-    case GT_UDIV:
-    case GT_UREM:
-    case GT_OR:
+    case GT_MUL:
     case GT_AND:
+    case GT_OR:
     case GT_XOR:
+    case GT_LSH:
     case GT_RSH:
     case GT_RSZ:
     case GT_ROL:
@@ -113,11 +91,55 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
     case GT_LE:
     case GT_GE:
     case GT_GT:
+    case GT_NEG:
+    case GT_NOT:
+    case GT_BSWAP:
+    case GT_BSWAP16:
+    case GT_SXT:
+    case GT_UXT:
+    case GT_CONV:
+    case GT_TRUNC:
+    case GT_BITCAST:
+
+    // Floating point pure operators (in theory they depend on things like control word but we don't support that)
+    case GT_FNEG:
+    case GT_FADD:
+    case GT_FSUB:
+    case GT_FMUL:
+    case GT_FDIV:
+    case GT_FTRUNC:
+    case GT_FXT:
+    case GT_STOF:
+    case GT_UTOF:
+    case GT_FTOS:
+    case GT_FTOU:
+
+    // Most are math functions like Sin & Cos, these are pure and do not throw.
+    // There's also Object.GetType, which is also pure and should not throw.
     case GT_INTRINSIC:
-    case GT_IND_LOAD_OBJ:
-    case GT_CNS_INT:
-    case GT_CNS_DBL:
-        // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
+
+    // Pure operators that may throw exceptions
+    case GT_SDIV:
+    case GT_SREM:
+    case GT_UDIV:
+    case GT_UREM:
+    case GT_OVF_SADD:
+    case GT_OVF_UADD:
+    case GT_OVF_SSUB:
+    case GT_OVF_USUB:
+    case GT_OVF_SMUL:
+    case GT_OVF_UMUL:
+    case GT_OVF_U:
+    case GT_OVF_TRUNC:
+    case GT_OVF_STRUNC:
+    case GT_OVF_UTRUNC:
+    case GT_OVF_SCONV:
+    case GT_OVF_UCONV:
+
+    // These have implicit loads but those memory locations are readonly,
+    // they're similar to the pure operators that can throw exceptions.
+    case GT_ARR_ELEM:
+    case GT_ARR_LENGTH:
         return true;
 
 #ifdef FEATURE_HW_INTRINSICS

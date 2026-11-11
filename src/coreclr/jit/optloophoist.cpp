@@ -685,8 +685,8 @@ public:
 
                 if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
-                    if (!HelperCallProperties::IsPure(helper) ||
-                        (HelperCallProperties::MayRunCctor(helper) && !call->IsBeforeFieldInitCctor()))
+                    if (!HelperCallProperties::IsPure(helper) &&
+                        !(HelperCallProperties::MayRunCctor(helper) && call->IsBeforeFieldInitCctor()))
                     {
                         isHoistable = false;
                     }
@@ -755,11 +755,7 @@ public:
             {
                 LclVarDsc* lcl = tree->AsLclRef()->GetLcl();
 
-                if (lcl->IsAddressExposed()
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-                    && !lcl->lvIsImplicitByRefArgTemp
-#endif
-                    )
+                if (lcl->IsAddressExposed() && !lcl->IsImplicitByRefArgTemp())
                 {
                     m_beforeSideEffect = false;
                 }

@@ -7152,7 +7152,7 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefa
     storeTypeField->SetFieldSeq(GetRefanyTypeField());
 
 #ifdef WINDOWS_AMD64_ABI
-    assert(tempLcl->lvIsImplicitByRefArgTemp);
+    assert(tempLcl->IsImplicitByRefArgTemp());
     storePtrField->AddSideEffects(GTF_GLOB_REF);
     storeTypeField->AddSideEffects(GTF_GLOB_REF);
 #endif

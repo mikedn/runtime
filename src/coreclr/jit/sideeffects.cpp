@@ -92,10 +92,12 @@ void AliasLclSet::Clear()
 // itself a local access (e.g. a LCL_LOAD, LCL_STORE, etc.).
 AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 {
-    if (node->IsCall())
+    if (GenTreeCall* call = node->IsCall())
     {
-        m_flags = node->AsCall()->IsPure() ? ALIAS_NONE
-                                           : (ALIAS_LOADS_ADDRESSABLE_LOCATION | ALIAS_STORES_ADDRESSABLE_LOCATION);
+        if (!call->IsHelperCall() || !HelperCallProperties::IsPure(call->GetHelperFunc()))
+        {
+            m_flags = ALIAS_LOADS_ADDRESSABLE_LOCATION | ALIAS_STORES_ADDRESSABLE_LOCATION;
+        }
 
         return;
     }

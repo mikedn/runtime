@@ -1065,7 +1065,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
 #endif
         // These may invoke static class constructors
         // These can throw InvalidProgram exception if the class can not be constructed
-        info.isPure         = true;
         info.nonNullReturn  = true;
         info.mayRunCctor    = true;
         info.isSharedStatic = true;

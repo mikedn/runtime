@@ -562,6 +562,15 @@ public:
 #endif
     }
 
+    bool IsImplicitByRefArgTemp() const
+    {
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        return lvIsImplicitByRefArgTemp;
+#else
+        return false;
+#endif
+    }
+
     bool IsRegCandidate() const
     {
         return lvLRACandidate;

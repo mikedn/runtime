@@ -1922,9 +1922,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
     assert(jitFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
     assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
-    assert(HelperCallProperties::IsPure(CORINFO_HELP_GETSHARED_GCSTATIC_BASE));
-    assert(!HelperCallProperties::IsPure(CORINFO_HELP_GETFIELDOBJ)); // quick sanity check
-
     INDEBUG(compDoComponentUnitTestsOnce());
 
 #ifdef FEATURE_JIT_METHOD_PERF

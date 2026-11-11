@@ -552,14 +552,12 @@ private:
         assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
         LclVarDsc* lcl = store->GetLcl();
 
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if (lcl->lvIsImplicitByRefArgTemp)
+        if (lcl->IsImplicitByRefArgTemp())
         {
             // Implicit-by-ref arg temps are address exposed but they're only
             // "used" by a subsequent call so we can completely ignore them.
             return true;
         }
-#endif
 
         // TODO-MIKE-Review: This may be overly conservative outside try regions.
         // If an exception is thrown it's unlikely that someone would expect to observe
