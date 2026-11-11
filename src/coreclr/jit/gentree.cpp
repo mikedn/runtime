@@ -5448,7 +5448,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
         {
             operFlag = 'G';
         }
-        else if (flags & GTF_CALL_HOISTABLE)
+        else if (flags & GTF_CALL_BEFOREFIELDINIT)
         {
             operFlag = 'H';
         }
@@ -11672,6 +11672,7 @@ GenTreeCall* Compiler::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
 GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
 {
     bool         needClassId = true;
+    bool         runsCctor   = true;
     GenTreeFlags callFlags   = GTF_NONE;
     var_types    retType     = TYP_BYREF;
 
@@ -11681,10 +11682,10 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
     {
     case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
         needClassId = false;
-        FALLTHROUGH;
+        [[fallthrough]];
     case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-        callFlags |= GTF_CALL_HOISTABLE;
-        FALLTHROUGH;
+        runsCctor = false;
+        [[fallthrough]];
     case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
     case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
     case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
@@ -11696,10 +11697,10 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
 
     case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
         needClassId = false;
-        FALLTHROUGH;
+        [[fallthrough]];
     case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-        callFlags |= GTF_CALL_HOISTABLE;
-        FALLTHROUGH;
+        runsCctor = false;
+        [[fallthrough]];
     case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
     case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
     case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
@@ -11711,12 +11712,9 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
         break;
     }
 
-    if ((callFlags & GTF_CALL_HOISTABLE) == 0)
+    if (runsCctor && ((info.compCompHnd->getClassAttribs(cls) & CORINFO_FLG_BEFOREFIELDINIT) != 0))
     {
-        if ((info.compCompHnd->getClassAttribs(cls) & CORINFO_FLG_BEFOREFIELDINIT) != 0)
-        {
-            callFlags |= GTF_CALL_HOISTABLE;
-        }
+        callFlags |= GTF_CALL_BEFOREFIELDINIT;
     }
 
     void*    moduleIdAddr;

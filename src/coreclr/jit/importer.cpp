@@ -5207,7 +5207,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
             if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
             {
-                addr->gtFlags |= GTF_CALL_HOISTABLE;
+                addr->gtFlags |= GTF_CALL_BEFOREFIELDINIT;
             }
         }
         else
@@ -5236,7 +5236,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
         if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
         {
-            addr->gtFlags |= GTF_CALL_HOISTABLE;
+            addr->gtFlags |= GTF_CALL_BEFOREFIELDINIT;
         }
     }
     break;

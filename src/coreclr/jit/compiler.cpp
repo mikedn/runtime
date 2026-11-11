@@ -4524,9 +4524,9 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         {
             printf("[CALL_NULLCHECK]");
         }
-        if (flags & GTF_CALL_HOISTABLE)
+        if (flags & GTF_CALL_BEFOREFIELDINIT)
         {
-            printf("[CALL_HOISTABLE]");
+            printf("[CALL_BEFOREFIELDINIT]");
         }
 
         GenTreeCallFlags callFlags = call->gtCallMoreFlags;

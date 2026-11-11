@@ -7437,7 +7437,7 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
     if (CorInfoHelpFunc helper = call->IsHelperCall())
     {
         if (HelperCallProperties::MutatesHeap(helper) ||
-            (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
+            (HelperCallProperties::MayRunCctor(helper) && !call->IsBeforeFieldInitCctor()))
         {
             summary.AddMemoryHavoc();
         }
@@ -7727,7 +7727,7 @@ bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
         {
             NumberHelperCall(call, GetHelperCallFunc(helpFunc), exset);
 
-            if (HelperCallProperties::MayRunCctor(helpFunc) && !call->IsHoistable())
+            if (HelperCallProperties::MayRunCctor(helpFunc) && !call->IsBeforeFieldInitCctor())
             {
                 modHeap = true;
             }

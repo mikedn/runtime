@@ -686,7 +686,7 @@ public:
                 if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
                     if (!HelperCallProperties::IsPure(helper) ||
-                        (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
+                        (HelperCallProperties::MayRunCctor(helper) && !call->IsBeforeFieldInitCctor()))
                     {
                         isHoistable = false;
                     }
@@ -727,7 +727,7 @@ public:
                 if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
                     if (HelperCallProperties::MutatesHeap(helper) ||
-                        (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
+                        (HelperCallProperties::MayRunCctor(helper) && !call->IsBeforeFieldInitCctor()))
                     {
                         m_beforeSideEffect = false;
                     }

@@ -416,7 +416,7 @@ enum GenTreeFlags : unsigned
     GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the above call kinds
     GTF_CALL_DELEGATE_INV     = 0x40000000, // call to Delegate.Invoke
     GTF_CALL_NULLCHECK        = 0x80000000, // Null check first arg
-    GTF_CALL_HOISTABLE        = 0x01000000, // Hoistable call (known helper calls)
+    GTF_CALL_BEFOREFIELDINIT  = 0x01000000, // Calls runs the cctor with BeforeFieldInit semantics
     GTF_CALL_INLINE_CANDIDATE = 0x02000000, // Inline candidate
 
     // MEMORYBARRIER specific flags
@@ -4348,9 +4348,9 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_PINVOKE) != 0;
     }
 
-    bool IsHoistable() const
+    bool IsBeforeFieldInitCctor() const
     {
-        return (gtFlags & GTF_CALL_HOISTABLE) != 0;
+        return (gtFlags & GTF_CALL_BEFOREFIELDINIT) != 0;
     }
 
     // Note that the distinction of whether tail prefixed or an implicit tail call
