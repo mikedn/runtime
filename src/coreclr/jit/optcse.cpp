@@ -2129,13 +2129,30 @@ public:
 
         JITDUMP("\n");
 
-        GenTreeLclDef* singleDef = nullptr;
+        GenTreeLclDef* singleDef   = nullptr;
+        GenTreeLclDef* existingDef = nullptr;
 
         if (singleDefOccurrence != nullptr)
         {
             lcl->m_isSsa = true;
-            singleDef =
-                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurrence->expr, singleDefOccurrence->block, lcl);
+
+            if (GenTree* next = singleDefOccurrence->expr->gtNext;
+                (next != nullptr) && next->IsLclDef() && (next->AsLclDef()->GetValue() == singleDefOccurrence->expr) &&
+                (next->GetType() == lclType) && (next->GetLiberalVN() == value->hashVN) && !HasPhiUse(next->AsLclDef()))
+            {
+                JITDUMP("Reusing existing def " FMT_TREEID "\n", next->GetID());
+
+                existingDef = next->AsLclDef();
+                singleDef   = existingDef;
+                singleDef->SetLcl(lcl);
+            }
+            else
+            {
+                JITDUMP("No existing def available, creating a new one\n");
+
+                singleDef = new (compiler, GT_LCL_DEF)
+                    GenTreeLclDef(singleDefOccurrence->expr, singleDefOccurrence->block, lcl);
+            }
         }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
@@ -2152,6 +2169,7 @@ public:
 
             JITDUMP("Replacing " FMT_CSE " %s [%06u] with V%02u\n", value->index, isDef ? "def" : "use", expr->GetID(),
                     lcl->GetLclNum());
+            INDEBUG(cseCount++);
 
             var_types exprType = varActualType(expr->GetType());
             // TODO-MIKE-Review: This seems to be the wrong place to check this, types should
@@ -2220,6 +2238,11 @@ public:
                 assert((lclType != TYP_STRUCT) ||
                        (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
+                if (existingDef != nullptr)
+                {
+                    continue;
+                }
+
                 if (singleDef != nullptr)
                 {
                     singleDef->SetType(lclType);
@@ -2280,8 +2303,6 @@ public:
             // we do CSE, since doing CSE lowers the cost of any parent CSEs.
             compiler->gtSetStmtSeq(stmt);
             compiler->gtSetCosts(stmt->GetRootNode());
-
-            cseCount++;
         }
 
         JITDUMP("\n");
@@ -2551,6 +2572,27 @@ public:
                 PerformCSE(candidate DEBUGARG(kind));
             }
         }
+    }
+
+    static bool HasPhiUse(GenTreeLclDef* def)
+    {
+        for (GenTreeLclUse* use : def->Uses())
+        {
+            for (GenTree* user = use->gtNext; user != nullptr; user = user->gtNext)
+            {
+                if (user->OperIs(GT_PHI))
+                {
+                    return true;
+                }
+
+                if (!user->OperIs(GT_LCL_USE))
+                {
+                    break;
+                }
+            }
+        }
+
+        return false;
     }
 };
 
