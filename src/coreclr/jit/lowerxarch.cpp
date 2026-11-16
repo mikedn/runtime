@@ -3963,7 +3963,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     }
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(store->GetType()))
+    if (varTypeIsVec(store->GetType()))
     {
         assert(!src->IsIntCon());
 
@@ -3988,9 +3988,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
 
-    var_types type = store->GetLcl()->GetRegisterType(store);
-
-    if (IsImmOperand(src, store) && (!src->IsIntCon(0) || varTypeIsSmall(type)))
+    if (IsImmOperand(src, store) && (!src->IsIntCon(0) || varTypeIsSmall(store->GetType())))
     {
         src->SetContained();
         return;

@@ -3363,9 +3363,9 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
         if (srcRegType == TYP_STRUCT)
         {
-            GenTreeLclLoad* srcLclVar = src->AsLclLoad();
+            GenTreeLclLoad* srcLclLoad = src->AsLclLoad();
 
-            srcRegType = srcLclVar->GetLcl()->GetRegisterType(srcLclVar);
+            srcRegType = srcLclLoad->GetLcl()->GetRegisterType(srcLclLoad);
         }
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));

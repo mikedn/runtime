@@ -89,7 +89,7 @@ void DbgInfoVarLoc::InitRegLocation(const LclVarDsc* lcl, RegNum baseReg, int of
 {
     RegNum reg = lcl->GetRegNum();
 
-    switch (lcl->GetActualRegisterType())
+    switch (lcl->GetRegisterType())
     {
     case TYP_LONG:
 #ifndef TARGET_64BIT // TODO-MIKE-Review: This code is either dead or completely messed up.
@@ -99,6 +99,11 @@ void DbgInfoVarLoc::InitRegLocation(const LclVarDsc* lcl, RegNum baseReg, int of
         vlRegStk.vlrsStk.vlrssOffset  = offset + 4;
         break;
 #endif
+    case TYP_BOOL:
+    case TYP_BYTE:
+    case TYP_UBYTE:
+    case TYP_SHORT:
+    case TYP_USHORT:
     case TYP_INT:
     case TYP_REF:
     case TYP_BYREF:

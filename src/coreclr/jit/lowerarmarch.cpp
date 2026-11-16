@@ -1149,16 +1149,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
         return;
     }
 #endif
-
-    // If the source is a containable immediate, make it contained, unless it is
-    // an int-size or larger store of zero to memory, because we can generate smaller code
-    // by zeroing a register and then storing it.
-    var_types type = store->GetLcl()->GetRegisterType(store);
-
-    if (IsImmOperand(src, store) && (!src->IsIntCon(0) || varTypeIsSmall(type)))
-    {
-        src->SetContained();
-    }
 }
 
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)

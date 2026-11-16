@@ -1272,7 +1272,7 @@ bool CodeGen::SpillRegCandidateLcl(GenTreeLclVar* lclVar)
             // In fact, not performing store normalization can lead to problems on architectures where
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
-            var_types   type = lcl->GetActualRegisterType();
+            var_types   type = varActualType(lcl->GetRegisterType());
             instruction ins  = ins_Store(type, IsSimdLocalAligned(lcl));
 
             GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), GetStackAddrMode(lcl, 0));
@@ -1328,12 +1328,12 @@ RegNum CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
-RegNum CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
+RegNum CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* load)
 {
-    LclVarDsc* lcl = node->GetLcl();
+    LclVarDsc* lcl = load->GetLcl();
     assert(lcl->IsRegCandidate());
     RegNum srcReg = lcl->GetRegNum();
-    RegNum dstReg = node->GetRegNum();
+    RegNum dstReg = load->GetRegNum();
     assert(dstReg != REG_NA);
 
     // Handle the case where we have a local that needs to be copied before use (i.e. because it
@@ -1343,25 +1343,25 @@ RegNum CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
     // Note that we have to do this before calling genUpdateLife because otherwise if we spill it
     // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
     // the local (normally when a local is spilled it is then used from its former register
-    // location, which matches the GetRegNum() on the node).
+    // location, which matches the GetRegNum() on the load).
     // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
-    // because if it's on the stack it will always get reloaded into node->GetRegNum()).
+    // because if it's on the stack it will always get reloaded into load->GetRegNum()).
     if (srcReg != REG_STK)
     {
-        var_types dstType = lcl->GetRegisterType(node);
+        var_types dstType = lcl->GetRegisterType(load);
         GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg,
                                   /* canSkip */ true);
     }
 
-    if (node->IsAnyRegSpilled())
+    if (load->IsAnyRegSpilled())
     {
-        UnspillRegCandidateLclLoad(node);
+        UnspillRegCandidateLclLoad(load);
     }
 
-    liveness.UpdateLife(this, node);
+    liveness.UpdateLife(this, load);
     liveness.RemoveGCRegs(genRegMask(srcReg == REG_STK ? dstReg : srcReg));
 
-    INDEBUG(VerifyUseOrder(node));
+    INDEBUG(VerifyUseOrder(load));
 
     return dstReg;
 }
@@ -1462,7 +1462,7 @@ void CodeGen::UnspillRegCandidateLclLoad(GenTreeLclLoad* node)
     // later used as a long, we will have incorrectly truncated the long.
     // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
     // extending load.
-    var_types lclActualType = lcl->GetActualRegisterType();
+    var_types lclActualType = varActualType(lcl->GetRegisterType());
     assert(lclActualType != TYP_UNDEF);
     if (regType != lclActualType && !varTypeIsGC(regType) && !lcl->lvNormalizeOnLoad())
     {
@@ -1989,27 +1989,27 @@ void CodeGen::DefLclReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::SpillLclReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
+void CodeGen::SpillLclReg(LclVarDsc* lcl, GenTreeLclVar* lclNode)
 {
-    assert(lclVar->OperIs(GT_LCL_STORE, GT_LCL_LOAD));
+    assert(lclNode->OperIs(GT_LCL_STORE, GT_LCL_LOAD));
 
     // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.
     // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
-    // to the stack, indicated by SPILL (note that all EH lclVar defs are always
+    // to the stack, indicated by SPILL (note that all EH local defs are always
     // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
     // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
     // but the SPILL flag records the fact that the register value is going dead.
-    if (lclVar->OperIs(GT_LCL_LOAD) && lcl->IsAlwaysAliveInMemory())
+    if (lclNode->OperIs(GT_LCL_LOAD) && lcl->IsAlwaysAliveInMemory())
     {
         return;
     }
 
-    var_types type = lcl->GetRegisterType(lclVar);
+    var_types type = lcl->GetRegisterType(lclNode);
 
-    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+    assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetRegisterType())));
 
-    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), lclVar->GetRegNum(),
+    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), lclNode->GetRegNum(),
                               GetStackAddrMode(lcl, 0));
 }
 

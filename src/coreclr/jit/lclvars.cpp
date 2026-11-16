@@ -2366,37 +2366,30 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     lvaLiveSetWordCount = LiveBitSetTraits::ComputeWordCount(lvaTrackedCount);
 }
 
-//------------------------------------------------------------------------
-// GetRegisterType: Determine register type for this local var.
-//
-// Arguments:
-//    tree - node that uses the local, its type is checked first.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
-var_types LclVarDsc::GetRegisterType(const GenTreeLclRef* tree) const
+var_types LclVarDsc::GetRegisterType(const GenTreeLclRef* node) const
 {
-    var_types targetType = tree->GetType();
-    var_types lclVarType = GetType();
+    var_types nodeType = node->GetType();
+    var_types lclType  = lvType;
 
-    if (targetType == TYP_STRUCT)
+    if (nodeType == TYP_STRUCT)
     {
-        if (lclVarType == TYP_STRUCT)
+        if (lclType == TYP_STRUCT)
         {
-            assert(!tree->IsLclFld() && "do not expect struct local fields.");
-            lclVarType = GetLayout()->GetRegisterType();
+            assert(!node->IsLclFld() && "do not expect struct local fields.");
+            lclType = GetLayout()->GetRegisterType();
         }
-        targetType = lclVarType;
+
+        nodeType = lclType;
     }
 
 #ifdef DEBUG
-    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_LCL_STORE) && lvNormalizeOnStore())
+    if ((nodeType != TYP_UNDEF) && node->OperIs(GT_LCL_STORE) && lvNormalizeOnStore())
     {
-        assert(targetType == varActualType(lclVarType));
+        assert(nodeType == varActualType(lclType));
     }
 #endif
-    return targetType;
+
+    return nodeType;
 }
 
 var_types LclVarDsc::GetRegisterType() const
@@ -2409,22 +2402,12 @@ var_types LclVarDsc::GetRegisterType() const
             return TYP_UNDEF;
         }
 #endif
+
         return lvType;
     }
 
     assert(m_layout != nullptr);
     return m_layout->GetRegisterType();
-}
-
-//------------------------------------------------------------------------
-// GetActualRegisterType: Determine an actual register type for this local var.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
-var_types LclVarDsc::GetActualRegisterType() const
-{
-    return varActualType(GetRegisterType());
 }
 
 void Compiler::lvaAddRef(LclVarDsc* lcl, weight_t weight, bool propagate)

@@ -750,13 +750,9 @@ public:
 
     var_types GetRegisterType(const GenTreeLclRef* tree) const;
     var_types GetRegisterType() const;
-    var_types GetActualRegisterType() const;
 
-    //-----------------------------------------------------------------------------
-    //  IsAlwaysAliveInMemory: Determines if this variable's value is always
-    //     up-to-date on stack. This is possible if this is an EH-var or
-    //     we decided to spill after single-def.
-    //
+    // Determines if this variable's value is always up-to-date on stack.
+    // This is possible if this is an EH-var or we decided to spill after single-def.
     bool IsAlwaysAliveInMemory() const
     {
         return lvLiveInOutOfHndlr || lvSpillAtSingleDef;

@@ -2196,9 +2196,6 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
     case GT_JCMP:
         assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
         return true;
-    case GT_LCL_STORE:
-    case GT_LCL_STORE_FLD:
-        return value == 0;
     default:
         return false;
     }

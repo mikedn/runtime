@@ -2262,7 +2262,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             noway_assert(lcl->IsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
             // On x86 we don't enregister args that are not pointer sized.
-            noway_assert(varTypeSize(lcl->GetActualRegisterType()) == REGSIZE_BYTES);
+            noway_assert(varTypeSize(varActualType(lcl->GetRegisterType())) == REGSIZE_BYTES);
 #endif
 
             const var_types lclRegType = lcl->GetRegisterType();
@@ -2547,9 +2547,9 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
             continue;
         }
 
-        regNumber regNum = lcl->GetParamInitialReg();
+        RegNum regNum = lcl->GetParamInitialReg();
         assert(regNum != REG_STK);
-        var_types regType = lcl->GetActualRegisterType();
+        var_types regType = varActualType(lcl->GetRegisterType());
 
         GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, GetStackAddrMode(lcl, 0));
     }

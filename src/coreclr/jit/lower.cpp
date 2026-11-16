@@ -2865,13 +2865,12 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerRetSingleRegStructLclVar: Lowers a return node with a struct lclVar as a source.
+// Lowers a return node with a struct local as a source.
 //
 // Notes:
-//    - the function is only for LclVars that are returned in one register;
-//    - if LclVar is allocated in memory then read it as return type;
-//    - if LclVar can be enregistered read it as register type and add a bitcast if necessary;
+//  - the function is only for locals that are returned in one register
+//  - if local is allocated in memory then read it as return type
+//  - if local can be enregistered read it as register type and add a bitcast if necessary
 //
 void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 {

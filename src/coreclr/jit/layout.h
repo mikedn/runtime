@@ -269,12 +269,6 @@ public:
 #endif
     }
 
-    //------------------------------------------------------------------------
-    // GetRegisterType: Determine register type for the layout.
-    //
-    // Return Value:
-    //    TYP_UNDEF if the layout is enregistrable, register type otherwise.
-    //
     var_types GetRegisterType() const
     {
         if (HasGCPtr())

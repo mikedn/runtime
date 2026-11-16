@@ -2530,7 +2530,7 @@ void LinearScan::IdentifyCandidates()
 
         lcl->lvLRACandidate = true;
 
-        var_types type = lcl->GetActualRegisterType();
+        var_types type = varActualType(lcl->GetRegisterType());
 
         if (varTypeUsesFloatReg(type))
         {
@@ -3214,9 +3214,9 @@ var_types LinearScan::GetDefType(GenTree* node) const
 
     if (type == TYP_STRUCT)
     {
-        GenTreeLclVar* lclVar = node->AsLclVar();
+        GenTreeLclVar* lclNode = node->AsLclVar();
 
-        type = lclVar->GetLcl()->GetRegisterType(lclVar);
+        type = lclNode->GetLcl()->GetRegisterType(lclNode);
     }
 
     assert((type != TYP_UNDEF) && (type != TYP_STRUCT));
@@ -3662,7 +3662,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
         {
             if (src->OperIsBinary() && !src->AsOp()->GetOp(1)->isContained())
             {
-                regMaskTP regs = src->OperIsShiftOrRotate() ? RBM_RCX : RBM_NONE;
+                RegSet regs = src->OperIsShiftOrRotate() ? RBM_RCX : RBM_NONE;
                 BuildUse(src->AsOp()->GetOp(1), regs);
             }
         }
@@ -3678,7 +3678,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
     }
     else
     {
-        singleUseRef = BuildUse(src X86_ARG(varTypeIsByte(lcl->GetRegisterType(store)) ? allByteRegs() : RBM_NONE));
+        singleUseRef = BuildUse(src X86_ARG(varTypeIsByte(store->GetType()) ? allByteRegs() : RBM_NONE));
     }
 
 #ifdef TARGET_ARM
