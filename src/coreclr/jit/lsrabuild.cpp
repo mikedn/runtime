@@ -3261,23 +3261,6 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCa
             assert(isSingleRegister(regCandidates));
         }
     }
-#ifdef TARGET_X86
-    // TODO-MIKE-Review: This is dubious, only stores need this and stores aren't defs.
-    // SETCC also needs byte regs but it already provides suitable regCandidates. So
-    // what the crap is this code doing here?!?
-    // This also ignores regIndex but presumably this doesn't matter, on x86 the only
-    // multireg case already uses byte regs - call returns.
-    else if (varTypeIsByte(node->GetType()))
-    {
-        if (regCandidates == RBM_NONE)
-        {
-            regCandidates = allIntRegs();
-        }
-
-        regCandidates &= ~RBM_NON_BYTE_REGS;
-        assert(regCandidates != RBM_NONE);
-    }
-#endif // TARGET_X86
 
     if (pendingDelayFree)
     {
