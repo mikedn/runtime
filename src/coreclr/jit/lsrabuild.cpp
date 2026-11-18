@@ -108,6 +108,7 @@ void LinearScan::DumpDefList() const
 
 Interval* LinearScan::NewInterval(var_types regType)
 {
+    assert(regType == varActualType(regType));
     intervals.emplace_back(regType, allRegs(regType));
     Interval* newInt = &intervals.back();
 
@@ -2530,14 +2531,23 @@ void LinearScan::IdentifyCandidates()
 
         lcl->lvLRACandidate = true;
 
-        var_types type = varActualType(lcl->GetRegisterType());
+        var_types regType = lcl->GetRegisterType();
 
-        if (varTypeUsesFloatReg(type))
+        if (varTypeUsesVecReg(regType))
         {
+            if (varTypeIsVec(regType))
+            {
+                regType = varTypeTargetVec(regType);
+            }
+
             compiler->compFloatingPointUsed = true;
         }
+        else
+        {
+            regType = varActualType(regType);
+        }
 
-        Interval* newInt   = NewInterval(type);
+        Interval* newInt   = NewInterval(regType);
         newInt->isLocalVar = true;
         newInt->varIndex   = lcl->GetLivenessBitIndex();
         assert(newInt->varIndex < compiler->lvaTrackedCount);
@@ -2569,7 +2579,7 @@ void LinearScan::IdentifyCandidates()
         // Additionally, when we are generating code for a target with partial SIMD callee-save
         // (AVX on non-UNIX amd64 and 16-byte vectors on arm64), we keep a separate set of the
         // LargeVectorType vars.
-        if (varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
+        if (varTypeNeedsPartialCalleeSave(regType))
         {
             VarSetOps::AddElemD(compiler, largeVectorVars, lcl->GetLivenessBitIndex());
 
@@ -2580,7 +2590,7 @@ void LinearScan::IdentifyCandidates()
         }
         else
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            if (varTypeUsesFloatReg(type))
+            if (varTypeUsesVecReg(regType))
         {
             floatLclCount++;
             weight_t refWeight = lcl->GetRefWeight();
@@ -3244,7 +3254,16 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, RegSet regCa
 
     if (varTypeUsesVecReg(regType))
     {
+        if (varTypeIsVec(regType))
+        {
+            regType = varTypeTargetVec(regType);
+        }
+
         compiler->compFloatingPointUsed = true;
+    }
+    else
+    {
+        regType = varActualType(regType);
     }
 
     Interval* interval = NewInterval(regType);
