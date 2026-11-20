@@ -2713,6 +2713,13 @@ void Compiler::lvaComputeRefCountsLIR()
                 break;
 
             case GT_LCL_STORE:
+#ifndef TARGET_64BIT
+                if (node->AsLclStore()->IsMultiReg())
+                {
+                    node->AsLclStore()->GetLcl()->lvIsMultiRegRet = true;
+                }
+                [[fallthrough]];
+#endif
             case GT_LCL_STORE_FLD:
                 assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
                 lcl = node->AsLclRef()->GetLcl();
@@ -2940,6 +2947,12 @@ void Compiler::lvaComputeLclRefCounts()
             lcl->lvDefStmt   = nullptr;
 #endif
         }
+#ifndef TARGET_64BIT
+        else
+        {
+            lcl->lvIsMultiRegRet = false;
+        }
+#endif
     }
 
     // Second, count all explicit local variable references. This will also set

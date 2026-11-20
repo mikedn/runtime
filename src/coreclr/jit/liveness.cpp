@@ -73,7 +73,7 @@ class Liveness
     bool PerBlockAnalysis(BasicBlock* block);
     void ComputeLifeTrackedLocalUse(LiveSet& liveOut, LclVarDsc* lcl, GenTreeLclRef* node);
     bool ComputeLifeTrackedLocalDef(LiveSet& liveOut, LiveSet keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
-    bool ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
+    unsigned ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
     bool ComputeLifeBlock(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
     bool ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* stmt, BasicBlock* block);
     bool ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
@@ -82,6 +82,9 @@ class Liveness
     bool InterBlockLiveness();
 
     GenTree* RemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block);
+#ifndef TARGET_64BIT
+    void NarrowLongStore(GenTreeLclStore* store);
+#endif
 
 #ifdef DEBUG
     void DumpBlockLiveness(BasicBlock* block);
@@ -822,7 +825,7 @@ bool Liveness::ComputeLifeTrackedLocalDef(LiveSet& liveOut, LiveSet keepAlive, L
     return false;
 }
 
-bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, LclVarDsc* lcl, GenTreeLclRef* node)
+unsigned Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, LclVarDsc* lcl, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
     assert(lcl->IsPromoted() && !lcl->IsAddressExposed());
@@ -837,8 +840,8 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
                                                                : varTypeSize(lclFld->GetType()));
     }
 
-    bool isDef     = node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD);
-    bool isLastUse = true;
+    bool     isDef          = node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD);
+    unsigned liveFieldCount = 0;
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
@@ -857,14 +860,25 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
 
         if (!fieldLcl->HasLiveness())
         {
-            isLastUse = false;
+            if (fieldLcl->GetRefCount() == 0)
+            {
+                node->SetLastUse(i, true);
+            }
+            else
+            {
+                liveFieldCount++;
+            }
+
             continue;
         }
 
         bool totalOverlap   = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
         bool isFieldLastUse = !LiveSetOps::IsMember(this, liveOut, fieldLcl->GetLivenessBitIndex());
 
-        isLastUse &= isFieldLastUse;
+        if (!isFieldLastUse)
+        {
+            liveFieldCount++;
+        }
 
         if (!isDef || !totalOverlap)
         {
@@ -878,7 +892,7 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
         node->SetLastUse(i, isFieldLastUse);
     }
 
-    return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
+    return (isDef && !(lcl->lvCustomLayout && lcl->lvContainsHoles)) ? liveFieldCount : lcl->GetPromotedFieldCount();
 }
 
 bool Liveness::ComputeLifeBlock(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block)
@@ -929,7 +943,7 @@ bool Liveness::ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* s
             }
             else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
             {
-                bool isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
+                bool isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode) == 0;
                 assert(!isDeadStore);
             }
         }
@@ -945,7 +959,7 @@ bool Liveness::ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* s
             }
             else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
             {
-                isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
+                isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode) == 0;
             }
 
             if (isDeadStore)
@@ -1094,7 +1108,18 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
 
                 if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, store);
+                    unsigned liveFieldCount = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, store);
+
+#ifndef TARGET_64BIT
+                    if (store->TypeIs(TYP_LONG) && (liveFieldCount == 1) && store->OperIs(GT_LCL_STORE) &&
+                        store->IsLastUse(1))
+                    {
+                        NarrowLongStore(store->AsLclStore());
+                        break;
+                    }
+#endif
+
+                    isDeadStore = liveFieldCount == 0;
                 }
             }
 
@@ -1258,6 +1283,34 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
 
     return useDefRemoved;
 }
+
+#ifndef TARGET_64BIT
+void Liveness::NarrowLongStore(GenTreeLclStore* store)
+{
+    GenTree* value = store->GetValue();
+
+    // We can easily retype a LONG call to INT but other nodes can be problematic (e.g. BITCAST).
+    if (!value->IsCall())
+    {
+        return;
+    }
+
+    JITDUMPLIRNODE(store, "Narrowing LONG store with dead high part to INT\n");
+
+    LclVarDsc*   longLcl = store->GetLcl();
+    LclVarDsc*   intLcl  = compiler->lvaGetDesc(longLcl->GetPromotedFieldLclNum(0));
+    GenTreeCall* call    = value->AsCall();
+
+    store->SetType(TYP_INT);
+    store->SetLcl(intLcl);
+    store->SetLastUse(1, false);
+    store->ClearMultiReg();
+
+    call->SetType(TYP_INT);
+    call->SetRetSigType(TYP_INT);
+    call->GetRetDesc()->InitializePrimitive(TYP_INT);
+}
+#endif
 
 void Liveness::RemoveDeadCallArgStores(GenTreeCall* call, BasicBlock* block)
 {
