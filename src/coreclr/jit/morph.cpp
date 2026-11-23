@@ -1036,6 +1036,28 @@ GenTree* Compiler::moMorphConvPost(GenTreeUnOp* conv)
         return conv;
     }
 
+    if (src->OperIs(varTypeIsSmallSigned(dstType) ? GT_RSH : GT_RSZ))
+    {
+        assert(src->TypeIs(TYP_INT, TYP_LONG));
+
+        if (GenTreeIntCon* shiftBy = src->AsOp()->GetOp(1)->IsIntCon())
+        {
+            if ((shiftBy->GetUnsignedValue() < varTypeBitSize(srcType)) &&
+                (shiftBy->GetUnsignedValue() + varTypeBitSize(dstType) >= varTypeBitSize(srcType)))
+            {
+                if (srcType == TYP_LONG)
+                {
+                    conv->SetOper(GT_TRUNC);
+                    conv->SetType(TYP_INT);
+
+                    return conv;
+                }
+
+                return src;
+            }
+        }
+    }
+
     if (src->OperIs(GT_LCL_LOAD))
     {
         LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
