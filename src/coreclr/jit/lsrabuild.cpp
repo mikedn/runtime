@@ -2768,9 +2768,6 @@ bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 
     switch (varActualType(lcl->GetType()))
     {
-    case TYP_STRUCT:
-        assert(compiler->compEnregStructLocals() && !lcl->HasGCPtr());
-        FALLTHROUGH;
     case TYP_FLOAT:
     case TYP_DOUBLE:
     case TYP_INT:

@@ -4027,18 +4027,7 @@ void LinearScan::InsertCopyOrReload(BasicBlock* block, GenTree* value, unsigned 
 
     var_types regType = value->GetType();
 
-    if ((regType == TYP_STRUCT) && !value->IsMultiRegNode())
-    {
-        assert(compiler->compEnregStructLocals());
-        // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
-        assert(value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-        const GenTreeLclRef* load = value->AsLclRef();
-        // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
-        // Note that for multiReg node we keep each regType in the tree and don't need this.
-        regType = load->GetLcl()->GetRegisterType(load);
-        assert(regType != TYP_UNDEF);
-    }
-
+    assert((regType != TYP_STRUCT) || value->IsMultiRegNode());
     assert(refPosition->registerAssignment != RBM_NONE);
 
     GenTreeCopyOrReload* copy = new (compiler, oper) GenTreeCopyOrReload(oper, regType, value);

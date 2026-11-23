@@ -2291,38 +2291,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
         else if (lcl->TypeIs(TYP_STRUCT) && !lcl->IsPromoted())
         {
-            if (!compEnregStructLocals())
-            {
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
-            }
-            else if (lcl->GetRegisterType() == TYP_UNDEF)
-            {
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
-            }
-            else if (lcl->HasGCPtr())
-            {
-                // TODO-1stClassStructs: support vars with GC pointers. The issue is that such
-                // vars will have `lvMustInit` set, because emitter has poor support for struct
-                // liveness, but if the variable is tracked the prolog generator would expect it
-                // to be in liveIn set, so an assert in `genFnProlog` will fire.
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
-            }
-            else if (lcl->lvIsMultiRegArg || lcl->lvIsMultiRegRet)
-            {
-                // Prolog and return generators do not support vector - integer register moves.
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
-            }
-#if defined(TARGET_ARM) || defined(TARGET_X86)
-            else if (lcl->IsParam())
-            {
-                // On ARM we pre-spill all struct args.
-                // TODO-ARM-CQ: Keep them in registers.
-                // TODO-MIKE-CQ: This also affects x86, not clear how come main branch
-                // doesn't have this problem. Probably because they still can't generate
-                // sane IR to begin with and end up DNERing structs anyway...
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
-            }
-#endif
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
         }
     }
 

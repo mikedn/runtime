@@ -5109,11 +5109,6 @@ public:
 
     CompilerOptions opts;
 
-    bool compEnregStructLocals() const
-    {
-        return JitConfig.JitEnregStructLocals();
-    }
-
     bool compObjectStackAllocation() const
     {
         return JitConfig.JitObjectStackAllocation();
