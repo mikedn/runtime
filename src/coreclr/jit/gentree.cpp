@@ -7867,6 +7867,11 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
         }
 
+        if (val == -1)
+        {
+            goto DONE_FOLD;
+        }
+
         if ((tree->gtFlags & GTF_BOOLEAN) != 0)
         {
             assert(val == 1);
@@ -7876,6 +7881,18 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         break;
 
     case GT_OR:
+        if (val == -1)
+        {
+            // TODO-MIKE-CQ: We could change the OR to a COMMA if op has side effects.
+            if (!opHasSideEffects)
+            {
+                op = cons;
+                goto DONE_FOLD;
+            }
+
+            break;
+        }
+
         if (val == 0)
         {
             goto DONE_FOLD;

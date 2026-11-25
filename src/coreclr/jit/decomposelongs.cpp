@@ -697,7 +697,18 @@ GenTree* DecomposeLongs::DecomposeBitwise(LIR::Use& use)
     node->AsOp()->SetOp(0, loOp1);
     node->AsOp()->SetOp(1, loOp2);
 
-    GenTree* hiNode = m_compiler->gtNewOperNode(node->GetOper(), TYP_INT, hiOp1, hiOp2);
+    GenTree* hiNode;
+
+    if (hiOp2->IsIntCon(0) && node->OperIs(GT_AND))
+    {
+        hiOp1->SetUnusedValue();
+        hiNode = hiOp2;
+        Range().Unlink(hiNode);
+    }
+    else
+    {
+        hiNode = m_compiler->gtNewOperNode(node->GetOper(), TYP_INT, hiOp1, hiOp2);
+    }
 
     Range().InsertAfter(node, hiNode);
     return FinalizeDecomposition(use, node, hiNode, hiNode);

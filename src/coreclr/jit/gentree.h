@@ -2424,6 +2424,7 @@ protected:
 public:
     void SetInt64Value(int64_t val);
     int64_t  GetValue() const;
+    uint64_t GetUnsignedValue() const;
     uint64_t GetUInt64Value() const;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIntConCommon, GenTree)
@@ -2755,6 +2756,11 @@ inline int64_t GenTreeIntConCommon::GetValue() const
 #else
     return IsLngCon() ? AsLngCon()->GetValue() : static_cast<int64_t>(AsIntCon()->GetValue());
 #endif
+}
+
+inline uint64_t GenTreeIntConCommon::GetUnsignedValue() const
+{
+    return static_cast<uint64_t>(GetValue());
 }
 
 inline uint64_t GenTreeIntConCommon::GetUInt64Value() const

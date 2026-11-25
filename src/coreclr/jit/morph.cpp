@@ -3181,6 +3181,21 @@ REMORPH_POST:
                 return rotate;
             }
         }
+        else if ((oper == GT_AND) && op2->IsIntConCommon())
+        {
+            if (op1->OperIs(GT_RSZ) && op1->AsOp()->GetOp(1)->IsIntCon())
+            {
+                size_t shiftBy = op1->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue();
+                size_t bitSize = varTypeBitSize(op1->GetType());
+
+                if ((shiftBy != 0) && (shiftBy < bitSize) &&
+                    (op2->AsIntConCommon()->GetUnsignedValue() == ((1ULL << (bitSize - shiftBy)) - 1)))
+                {
+                    DEBUG_DESTROY_NODE(tree);
+                    return op1;
+                }
+            }
+        }
 
         if (tree->IsReverseOps())
         {
