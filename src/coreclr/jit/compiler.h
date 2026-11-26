@@ -5459,11 +5459,6 @@ public:
 
     unsigned* gsLclShadowMap = nullptr;
 
-    void gsGSChecksInitCookie();   // Grabs cookie variable
-    void gsCopyShadowParams();     // Identify vulnerable params and create shadow copies
-    bool gsFindVulnerableParams(); // Shadow param analysis code
-    void gsParamsToShadows();      // Insert copy code and replace param uses by shadow
-
 private:
 #ifdef FEATURE_JIT_METHOD_PERF
     JitTimer* jitTimer = nullptr; // Timer data structure (by phases) for current compilation.

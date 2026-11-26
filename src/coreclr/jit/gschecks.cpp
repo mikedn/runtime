@@ -3,30 +3,55 @@
 
 #include "jitpch.h"
 
+class GSCookiePhase
+{
+    Compiler& comp;
+
+public:
+    GSCookiePhase(Compiler& comp) : comp(comp)
+    {
+    }
+
+    void Run();
+
+private:
+    void InitCookie();           // Grabs cookie variable
+    void CopyShadowParams();     // Identify vulnerable params and create shadow copies
+    bool FindVulnerableParams(); // Shadow param analysis code
+    void ParamsToShadows();      // Insert copy code and replace param uses by shadow
+};
+
 void Compiler::phGSCookie()
 {
     assert(getNeedsGSSecurityCookie());
 
-    unsigned prevBBCount = fgBBcount;
-    gsGSChecksInitCookie();
+    GSCookiePhase gs(*this);
+    gs.Run();
+}
 
-    if (compGSReorderStackLayout)
+void GSCookiePhase::Run()
+{
+    InitCookie();
+
+    unsigned prevBBCount = comp.fgBBcount;
+
+    if (comp.compGSReorderStackLayout)
     {
-        gsCopyShadowParams();
+        CopyShadowParams();
     }
 
     // If we needed to create any new BasicBlocks then renumber the blocks
-    if (fgBBcount > prevBBCount)
+    if (comp.fgBBcount > prevBBCount)
     {
-        fgRenumberBlocks();
+        comp.fgRenumberBlocks();
     }
 }
 
-void Compiler::gsGSChecksInitCookie()
+void GSCookiePhase::InitCookie()
 {
-    LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
-    lvaSetImplicitlyReferenced(lcl);
-    lvaGSSecurityCookie = lcl->GetLclNum();
+    LclVarDsc* lcl = comp.lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
+    comp.lvaSetImplicitlyReferenced(lcl);
+    comp.lvaGSSecurityCookie = lcl->GetLclNum();
 }
 
 // The current function has an unsafe buffer on the stack.  Search for vulnerable
@@ -39,9 +64,9 @@ void Compiler::gsGSChecksInitCookie()
 // protected memory or write to it. If a parameter is assigned/computed into another variable,
 // and is a pointer (i.e., under indirection), then we consider the variable to be part of the
 // equivalence class with the parameter. All parameters in the equivalence class are shadowed.
-void Compiler::gsCopyShadowParams()
+void GSCookiePhase::CopyShadowParams()
 {
-    if (info.compIsVarArgs)
+    if (comp.info.compIsVarArgs)
     {
         return;
     }
@@ -49,10 +74,10 @@ void Compiler::gsCopyShadowParams()
     // Find groups of variables assigned to each other, and also
     // tracks variables which are dereferenced and marks them as ptrs.
     // Look for assignments to *p, and ptrs passed to functions
-    if (gsFindVulnerableParams())
+    if (FindVulnerableParams())
     {
         // Replace vulnerable params by shadow copies.
-        gsParamsToShadows();
+        ParamsToShadows();
     }
 }
 
@@ -241,21 +266,21 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
 // Then use that info to figure out vulnerable pointers.
 // It returns true if it found atleast one vulnerable pointer parameter that
 // needs to be shadow-copied.
-bool Compiler::gsFindVulnerableParams()
+bool GSCookiePhase::FindVulnerableParams()
 {
-    MarkPtrsInfo info(this);
+    MarkPtrsInfo info(&comp);
 
-    for (LclVarDsc* lcl : Locals())
+    for (LclVarDsc* lcl : comp.Locals())
     {
         lcl->gs.assignSet = nullptr;
     }
 
     // Walk all the trees setting lvIsPtr and assignSet.
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : comp.Blocks())
     {
         for (Statement* const stmt : block->Statements())
         {
-            fgWalkTreePre(stmt->GetRootNodePointer(), MarkPtrsAndAssignGroups, &info);
+            comp.fgWalkTreePre(stmt->GetRootNodePointer(), MarkPtrsAndAssignGroups, &info);
         }
     }
 
@@ -266,7 +291,7 @@ bool Compiler::gsFindVulnerableParams()
     // some assign group.
     AssignSet propagated = AssignSetOps::MakeEmpty(info.assignSetTraits);
 
-    for (LclVarDsc* lcl : Locals())
+    for (LclVarDsc* lcl : comp.Locals())
     {
         AssignSet assignGroup = lcl->gs.assignSet;
 
@@ -290,7 +315,7 @@ bool Compiler::gsFindVulnerableParams()
         // First pass -- find if any variable is vulnerable.
         for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext() && !isPtr;)
         {
-            isPtr |= lvaGetDesc(e.Current())->lvIsPtr;
+            isPtr |= comp.lvaGetDesc(e.Current())->lvIsPtr;
         }
 
         if (!isPtr)
@@ -303,12 +328,12 @@ bool Compiler::gsFindVulnerableParams()
         // Second pass -- mark all are vulnerable.
         for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext();)
         {
-            lvaGetDesc(e.Current())->lvIsPtr = true;
+            comp.lvaGetDesc(e.Current())->lvIsPtr = true;
             AssignSetOps::AddElemD(info.assignSetTraits, propagated, e.Current());
         }
 
 #ifdef DEBUG
-        if (verbose)
+        if (comp.verbose)
         {
             printf("Equivalence assign group %s: ", isPtr ? "isPtr " : "");
             for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext();)
@@ -358,11 +383,11 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
 
 // Copy each vulnerable param ptr or buffer to a local shadow
 // copy and replace uses of the param by the shadow copy.
-void Compiler::gsParamsToShadows()
+void GSCookiePhase::ParamsToShadows()
 {
-    jitstd::span<LclVarDsc*> locals = Locals();
+    jitstd::span<LclVarDsc*> locals = comp.Locals();
 
-    gsLclShadowMap = new (this, CMK_GS) unsigned[locals.size()];
+    comp.gsLclShadowMap = new (&comp, CMK_GS) unsigned[locals.size()];
 
     for (LclVarDsc* lcl : locals)
     {
@@ -370,14 +395,14 @@ void Compiler::gsParamsToShadows()
 
         if (!MayNeedShadowCopy(lcl) || (!lcl->lvIsPtr && !lcl->lvIsUnsafeBuffer))
         {
-            gsLclShadowMap[lclNum] = BAD_VAR_NUM;
+            comp.gsLclShadowMap[lclNum] = BAD_VAR_NUM;
 
             continue;
         }
 
-        LclVarDsc* shadowLcl = lvaAllocTemp(false DEBUGARG("shadow copy"));
+        LclVarDsc* shadowLcl = comp.lvaAllocTemp(false DEBUGARG("shadow copy"));
         JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLcl->GetLclNum());
-        gsLclShadowMap[lclNum] = shadowLcl->GetLclNum();
+        comp.gsLclShadowMap[lclNum] = shadowLcl->GetLclNum();
 
         // TODO-MIKE-Cleanup: varActualType is likely useless, there should be no need to shadow
         // copy small int locals.
@@ -387,7 +412,7 @@ void Compiler::gsParamsToShadows()
         {
             // We don't need checkUnsafeBuffer here since we are copying the params and
             // this flag would have been set on the original param before reaching here.
-            lvaSetStruct(shadowLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
+            comp.lvaSetStruct(shadowLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
 
             shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
             shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;
@@ -442,11 +467,11 @@ void Compiler::gsParamsToShadows()
         }
     };
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : comp.Blocks())
     {
         for (Statement* const stmt : block->Statements())
         {
-            ReplaceShadowParamsVisitor replaceShadowParamsVisitor(this);
+            ReplaceShadowParamsVisitor replaceShadowParamsVisitor(&comp);
             replaceShadowParamsVisitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
         }
     }
@@ -454,51 +479,52 @@ void Compiler::gsParamsToShadows()
     // Now insert code to copy the params to their shadow copy.
     for (LclVarDsc* lcl : locals)
     {
-        unsigned shadowLclNum = gsLclShadowMap[lcl->GetLclNum()];
+        unsigned shadowLclNum = comp.gsLclShadowMap[lcl->GetLclNum()];
 
         if (shadowLclNum == BAD_VAR_NUM)
         {
             continue;
         }
 
-        fgEnsureFirstBBisScratch();
+        comp.fgEnsureFirstBBisScratch();
 
-        LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+        LclVarDsc* shadowLcl = comp.lvaGetDesc(shadowLclNum);
 
-        GenTree* src = gtNewLclLoad(lcl, lcl->GetType());
+        GenTree* src = comp.gtNewLclLoad(lcl, lcl->GetType());
         src->gtFlags |= GTF_DONT_CSE;
         // TODO-MIKE-Review: Do we need to morph? This is a trivial local store.
         // The destination is not promoted, could the source be?
-        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
+        comp.fgNewStmtAtBeg(comp.fgFirstBB, comp.gtMorphTree(comp.gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
     }
 
     // If the method has "Jmp CalleeMethod", then we need to copy shadow params back to original
     // params before "jmp" to CalleeMethod.
-    if (compJmpOpUsed)
+    if (comp.compJmpOpUsed)
     {
         // There could be more than one basic block ending with a "Jmp" type tail call.
         // We would have to insert assignments in all such blocks, just before GT_JMP stmnt.
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* const block : comp.Blocks())
         {
             if ((block->bbJumpKind != BBJ_RETURN) || ((block->bbFlags & BBF_HAS_JMP) == 0))
             {
                 continue;
             }
 
-            for (LclVarDsc* lcl : Params())
+            for (LclVarDsc* lcl : comp.Params())
             {
-                unsigned shadowLclNum = gsLclShadowMap[lcl->GetLclNum()];
+                unsigned shadowLclNum = comp.gsLclShadowMap[lcl->GetLclNum()];
 
                 if (shadowLclNum == BAD_VAR_NUM)
                 {
                     continue;
                 }
 
-                LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+                LclVarDsc* shadowLcl = comp.lvaGetDesc(shadowLclNum);
 
-                GenTree* src = gtNewLclLoad(shadowLcl, shadowLcl->GetType());
+                GenTree* src = comp.gtNewLclLoad(shadowLcl, shadowLcl->GetType());
                 src->gtFlags |= GTF_DONT_CSE;
-                fgNewStmtNearEnd(block, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
+                comp.fgNewStmtNearEnd(block,
+                                      comp.gtMorphTree(comp.gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
             }
         }
     }
