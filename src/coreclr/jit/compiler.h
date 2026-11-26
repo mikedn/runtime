@@ -5597,6 +5597,7 @@ public:
 #ifdef FEATURE_SIMD
     GenTree* abiMorphMultiRegVecArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
+    GenTree* abiMorphMultiRegInitObjArg(CallArgInfo* argInfo, GenTree* arg);
     GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg);
     GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);

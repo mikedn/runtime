@@ -7378,7 +7378,7 @@ struct AbiRegFieldMap
 
     bool IsSupported(CallArgInfo* argInfo) const
     {
-        for (unsigned i = 0; i < count && fields[i].reg < argInfo->GetRegCount(); i++)
+        for (unsigned i = 0, regCount = argInfo->GetRegCount(); i < count && fields[i].reg < regCount; i++)
         {
             // For now we allow only integral fields that have matching register/field
             // offsets. This implies that only a single integral field can be passed
@@ -7404,42 +7404,40 @@ struct AbiRegFieldMap
         // user code. In some cases we could narrow down the field but it's not worth it.
 
         unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
-        unsigned argSize   = argInfo->GetRegCount() * REGSIZE_BYTES + argInfo->GetStackSize();
+        unsigned regsSize  = argInfo->GetRegCount() * REGSIZE_BYTES;
+        unsigned argSize   = regsSize + argInfo->GetStackSize();
 
         if (fieldSize > argSize)
         {
             return false;
         }
 
-        if (firstStackField < count)
+        if (firstStackField >= count)
         {
-            // The first stack field must not straddle the reg-stack boundary, codegen does
-            // not handle this well or at all. Alignment requirements normally prevent this
-            // from happening, at least for primitive types. Vector2/3/4 can cross this
-            // boundary easily, due to their 4 byte alignment, but they're not supported on
-            // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
-            //
-            // Alignment requirements can be circumvented by reinterpretation (e.g. struct
-            // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
-            // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
-            // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
-            // kind of splitting for DOUBLE and it's too unusual to even bother trying.
-            //
-            // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
-            // so it works just fine in codegen. Besides, VM messed up the alignment of
-            // Vector128 on ARM so this happens "naturally", without any reinterpretation...
-
-            if ((fields[firstStackField].offset < argInfo->GetRegCount() * REGSIZE_BYTES)
-#ifdef TARGET_ARM
-                && (fields[firstStackField].type != TYP_LONG)
-#endif
-                    )
-            {
-                return false;
-            }
+            return true;
         }
 
-        return true;
+        // The first stack field must not straddle the reg-stack boundary, codegen does
+        // not handle this well or at all. Alignment requirements normally prevent this
+        // from happening, at least for primitive types. Vector2/3/4 can cross this
+        // boundary easily, due to their 4 byte alignment, but they're not supported on
+        // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
+        //
+        // Alignment requirements can be circumvented by reinterpretation (e.g. struct
+        // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
+        // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
+        // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
+        // kind of splitting for DOUBLE and it's too unusual to even bother trying.
+        //
+        // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
+        // so it works just fine in codegen. Besides, VM messed up the alignment of
+        // Vector128 on ARM so this happens "naturally", without any reinterpretation...
+
+        return (fields[firstStackField].offset >= regsSize)
+#ifdef TARGET_ARM
+               || (fields[firstStackField].type == TYP_LONG)
+#endif
+            ;
     }
 };
 
@@ -7600,6 +7598,42 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
     return list;
 }
 
+GenTree* Compiler::abiMorphMultiRegInitObjArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert(arg->IsIntegralConst(0));
+
+    if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
+    {
+        return arg;
+    }
+
+    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+
+    for (unsigned i = 0, regOffset = 0; i < argInfo->GetRegCount() + argInfo->GetSlotCount(); i++)
+    {
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+        if (varTypeIsVec(regType))
+        {
+            fieldList->AddField(this, gtNewVecZeroNode(regType, TYP_FLOAT), regOffset, regType);
+        }
+        else
+#endif
+        {
+            fieldList->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
+        }
+
+        regOffset += varTypeSize(regType);
+    }
+
+    return fieldList;
+}
+
 GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
 #ifdef DEBUG
@@ -7614,36 +7648,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->IsIntegralConst(0))
     {
-        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
-        {
-            return arg;
-        }
-
-        GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-
-        for (unsigned i = 0, regOffset = 0; i < argInfo->GetRegCount() + argInfo->GetSlotCount(); i++)
-        {
-#if FEATURE_ARG_SPLIT
-            var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
-#else
-            var_types regType = argInfo->GetRegType(i);
-#endif
-
-#ifdef FEATURE_HW_INTRINSICS
-            if (varTypeIsVec(regType))
-            {
-                fieldList->AddField(this, gtNewVecZeroNode(regType, TYP_FLOAT), regOffset, regType);
-            }
-            else
-#endif
-            {
-                fieldList->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
-            }
-
-            regOffset += varTypeSize(regType);
-        }
-
-        return fieldList;
+        return abiMorphMultiRegInitObjArg(argInfo, arg);
     }
 
     assert(varTypeIsStruct(arg->GetType()));
@@ -7657,23 +7662,23 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     // temps. abiMorphMultiRegVecArg would only generate one vector load and then
     // extract the registers via register to register operations.
 
-    if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    if (arg->OperIs(GT_LCL_LOAD) && arg->AsLclLoad()->GetLcl()->IsPromoted())
     {
-        if (arg->OperIs(GT_LCL_LOAD) && arg->AsLclLoad()->GetLcl()->IsPromoted())
+        if (argInfo->IsHfaArg())
         {
-            if (argInfo->IsHfaArg())
-            {
-                return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclLoad());
-            }
-
-            AbiRegFieldMap map(this, arg->AsLclLoad()->GetLcl(), argInfo);
-
-            if (map.IsSupported(argInfo))
-            {
-                return abiMorphMultiRegLclArgPromoted(argInfo, map);
-            }
+            return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclLoad());
         }
 
+        AbiRegFieldMap regMap(this, arg->AsLclLoad()->GetLcl(), argInfo);
+
+        if (regMap.IsSupported(argInfo))
+        {
+            return abiMorphMultiRegLclArgPromoted(argInfo, regMap);
+        }
+    }
+
+    if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
         return abiMorphMultiRegLclArg(argInfo, arg->AsLclRef());
     }
 
@@ -7688,7 +7693,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
 #ifdef FEATURE_SIMD
-    // If it's neither a local nor OBJ then it must be an arbitrary vector tree.
     return abiMorphMultiRegVecArg(argInfo, arg);
 #else
     unreached();
