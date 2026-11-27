@@ -1449,7 +1449,7 @@ void DecomposeLongs::PromoteLongVars()
         }
 #endif
 
-        assert(!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet);
+        assert(!lcl->lvIsMultiRegRet);
         lcl->lvContainsHoles = false;
 
         JITDUMP("\nPromoting long local V%02u:", lcl->GetLclNum());

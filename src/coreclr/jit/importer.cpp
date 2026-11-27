@@ -11237,9 +11237,8 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             // we can pass the address to the unbox_nullable jit helper.
 
             LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("unbox nullable multireg temp"));
-
-            tmpLcl->lvIsMultiRegArg = true;
             comp->lvaSetStruct(tmpLcl, layout, /* checkUnsafeBuffer */ true);
+            comp->lvaSetAddressExposed(tmpLcl);
 
             op1 = impAssignStruct(comp->gtNewLclStore(tmpLcl, TYP_STRUCT, op1), op1, CHECK_SPILL_ALL);
             op1 = gtNewCommaNode(op1, comp->gtNewLclAddr(tmpLcl, TYP_BYREF));

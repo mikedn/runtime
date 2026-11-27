@@ -414,7 +414,6 @@ void GSCookiePhase::ParamsToShadows()
             // this flag would have been set on the original param before reaching here.
             comp.lvaSetStruct(shadowLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
 
-            shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
             shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;
         }
         else if (type == TYP_BLK)

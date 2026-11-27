@@ -2408,6 +2408,12 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
         return false;
     }
 
+    if (lcl->IsAddressExposed())
+    {
+        JITDUMP("  promotion of param V%02u is disabled because it is address exposed\n", lcl->GetLclNum());
+        return false;
+    }
+
     if (!compiler->opts.EnregLocals())
     {
         if (lcl->lvIsMultiRegArg)
