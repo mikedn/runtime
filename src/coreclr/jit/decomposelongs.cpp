@@ -1449,14 +1449,6 @@ void DecomposeLongs::PromoteLongVars()
         }
 #endif
 
-#ifdef TARGET_ARM
-        // TODO-MIKE-CQ: Promote ARM long params.
-        if (lcl->IsParam())
-        {
-            continue;
-        }
-#endif
-
         assert(!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet);
         lcl->lvContainsHoles = false;
 
@@ -1474,9 +1466,17 @@ void DecomposeLongs::PromoteLongVars()
             fieldLclLo->lvIsParam = true;
             fieldLclHi->lvIsParam = true;
 
-            // Currently we do not support enregistering incoming promoted aggregates with more than one field.
+#ifdef TARGET_X86
+            // P-INDEP promotion of params on x86 results in poor codegen.
             m_compiler->lvaSetDoNotEnregister(fieldLclLo DEBUGARG(Compiler::DNER_LongParamField));
             m_compiler->lvaSetDoNotEnregister(fieldLclHi DEBUGARG(Compiler::DNER_LongParamField));
+#else
+            if (lcl->IsRegParam())
+            {
+                fieldLclLo->SetParamRegs(lcl->GetParamReg(0));
+                fieldLclHi->SetParamRegs(lcl->GetParamReg(1));
+            }
+#endif
         }
 
         lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);

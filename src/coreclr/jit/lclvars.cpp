@@ -3781,9 +3781,6 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
 #endif
             ;
 
-#ifdef TARGET_ARM
-        assert(!parentLcl->IsParam());
-#endif
 #ifdef TARGET_ARM64
         assert(!info.compIsVarArgs);
 #endif
