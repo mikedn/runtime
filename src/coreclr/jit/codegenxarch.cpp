@@ -6867,8 +6867,8 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 
     // TODO-AMD64-CQ: Rather than reloading, see if this could be optimized by combining with prolog
     // generation logic that moves args around as required by first BB entry point conditions
-    // computed by LSRA.  Code pointers for investigating this further: genPrologMoveParamRegs()
-    // and genPrologEnregisterIncomingStackParams().
+    // computed by LSRA.  Code pointers for investigating this further: PrologMoveParamRegs()
+    // and PrologEnregisterIncomingStackParams().
     //
     // Now reload arg registers from home locations.
     // Vararg methods:

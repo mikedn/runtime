@@ -1294,8 +1294,7 @@ void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
             *initRegZeroed = false;
         }
 
-        genPrologMoveParamRegs(paramRegState.intRegCount, paramRegState.intRegLiveIn, false, xtraReg,
-                               &xtraRegClobbered);
+        PrologMoveParamRegs(paramRegState.intRegCount, paramRegState.intRegLiveIn, false, xtraReg, &xtraRegClobbered);
 
         if (xtraRegClobbered)
         {
@@ -1308,8 +1307,7 @@ void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
     {
         bool xtraRegClobbered = false;
 
-        genPrologMoveParamRegs(paramRegState.floatRegCount, paramRegState.floatRegLiveIn, true, REG_NA,
-                               &xtraRegClobbered);
+        PrologMoveParamRegs(paramRegState.floatRegCount, paramRegState.floatRegLiveIn, true, REG_NA, &xtraRegClobbered);
 
         // TODO-MIKE-Review: This should probably be done only for integer registers.
         if (xtraRegClobbered)
@@ -1319,7 +1317,7 @@ void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
     }
 #endif
 
-    genPrologEnregisterIncomingStackParams();
+    PrologEnregisterIncomingStackParams();
 }
 
 struct CodeGen::ParamRegInfo
@@ -1341,13 +1339,13 @@ struct CodeGen::ParamRegInfo
 
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
-void CodeGen::genPrologMoveParamRegs(
-    unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered)
+void CodeGen::PrologMoveParamRegs(
+    unsigned regCount, RegSet regLiveIn, bool isFloat, RegNum tempReg, bool* tempRegClobbered)
 {
     assert(generatingProlog);
     assert(regLiveIn != RBM_NONE);
 
-    JITDUMP("*************** In genPrologMoveParamRegs() for %s regs\n", isFloat ? "float" : "int");
+    JITDUMP("*************** In PrologMoveParamRegs() for %s regs\n", isFloat ? "float" : "int");
 
     // If a method has 3 args (and no fixed return buffer) then argMax is 3 and valid indexes are 0,1,2
     // If a method has a fixed return buffer (on ARM64) then argMax gets set to 9 and valid index are 0-8
@@ -1395,18 +1393,18 @@ void CodeGen::genPrologMoveParamRegs(
 
     ParamRegInfo paramRegs[max(MAX_INT_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
 
-    regMaskTP liveParamRegs = genPrologBuildParamRegsTable(paramRegs, regCount, regLiveIn, isFloat, tempReg);
+    RegSet liveParamRegs = PrologBuildParamRegsTable(paramRegs, regCount, regLiveIn, isFloat, tempReg);
 
     if (liveParamRegs != RBM_NONE)
     {
-        genPrologMarkParamRegsCircularDependencies(paramRegs, regCount, liveParamRegs);
+        PrologMarkParamRegsCircularDependencies(paramRegs, regCount, liveParamRegs);
     }
 
-    liveParamRegs = genPrologSpillParamRegs(paramRegs, regCount, regLiveIn);
+    liveParamRegs = PrologSpillParamRegs(paramRegs, regCount, regLiveIn);
 
     if (liveParamRegs != RBM_NONE)
     {
-        genPrologMoveParamRegs(paramRegs, regCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
+        PrologMoveParamRegs(paramRegs, regCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
     }
 }
 
@@ -1454,8 +1452,8 @@ static unsigned genGetParamRegIndex(RegNum regNum)
 #endif // TARGET_XARCH
 }
 
-regMaskTP CodeGen::genPrologBuildParamRegsTable(
-    ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg)
+RegSet CodeGen::PrologBuildParamRegsTable(
+    ParamRegInfo* paramRegs, unsigned paramRegCount, RegSet liveParamRegs, bool isFloat, RegNum tempReg)
 {
     for (LclVarDsc* lcl : compiler->Locals())
     {
@@ -1464,10 +1462,6 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             continue;
         }
 
-        // When we have a promoted struct we have two possible locals that can represent the param
-        // in paramRegs, either the original TYP_STRUCT argument or the promoted field local.
-        // We will use the field if the promotion is independent, otherwise we'll use the original
-        // STRUCT parameter.
         if (lcl->IsPromoted() || lcl->IsPromotedField())
         {
             LclVarDsc* parentLcl = lcl;
@@ -1480,8 +1474,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 
             if (parentLcl->IsIndependentPromoted())
             {
-                // For register arguments that are independent promoted structs we put the promoted field
-                // lclNum in the paramRegs.
+                // For register params that are independent promoted we use the promoted field params.
                 if (lcl->IsPromoted())
                 {
                     continue;
@@ -1489,8 +1482,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             }
             else
             {
-                // For register arguments that are not independent promoted structs we put the parent struct
-                // lclNum in the paramRegs.
+                // For register params that are not independent promoted we use the parent param.
                 if (lcl->IsPromotedField())
                 {
                     continue;
@@ -1613,7 +1605,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
         {
             var_types regType = paramRegs[paramRegIndex + i].type;
             RegNum    regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
-            regMaskTP regMask = genRegMask(regNum);
+            RegSet    regMask = genRegMask(regNum);
 
 #ifndef UNIX_AMD64_ABI
             assert((i > 0) || (regNum == lcl->GetParamReg()));
@@ -1707,9 +1699,9 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
     return liveParamRegs;
 }
 
-void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
-                                                         unsigned      paramRegCount,
-                                                         regMaskTP     liveParamRegs)
+void CodeGen::PrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
+                                                      unsigned      paramRegCount,
+                                                      RegSet        liveParamRegs)
 {
     assert(liveParamRegs != RBM_NONE);
 
@@ -1845,7 +1837,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
 #endif
 }
 
-regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs)
+regMaskTP CodeGen::PrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, RegSet liveParamRegs)
 {
     // Now move the arguments to their locations.
     // First consider ones that go on the stack since they may free some registers.
@@ -2001,12 +1993,12 @@ static regMaskTP genMapArgNumToRegMask(unsigned argNum, var_types type)
     return genMapIntRegArgNumToRegMask(argNum);
 }
 
-void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
-                                     unsigned      paramRegCount,
-                                     regMaskTP     liveParamRegs,
-                                     bool          isFloat,
-                                     regNumber     tempReg,
-                                     bool*         tempRegClobbered)
+void CodeGen::PrologMoveParamRegs(ParamRegInfo* paramRegs,
+                                  unsigned      paramRegCount,
+                                  RegSet        liveParamRegs,
+                                  bool          isFloat,
+                                  RegNum        tempReg,
+                                  bool*         tempRegClobbered)
 {
     assert(liveParamRegs != RBM_NONE);
 
@@ -2509,9 +2501,9 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
     }
 }
 
-void CodeGen::genPrologEnregisterIncomingStackParams()
+void CodeGen::PrologEnregisterIncomingStackParams()
 {
-    JITDUMP("*************** In genPrologEnregisterIncomingStackParams()\n");
+    JITDUMP("*************** In PrologEnregisterIncomingStackParams()\n");
 
     assert(!compiler->opts.IsOSR());
     assert(generatingProlog);

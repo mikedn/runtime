@@ -2794,7 +2794,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
         fieldLcl->lvIsParam = lcl->IsParam();
 
 #ifdef TARGET_ARM64
-        // TODO-MIKE-Fix: This is rather stupid but some code (the genPrologMoveParamRegs garbage
+        // TODO-MIKE-Fix: This is rather stupid but some code (the PrologMoveParamRegs garbage
         // in particular) depends on vector params being marked as HFA even when they're not HFAs.
         if (lcl->IsHfaParam() && varTypeIsVec(fieldLcl->GetType()))
         {

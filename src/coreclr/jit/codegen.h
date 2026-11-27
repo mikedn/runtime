@@ -212,21 +212,19 @@ public:
 
     struct ParamRegInfo;
 
-    void genPrologMoveParamRegs(
-        unsigned regCount, regMaskTP regLiveIn, bool isFloat, RegNum tempReg, bool* tempRegClobbered);
-    regMaskTP genPrologBuildParamRegsTable(
-        ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, RegNum tempReg);
-    void genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
-                                                    unsigned      paramRegCount,
-                                                    regMaskTP     liveParamRegs);
-    regMaskTP genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs);
-    void genPrologMoveParamRegs(ParamRegInfo* paramRegs,
-                                unsigned      paramRegCount,
-                                regMaskTP     liveParamRegs,
-                                bool          isFloat,
-                                RegNum        tempReg,
-                                bool*         tempRegClobbered);
-    void genPrologEnregisterIncomingStackParams();
+    void PrologMoveParamRegs(unsigned regCount, RegSet regLiveIn, bool isFloat, RegNum tempReg, bool* tempRegClobbered);
+    RegSet PrologBuildParamRegsTable(
+        ParamRegInfo* paramRegs, unsigned paramRegCount, RegSet liveParamRegs, bool isFloat, RegNum tempReg);
+    void PrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs, unsigned paramRegCount, RegSet liveParamRegs);
+    RegSet PrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, RegSet liveParamRegs);
+    void PrologMoveParamRegs(ParamRegInfo* paramRegs,
+                             unsigned      paramRegCount,
+                             RegSet        liveParamRegs,
+                             bool          isFloat,
+                             RegNum        tempReg,
+                             bool*         tempRegClobbered);
+    void PrologEnregisterIncomingStackParams();
+
     void MarkStackLocals();
     void CheckUseBlockInit();
     void MarkGCTrackedSlots(int&       minBlockInitOffset,
