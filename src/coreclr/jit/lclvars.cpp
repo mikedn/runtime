@@ -772,7 +772,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     if (reg0 != REG_NA)
     {
         lcl->SetParamRegs(reg0, reg1);
-        lcl->lvIsMultiRegArg = reg1 != REG_NA;
 
         JITDUMP("Param V%02u registers: %s%s%s\n", paramInfo.lclNum, getRegName(reg0), reg1 == REG_NA ? "" : ", ",
                 reg1 == REG_NA ? "" : getRegName(reg1));
@@ -892,7 +891,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
-        lcl->lvIsMultiRegArg = regCount > 1;
         lcl->SetParamRegs(paramInfo.AllocRegs(regType, regCount), regCount);
 
 #ifdef TARGET_WINDOWS
@@ -1067,11 +1065,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 
         if (lcl->TypeIs(TYP_STRUCT))
         {
-            if (isHfa)
-            {
-                lcl->lvIsMultiRegArg = lcl->GetLayout()->GetHfaElementCount() > 1;
-            }
-            else
+            if (!isHfa)
             {
                 assert(regType == TYP_INT);
 
@@ -5337,10 +5331,6 @@ void Compiler::lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth)
         {
             printf("B");
         }
-        if (lcl->lvIsMultiRegArg)
-        {
-            printf("A");
-        }
         if (lcl->lvIsMultiRegRet)
         {
             printf("R");
@@ -5352,10 +5342,6 @@ void Compiler::lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth)
         printf("]");
     }
 
-    if (lcl->lvIsMultiRegArg)
-    {
-        printf(" multireg-arg");
-    }
     if (lcl->lvIsMultiRegRet)
     {
         printf(" multireg-ret");

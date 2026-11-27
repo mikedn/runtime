@@ -2410,23 +2410,8 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
 
     if (lcl->IsAddressExposed())
     {
-        JITDUMP("  promotion of param V%02u is disabled because it is address exposed\n", lcl->GetLclNum());
+        JITDUMP("  promotion of V%02u is disabled because it is address exposed\n", lcl->GetLclNum());
         return false;
-    }
-
-    if (!compiler->opts.EnregLocals())
-    {
-        if (lcl->lvIsMultiRegArg)
-        {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lcl->GetLclNum());
-            return false;
-        }
-
-        if (lcl->lvIsMultiRegRet)
-        {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lcl->GetLclNum());
-            return false;
-        }
     }
 
     // TODO-CQ: enable promotion for OSR locals
@@ -2455,7 +2440,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
     }
 #endif
 
-    if (!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet)
+    if (!lcl->lvIsMultiRegRet && (!lcl->IsRegParam() || (lcl->GetParamRegCount() <= 1)))
     {
         return true;
     }
@@ -2499,7 +2484,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
 
         // If the struct isn't a HFA then all used registers are integer and
         // prolog codegen does not move args from integer to FP registers.
-        if (lcl->lvIsMultiRegArg && varTypeUsesFloatReg(field.type))
+        if ((lcl->GetParamRegCount() > 1) && varTypeUsesFloatReg(field.type))
         {
             return false;
         }

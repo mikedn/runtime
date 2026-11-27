@@ -159,7 +159,6 @@ public:
     bool lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
     bool lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
     bool lvCustomLayout : 1;      // True when this struct has "CustomLayout"
-    bool lvIsMultiRegArg : 1;     // true if this is a multireg LclVar struct used in an argument context
     bool lvIsMultiRegRet : 1;     // true if this is a multireg LclVar struct assigned from a multireg call
 #ifdef FEATURE_HFA
     bool m_isHfa : 1;
@@ -464,8 +463,7 @@ public:
     {
         assert(lvIsParam);
 
-        lvIsRegArg      = false;
-        lvIsMultiRegArg = false;
+        lvIsRegArg = false;
 
         m_paramRegs[0] = REG_NA;
         m_paramRegs[1] = REG_NA;
@@ -490,9 +488,7 @@ public:
 
     void ClearParamRegs()
     {
-        lvIsRegArg      = false;
-        lvIsMultiRegArg = false;
-
+        lvIsRegArg     = false;
         m_paramRegs[0] = REG_NA;
     }
 #elif defined(TARGET_ARMARCH)
@@ -509,10 +505,7 @@ public:
 #ifdef TARGET_ARM64
         assert(regCount <= MAX_ARG_REG_COUNT);
 #else
-        // TODO-MIKE-Cleanup: On ARM we count a DOUBLE reg as 2 FLOAT regs.
-        // Can this be avoided somehow? It complicates lvIsMultiRegArg because
-        // a HFA with a single DOUBLE element uses 2 regs but lvIsMultiRegArg
-        // is false for it.
+        // On ARM we count a DOUBLE reg as 2 FLOAT regs.
         assert(regCount <= MAX_ARG_REG_COUNT * 2);
 #endif
 
@@ -525,8 +518,6 @@ public:
     void ClearParamRegs()
     {
         lvIsRegArg      = false;
-        lvIsMultiRegArg = false;
-
         m_paramRegs[0]  = REG_NA;
         m_paramRegCount = 0;
     }
