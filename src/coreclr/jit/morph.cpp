@@ -2302,7 +2302,7 @@ REMORPH_POST:
             // the merged return temp, the rest will be transformed into assignments to that
             // temp when block morphing is complete.
 
-            if ((genReturnLocal == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
+            if ((lvaMergedReturn == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
             {
                 abiMorphStructReturn(tree->AsUnOp(), op1);
             }
@@ -12652,7 +12652,7 @@ void Compiler::moMorphBlocks()
 //
 // A block with jump kind BBJ_RETURN does not necessarily need to end with RETURN.
 // It could end with a tail call or rejected tail call or monitor.exit or a INTRINSIC.
-// For now it is safe to explicitly check whether last stmt is RETURN if genReturnLocal
+// For now it is safe to explicitly check whether last stmt is RETURN if lvaMergedReturn
 // is BAD_VAR_NUM.
 //
 void Compiler::moMergeBlockReturn(BasicBlock* block)
@@ -12687,7 +12687,7 @@ void Compiler::moMergeBlockReturn(BasicBlock* block)
         fgReturnCount--;
     }
 
-    if (genReturnLocal != BAD_VAR_NUM)
+    if (lvaMergedReturn != BAD_VAR_NUM)
     {
         noway_assert(info.retDesc.GetRegCount() != 0);
 
@@ -12720,7 +12720,7 @@ void Compiler::moMergeBlockReturn(BasicBlock* block)
         // TypedReference is not a valid return type so don't bother with it.
         noway_assert(!value->OperIs(GT_MKREFANY));
 
-        LclVarDsc* lcl = lvaGetDesc(genReturnLocal);
+        LclVarDsc* lcl = lvaGetDesc(lvaMergedReturn);
         GenTree*   store;
 
         if (!varTypeIsStruct(lcl->GetType()))

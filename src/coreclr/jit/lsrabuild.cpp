@@ -328,7 +328,7 @@ RefPosition* LinearScan::newRefPosition(
     // We don't need this for AMD because the PInvoke method epilog code is explicit
     // at register allocation time.
     if (interval->isLocalVar && compiler->info.IsPInvokeFrameRequired() &&
-        (interval->getLocalVar(compiler)->GetLclNum() == compiler->genReturnLocal))
+        (interval->getLocalVar(compiler)->GetLclNum() == compiler->lvaMergedReturn))
     {
         mask &= ~(RBM_PINVOKE_TCB | RBM_PINVOKE_FRAME);
         noway_assert(mask != RBM_NONE);

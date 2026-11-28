@@ -5670,7 +5670,7 @@ const char* Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** kind, un
             return "ReturnAddress";
         }
 
-        if (lclNum == genReturnLocal)
+        if (lclNum == lvaMergedReturn)
         {
             return "MergedReturn";
         }

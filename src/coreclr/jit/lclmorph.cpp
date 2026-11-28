@@ -467,7 +467,7 @@ public:
 
                 if (value->TypeIs(TYP_STRUCT) && IsMergedReturn(ret))
                 {
-                    LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->lvaMergedReturn);
 
                     if (lcl->IsPromoted())
                     {
@@ -1508,7 +1508,7 @@ private:
             // This is a merged return, it will be transformed into a struct
             // copy so leave it to moMorphStructCopy to handle it.
 
-            LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
+            LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->lvaMergedReturn);
             assert(mergedLcl->TypeIs(TYP_STRUCT));
 
             if (!mergedLcl->IsPromoted())
@@ -1880,7 +1880,7 @@ private:
     {
         assert(ret->OperIs(GT_RETURN));
 
-        return (m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
+        return (m_compiler->lvaMergedReturn != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
     }
 
     var_types GetScalarFieldType(CORINFO_FIELD_HANDLE fieldHandle)
@@ -2617,7 +2617,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
         }
     }
 
-    if ((lcl->GetLclNum() == compiler->genReturnLocal) && (info.fieldCount > 1))
+    if ((lcl->GetLclNum() == compiler->lvaMergedReturn) && (info.fieldCount > 1))
     {
         // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
         return false;

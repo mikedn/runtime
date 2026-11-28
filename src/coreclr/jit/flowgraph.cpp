@@ -790,7 +790,7 @@ public:
     // Updates fgReturnCount appropriately, and generates a merged return
     // block if necessary.  If a constant merged return block is used,
     // `returnBlock` is rewritten to jump to it.  If a non-constant return
-    // block is used, `genReturnBB` is set to that block, and `genReturnLocal`
+    // block is used, `genReturnBB` is set to that block, and `lvaMergedReturn`
     // is set to the local that it returns; morph will need to rewrite
     // `returnBlock` to set the local and jump to the return block in such
     // cases, which it will do after some key transformations like rewriting
@@ -888,7 +888,7 @@ private:
     // index - Index into `returnBlocks` to store the new block into.
     // returnConst - Constant that the new block should return; may be nullptr to
     //      indicate that the new merged return is for the non-constant case, in which
-    //      case, if the method's return type is non-void, `comp->genReturnLocal` will
+    //      case, if the method's return type is non-void, `comp->lvaMergedReturn` will
     //      be initialized to a new local of the appropriate type, and the new block will
     //      return it.
     //
@@ -910,7 +910,7 @@ private:
 
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_VOID);
 
-            comp->genReturnLocal = BAD_VAR_NUM;
+            comp->lvaMergedReturn = BAD_VAR_NUM;
         }
         else if (returnConst != nullptr)
         {
@@ -926,7 +926,7 @@ private:
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
-            comp->genReturnLocal = BAD_VAR_NUM;
+            comp->lvaMergedReturn = BAD_VAR_NUM;
         }
         else
         {
@@ -950,7 +950,7 @@ private:
             retTemp->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
 
-            comp->genReturnLocal = lcl->GetLclNum();
+            comp->lvaMergedReturn = lcl->GetLclNum();
         }
 
         // Add 'return' expression to the return block
@@ -980,7 +980,7 @@ private:
     //
     // If a constant-valued merged return block is used, `returnBlock` will be rewritten to
     // jump to the merged return block and its `GT_RETURN` statement will be removed.  If
-    // a non-constant-valued merged return block is used, `genReturnBB` and `genReturnLocal`
+    // a non-constant-valued merged return block is used, `genReturnBB` and `lvaMergedReturn`
     // will be set so that Morph can perform that rewrite, which it will do after some key
     // transformations like rewriting tail calls and calls that return to hidden buffers.
     // In either of these cases, `fgReturnCount` and the merged return block's profile

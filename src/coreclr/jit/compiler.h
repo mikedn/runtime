@@ -3108,7 +3108,7 @@ public:
     unsigned lvaNewObjArrayArgs        = BAD_VAR_NUM;
     unsigned lvaGSSecurityCookie       = BAD_VAR_NUM;
     unsigned lvaStubArgumentVar        = BAD_VAR_NUM;
-    unsigned genReturnLocal            = BAD_VAR_NUM;
+    unsigned lvaMergedReturn           = BAD_VAR_NUM;
 
     // Same as info.compThisArg, except when "this" is address taken or stored to - in which
     // case this is a temp local initialized from the "this" arg at the start of the method.
